@@ -1,0 +1,31 @@
+{
+  "name": "electron-sample-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npx vite\" \"electron .\"",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "7.6.0",
+    "electron": "33.3.1",
+    "sass": "^1.83.1",
+    "vite": "6.0.7",
+    "vite-plugin-sass-glob-import": "^5.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.24.2",
+    "express": "^4.21.2",
+    "gsap": "^3.12.5",
+    "highlight.js": "^11.11.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-syntax-highlighter": "^15.6.1"
+  }
+}
