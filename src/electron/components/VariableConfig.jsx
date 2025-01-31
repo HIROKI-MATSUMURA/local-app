@@ -267,3 +267,4 @@ const styles = {
 };
 
 export default VariableConfig;
+
