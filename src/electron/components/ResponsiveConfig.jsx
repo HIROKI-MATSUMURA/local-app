@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Breakpoints from './Breakpoints';
 
 const ResponsiveConfig = () => {
@@ -9,6 +9,26 @@ const ResponsiveConfig = () => {
     { id: 3, name: 'lg', value: 1024, active: true },
     { id: 4, name: 'xl', value: 1440, active: true },
   ]);
+
+  // localStorageから設定を読み込む
+  useEffect(() => {
+    const savedResponsiveMode = localStorage.getItem('responsiveMode');
+    const savedBreakpoints = JSON.parse(localStorage.getItem('breakpoints'));
+
+    if (savedResponsiveMode) {
+      setResponsiveMode(savedResponsiveMode);
+    }
+
+    if (savedBreakpoints) {
+      setBreakpoints(savedBreakpoints);
+    }
+  }, []);
+
+  // ステートが変更されたときにlocalStorageに保存する
+  useEffect(() => {
+    localStorage.setItem('responsiveMode', responsiveMode);
+    localStorage.setItem('breakpoints', JSON.stringify(breakpoints));
+  }, [responsiveMode, breakpoints]);
 
   const handleModeChange = (event) => {
     const selectedMode = event.target.value;
@@ -53,7 +73,7 @@ ${Object.entries(breakpoints).map(([name, value]) =>
 );
 
 // スマホファースト用メディアクエリ
-@mixin mq($mediaquery: sm) {
+@mixin mq($mediaquery: md) {
   @media #{map.get($mediaquerys, $mediaquery)} {
     @content;
   }
@@ -66,7 +86,7 @@ ${Object.entries(breakpoints).map(([name, value]) =>
       <h2>レスポンシブ設定</h2>
 
       {/* スマホファースト/PCファースト切り替え */}
-      <div style={{ marginBottom: '20px' }}>
+      <div style={styles.radioGroup}>
         <label>
           <input
             type="radio"
@@ -74,16 +94,18 @@ ${Object.entries(breakpoints).map(([name, value]) =>
             value="sp"
             checked={responsiveMode === 'sp'}
             onChange={handleModeChange}
+            style={styles.radioInput}
           />
           スマホファースト
         </label>
-        <label style={{ marginLeft: '10px' }}>
+        <label>
           <input
             type="radio"
             name="responsiveMode"
             value="pc"
             checked={responsiveMode === 'pc'}
             onChange={handleModeChange}
+            style={styles.radioInput}
           />
           PCファースト
         </label>
@@ -97,11 +119,36 @@ ${Object.entries(breakpoints).map(([name, value]) =>
       />
 
       {/* 保存ボタン */}
-      <button onClick={handleSave} style={{ marginTop: '20px' }}>
+      <button onClick={handleSave} style={styles.saveButton}>
         保存
       </button>
     </div>
   );
+};
+
+// スタイルの定義
+const styles = {
+  radioGroup: {
+    display: 'flex',
+    gap: '20px',
+    marginBottom: '20px',
+  },
+  radioInput: {
+    accentColor: '#007bff',
+    marginRight: '5px',
+  },
+  saveButton: {
+    backgroundColor: '#007bff',
+    color: 'white',
+    padding: '10px 20px',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    fontSize: '16px',
+    width: '100%',
+    marginTop: '20px',
+    transition: 'background-color 0.3s',
+  },
 };
 
 export default ResponsiveConfig;
