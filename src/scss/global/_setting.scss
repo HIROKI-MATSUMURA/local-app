@@ -1,57 +1,15 @@
-@use "sass:math";
-@use "sass:map";
 
-// remへの計算式（16pxを基準としている）
-@function rem($pixels) {
-  @return math.div($pixels, 16) * 1rem;
-}
-////////////////////
 // インナー幅設定
-////////////////////
-// コンテンツのインナー幅（最も共通の幅が多い部分）
-$l-inner: 1000px;
-// ※キュンパス幅ではなくインナーの幅を指す
+$l-inner: 68.75rem;
+$padding-pc: 3.13rem;
+$padding-sp: 1.56rem;
 
-// 余白
-$padding-pc: 25px;
-$padding-sp: 20px;
-// ※PC時：デザインカンプの余白の幅ではない。PC時は通常25pxで大丈夫！
-
-////////////////////
-// フォント設定
-////////////////////
-
-$ja: "Kosugi Maru", sans-serif;
-$en: "Varela Round", sans-serif;
-// ※検証ツールでしっかり反映されているか確認する
-
-body {
-  font-family: $ja;
-}
-
-// フォントウェイト
-$regular: 300;
-$normal: 400;
-$bold: 700;
-
-////////////////////
 // 色の指定
-////////////////////
+$primary-color: #231815;
+$secondary-color: #0076ad;
+$accent-color: #ff5722;
+$abc: #000000;
 
-//色指定（共通性のあるものは出来る限り指定すると良い）
-$black: #231815;
-$white: #fff;
-$blue: #0076ad;
-$green: #39a84a;
-$orange: #da3819;
-$yellow: #ecaf00;
-$l-blue: #299ed5;
-$pink: #e01e79;
-$fukuoka: #259a39;
-$osaka: #d9001e;
-$nagoya: #eeb100;
-$tokyo: #009bcd;
-$a-yellow: #ffd400;
-
-$primary-color: white;
-$secondary-color: blue;
+// フォント設定
+$ja: "";
+$en: "";

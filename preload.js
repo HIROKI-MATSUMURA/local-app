@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   // メインプロセスにデータを送信
   send: (channel, data) => {
-    const validChannels = ['generate-structure', 'save-scss-file']; // 許可されたチャンネル
+    const validChannels = ['generate-structure', 'save-scss-file', 'save-variables']; // 許可されたチャンネル
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     } else {
@@ -57,5 +57,10 @@ contextBridge.exposeInMainWorld('api', {
   // ファイルの内容をリクエストする
   requestFileContent: (filePath) => {
     ipcRenderer.send('request-file-content', filePath); // ファイルの内容をリクエスト
+  },
+
+  // 変数を保存するための関数
+  saveVariables: (variables) => {
+    ipcRenderer.send('save-variables', variables); // メインプロセスに送信
   },
 });

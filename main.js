@@ -90,10 +90,10 @@ app.on('ready', () => {
     const scssContent = `
 @use "sass:map";
 
-// インナー幅設定
-$l-inner: ${lInner};
-$padding-pc: ${paddingPc};
-$padding-sp: ${paddingSp};
+// インナー幅設定（remに変換済み）
+$l-inner: ${lInner}rem;
+$padding-pc: ${paddingPc}rem;
+$padding-sp: ${paddingSp}rem;
 
 // フォント設定
 $ja: "${jaFont}";
@@ -107,7 +107,7 @@ $primary-color: ${primaryColor};
 $secondary-color: ${secondaryColor};
 `;
 
-    const filePath = path.join(__dirname, 'src/scss/global/_setting.scss');
+    const filePath = path.join(__dirname, 'src/scss/global/_settings.scss');
     fs.writeFile(filePath, scssContent, 'utf8', (err) => {
       if (err) {
         console.error(`Error writing to ${filePath}:`, err);
@@ -116,6 +116,8 @@ $secondary-color: ${secondaryColor};
       }
     });
   });
+
+
 
 
   // SCSSファイルの保存処理
@@ -217,4 +219,3 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-
