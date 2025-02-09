@@ -117,8 +117,76 @@ $secondary-color: ${secondaryColor};
     });
   });
 
+  // 変更されたファイル名を受け取るリスナー
+  ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
+    const oldPath = path.join(__dirname, 'src', oldFileName);
+    const newPath = path.join(__dirname, 'src', newFileName);
 
+    // ファイル名を変更
+    fs.rename(oldPath, newPath, (err) => {
+      if (err) {
+        console.error('Error renaming file:', err);
+        event.reply('rename-file-error', err);
+      } else {
+        console.log(`Successfully renamed file: ${oldFileName} to ${newFileName}`);
+        // 変更が成功した場合、成功メッセージを送信
+        event.reply('rename-file-success', { oldFileName, newFileName });
+      }
+    });
+  });
 
+  /// ファイル保存処理のリスナー
+  ipcMain.on('save-html-file', (event, fileData) => {
+    const { filePath, content } = fileData;
+
+    if (filePath && content) {
+      // ファイルを保存するための処理
+      fs.writeFile(filePath, content, 'utf8', (err) => {
+        if (err) {
+          console.error('Error occurred while saving file:', err);
+          event.reply('save-html-file-error', err);
+        } else {
+          console.log(`Successfully saved file at: ${filePath}`);
+          event.reply('save-html-file-success', filePath);
+        }
+      });
+    } else {
+      console.error('Invalid file data received');
+      event.reply('save-html-file-error', 'Invalid file data');
+    }
+  });
+
+  // HTMLファイル削除処理
+  ipcMain.on('delete-html-file', (event, { fileName }) => {
+    const filePath = path.join(__dirname, 'src', `${fileName}.html`);
+
+    // ファイルが存在する場合、削除する
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);  // ファイル削除
+      console.log(`Successfully deleted file: ${filePath}`);
+      event.reply('file-deleted', fileName);  // 削除したファイル名をフロントエンドに通知
+    } else {
+      console.log(`File not found: ${filePath}`);
+    }
+  });
+
+  // ファイル名を変更する処理
+  ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
+    const oldFilePath = path.join(__dirname, 'src', `${oldFileName}.html`);
+    const newFilePath = path.join(__dirname, 'src', `${newFileName}.html`);
+
+    // ファイル名を変更する
+    try {
+      fs.renameSync(oldFilePath, newFilePath);
+      console.log(`File renamed from ${oldFileName}.html to ${newFileName}.html`);
+
+      // フロントエンドに変更が成功したことを通知
+      event.reply('file-renamed', { oldFileName, newFileName });
+    } catch (err) {
+      console.error('Error renaming file:', err);
+      event.reply('file-rename-error', err.message);
+    }
+  });
 
   // SCSSファイルの保存処理
   ipcMain.on('save-scss-file', (event, { filePath, content, breakpoints }) => {
@@ -142,75 +210,21 @@ $secondary-color: ${secondaryColor};
     });
   });
 
+  // ページ保存用のIPCリスナー
+  ipcMain.on('save-page', (event, pageData) => {
+    console.log('Received page data:', pageData); // デバッグ用
+    const pageFilePath = path.join(__dirname, 'src/pages', `${pageData.pageName}.json`);
 
-
-
-  // 構造変更リクエストの処理
-  ipcMain.on('generate-structure', (event, structureType) => {
-    const logTime = new Date().toLocaleString();
-    const logMessage = `${structureType}構造に変更されました`;
-
-    // 変更ログを送信
-    mainWindow.webContents.send('structure-generated', { time: logTime, message: logMessage });
-
-    const basePath = path.join(__dirname, 'src/scss');
-    const bemPaths = ['page', 'module'];
-    const objectPath = path.join(basePath, 'object');
-
-    // フォルダ削除
-    if (structureType === 'FLOCSS') {
-      bemPaths.forEach((dir) => {
-        const fullPath = path.join(basePath, dir);
-        if (fs.existsSync(fullPath)) {
-          fs.rmSync(fullPath, { recursive: true, force: true });
-        }
-      });
-    } else if (fs.existsSync(objectPath)) {
-      fs.rmSync(objectPath, { recursive: true, force: true });
-    }
-
-    // フォルダ作成
-    if (structureType === 'FLOCSS') {
-      const flocssPaths = ['layout', 'component', 'project'].map((dir) =>
-        path.join(objectPath, dir)
-      );
-      if (!fs.existsSync(objectPath)) {
-        fs.mkdirSync(objectPath, { recursive: true });
+    // ファイルを保存
+    fs.writeFile(pageFilePath, JSON.stringify(pageData, null, 2), 'utf8', (err) => {
+      if (err) {
+        console.error(`Error saving page data:`, err); // エラーメッセージを表示
+      } else {
+        console.log(`Successfully saved page data to ${pageFilePath}`);
       }
-      flocssPaths.forEach((dir) => {
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-      });
-    } else {
-      bemPaths.forEach((dir) => {
-        const fullPath = path.join(basePath, dir);
-        if (!fs.existsSync(fullPath)) {
-          fs.mkdirSync(fullPath, { recursive: true });
-        }
-      });
-    }
-
-    // style.scss更新
-    const styleFilePath = path.join(basePath, 'style.scss');
-    const commonContent = `@use "./base/*";\n`; // 共通部分
-    const flocssContent = `
-@use "./object/layout/**/*";
-@use "./object/component/**/*";
-@use "./object/project/**/*";
-`.trim();
-
-    const bemContent = `
-@use "./module/**/*";
-@use "./page/**/*";
-`.trim();
-
-    const newContent =
-      commonContent + (structureType === 'FLOCSS' ? flocssContent : bemContent);
-
-    fs.writeFileSync(styleFilePath, newContent, 'utf8');
-    console.log(`メインプロセス: style.scssを更新しました (${structureType})`);
+    });
   });
+
 });
 
 // アプリ終了時の処理

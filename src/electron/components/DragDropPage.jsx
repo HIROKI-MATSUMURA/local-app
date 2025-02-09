@@ -1,17 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+// コンポーネント例：Header
+const Header = ({ title, logoUrl }) => (
+  <div>
+    <h1>{title}</h1>
+    <img src={logoUrl} alt="Logo" />
+  </div>
+);
+
+// コンポーネント例：Footer
+const Footer = ({ footerText }) => (
+  <div>
+    <p>{footerText}</p>
+  </div>
+);
 
 const DragDropPage = () => {
   const [parts, setParts] = useState([]); // 配置されたパーツを管理
 
+  // 初期化時にローカルストレージから配置したパーツを復元
+  useEffect(() => {
+    const savedParts = localStorage.getItem('pageParts');
+    if (savedParts) {
+      try {
+        const parsedParts = JSON.parse(savedParts);
+        // ローカルストレージに保存されたデータが配列であるか確認
+        if (Array.isArray(parsedParts)) {
+          setParts(parsedParts);
+        } else {
+          setParts([]); // 配列でない場合は空の配列に設定
+        }
+      } catch (error) {
+        console.error('Error parsing saved parts:', error);
+        setParts([]); // エラーがあれば空の配列に設定
+      }
+    }
+  }, []);
+
+  // ページを保存
   const handleSavePage = () => {
-    // 保存ボタンをクリックしたときに配置されたパーツを保存
-    const pageContent = JSON.stringify(parts);
-    localStorage.setItem('pageParts', pageContent);
-    console.log('Page saved:', pageContent);
+    const pageData = {
+      pageName: "トップページ",
+      components: parts.map(part => ({
+        type: part.toLowerCase(),
+        properties: {
+          title: `${part} title`,
+          logoUrl: `/path/to/${part.toLowerCase()}-logo.png`
+        }
+      })),
+    };
+
+    // ページデータをJSONとして保存
+    window.api.send('save-page', pageData);  // ここで送信
+    console.log('Page saved:', pageData);  // 保存データの確認
+
+    // ローカルストレージにも保存
+    localStorage.setItem('pageParts', JSON.stringify(parts));
   };
 
+  // パーツを追加
   const addPart = (part) => {
-    setParts([...parts, part]);
+    const newParts = [...parts, part];
+    setParts(newParts);
+
+    // ローカルストレージに保存
+    localStorage.setItem('pageParts', JSON.stringify(newParts));
   };
 
   return (
