@@ -116,4 +116,26 @@ contextBridge.exposeInMainWorld('api', {
     console.log('Saving page:', pageData);  // デバッグ用
     ipcRenderer.send('save-page', pageData); // メインプロセスにページデータを送信
   },
+
+  // 新しいHTMLファイルが生成された際に受信する
+  onNewHtmlFile: (callback) => {
+    ipcRenderer.on('new-html-file', (event, fileName) => {
+      callback(fileName);  // 新しいHTMLファイルの名前を返す
+    });
+  },
+
+  // ファイル削除時の通知を受け取る
+  onFileDeleted: (callback) => {
+    ipcRenderer.on('file-deleted', (event, fileName) => {
+      callback(fileName);  // 削除されたファイル名を返す
+    });
+  },
+
+  // 新しいHTMLファイルが生成されたときに通知を受ける
+  onNewHtmlFile: (callback) => {
+    ipcRenderer.on('new-html-file', (event, fileName) => {
+      callback(fileName);
+    });
+  },
 });
+

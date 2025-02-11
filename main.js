@@ -4,6 +4,38 @@ const fs = require('fs');
 
 let mainWindow;
 
+// 監視するディレクトリ
+const htmlDirectory = path.join(__dirname, 'src');
+// previousFilesをグローバルに宣言して、前回のファイルリストを保持
+let previousFiles = [];
+
+// HTMLファイルの作成を監視する
+function watchDirectory() {
+  fs.readdir(htmlDirectory, (err, files) => {
+    if (err) {
+      console.error('Error reading directory:', err);
+      return;
+    }
+
+    const htmlFiles = files.filter(file => file.endsWith('.html'));
+    // 新しいファイルを検出
+    const newFiles = htmlFiles.filter(file => !previousFiles.includes(file));
+
+    // 新規ファイルのみを処理
+    newFiles.forEach(fileName => {
+      console.log(`Detected new HTML file: ${fileName}`);
+      // フロントエンドに新しいHTMLファイルを通知
+      mainWindow.webContents.send('new-html-file', fileName);
+    });
+
+    // 今回のファイルリストを保存
+    previousFiles = htmlFiles;
+  });
+}
+
+// 監視を1秒ごとにチェック
+setInterval(watchDirectory, 1000); // 定期的にディレクトリの内容をチェック
+
 app.on('ready', () => {
   const express = require('express');
   const server = express();
@@ -72,7 +104,7 @@ app.on('ready', () => {
     });
   });
 
-  //変数管理
+  // 変数管理
   ipcMain.on('save-variables', (event, variables) => {
     const {
       lInner,
@@ -117,76 +149,61 @@ $secondary-color: ${secondaryColor};
     });
   });
 
-  // 変更されたファイル名を受け取るリスナー
-  ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
-    const oldPath = path.join(__dirname, 'src', oldFileName);
-    const newPath = path.join(__dirname, 'src', newFileName);
+  // 管理画面からファイルを保存する要求を受け取る
+  ipcMain.on('save-html-file', (event, { filePath, content }) => {
+    console.log('Received save request:', filePath, content);  // ここでログを確認
 
-    // ファイル名を変更
-    fs.rename(oldPath, newPath, (err) => {
+    const absolutePath = path.join(__dirname, 'src', filePath);  // 絶対パスに変換
+    fs.writeFile(absolutePath, content, 'utf8', (err) => {
       if (err) {
-        console.error('Error renaming file:', err);
-        event.reply('rename-file-error', err);
+        console.error('Error occurred while saving file:', err);
+        event.reply('save-html-file-error', err);
       } else {
-        console.log(`Successfully renamed file: ${oldFileName} to ${newFileName}`);
-        // 変更が成功した場合、成功メッセージを送信
-        event.reply('rename-file-success', { oldFileName, newFileName });
+        console.log(`Successfully saved file at: ${absolutePath}`);
+        event.reply('save-html-file-success', absolutePath);
       }
     });
   });
 
-  /// ファイル保存処理のリスナー
-  ipcMain.on('save-html-file', (event, fileData) => {
-    const { filePath, content } = fileData;
 
-    if (filePath && content) {
-      // ファイルを保存するための処理
-      fs.writeFile(filePath, content, 'utf8', (err) => {
-        if (err) {
-          console.error('Error occurred while saving file:', err);
-          event.reply('save-html-file-error', err);
-        } else {
-          console.log(`Successfully saved file at: ${filePath}`);
-          event.reply('save-html-file-success', filePath);
-        }
-      });
-    } else {
-      console.error('Invalid file data received');
-      event.reply('save-html-file-error', 'Invalid file data');
-    }
-  });
 
-  // HTMLファイル削除処理
+
+
+
+  // ファイル削除処理
   ipcMain.on('delete-html-file', (event, { fileName }) => {
-    const filePath = path.join(__dirname, 'src', `${fileName}.html`);
-
-    // ファイルが存在する場合、削除する
+    const filePath = path.join(__dirname, 'src', `${fileName}`);
+    console.log(`取得しているファイルパス: ${filePath}`);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);  // ファイル削除
       console.log(`Successfully deleted file: ${filePath}`);
-      event.reply('file-deleted', fileName);  // 削除したファイル名をフロントエンドに通知
+      event.reply('file-deleted', fileName);
+      mainWindow.webContents.send('file-deleted', fileName); // 監視しているレンダラープロセスに通知
     } else {
-      console.log(`File not found: ${filePath}`);
+      console.log(`File not found(Delete Path): ${filePath}`);
     }
   });
 
   // ファイル名を変更する処理
   ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
-    const oldFilePath = path.join(__dirname, 'src', `${oldFileName}.html`);
-    const newFilePath = path.join(__dirname, 'src', `${newFileName}.html`);
+    // 拡張子が重複しないように処理
+    const oldFilePath = path.join(__dirname, 'src', oldFileName);
+    const newFileNameWithHtml = newFileName.endsWith('.html') ? newFileName : newFileName + '.html'; // .htmlがなければ追加
+    const newFilePath = path.join(__dirname, 'src', newFileNameWithHtml);
 
     // ファイル名を変更する
     try {
       fs.renameSync(oldFilePath, newFilePath);
-      console.log(`File renamed from ${oldFileName}.html to ${newFileName}.html`);
+      console.log(`File renamed from ${oldFileName} to ${newFileNameWithHtml}`);
 
       // フロントエンドに変更が成功したことを通知
-      event.reply('file-renamed', { oldFileName, newFileName });
+      event.reply('file-renamed', { oldFileName, newFileName: newFileNameWithHtml });
     } catch (err) {
       console.error('Error renaming file:', err);
       event.reply('file-rename-error', err.message);
     }
   });
+
 
   // SCSSファイルの保存処理
   ipcMain.on('save-scss-file', (event, { filePath, content, breakpoints }) => {
