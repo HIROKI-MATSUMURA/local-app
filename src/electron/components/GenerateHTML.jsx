@@ -26,6 +26,8 @@ const GenerateHTML = () => {
     }
 
     setFileList(files);
+    // 初期化後にlocalStorageに保存
+    localStorage.setItem('generatedFiles', JSON.stringify(files));
 
     // 新しいファイルが追加された場合、ファイルリストを更新
     window.api.onNewHtmlFile((fileName) => {
@@ -35,9 +37,12 @@ const GenerateHTML = () => {
           const newFile = {
             id: uuidv4(),
             name: fileName,
-            status: '未保存'
+            status: '保存済'
           };
-          return [...prevList, newFile];
+          const updatedList = [...prevList, newFile];
+          // 更新後にlocalStorageに保存
+          localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
+          return updatedList;
         }
         return prevList;  // 重複があればそのまま
       });
@@ -45,9 +50,15 @@ const GenerateHTML = () => {
 
     // ファイル削除時の監視
     window.api.onFileDeleted((fileName) => {
-      setFileList((prevList) => prevList.filter((file) => file.name !== fileName));
+      setFileList((prevList) => {
+        const updatedList = prevList.filter((file) => file.name !== fileName);
+        // 削除後にlocalStorageに保存
+        localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
+        return updatedList;
+      });
     });
   }, []);
+
 
   // ファイル名を追加（エンターキーでのみリストに追加）
   const handleAddFile = () => {
@@ -96,42 +107,46 @@ const GenerateHTML = () => {
 
     const updatedFileList = fileList.map((file) => {
       if (file.status === '未保存') {
-        return {
+        const updatedFile = {
           ...file,
           status: '保存済',
         };
+
+        const content = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${updatedFile.name}</title>
+</head>
+<body>
+
+</body>
+</html>`;
+
+
+        const filePath = `${updatedFile.name}`;
+
+        if (filePath) {
+          try {
+            window.api.send('save-html-file', { filePath, content });
+            console.log(`File saved successfully: ${updatedFile.name}`);
+          } catch (error) {
+            console.error(`Error saving file: ${error}`);
+          }
+        }
+
+        return updatedFile;
       }
+
       return file;
     });
 
     setFileList(updatedFileList);
     localStorage.setItem('generatedFiles', JSON.stringify(updatedFileList));
-
-    updatedFileList.forEach((file) => {
-      if (file.status === '保存済') {
-        const content = `
-        <html>
-          <head>
-            <title>${file.name}</title>
-          </head>
-          <body>
-            <h1>Welcome to ${file.name}</h1>
-          </body>
-        </html>
-      `;
-
-        const filePath = `${file.name}`;
-        console.log(`Sending save request for file: ${file.name} at ${filePath}`);
-
-        // もし Promise を返さない場合、直接送信してログに表示する
-        if (filePath && !fileList.some(f => f.name === file.name && f.status === '保存済')) {
-          window.api.send('save-html-file', { filePath, content });
-          console.log(`File save request sent for ${file.name}`);
-        }
-      }
-    });
   };
 
+  const isSaveDisabled = fileList.every(file => file.status === '保存済');
 
 
   const handleSaveFileName = () => {
@@ -250,12 +265,9 @@ const GenerateHTML = () => {
               key={file.id}  // 一意なIDをkeyとして使用
               style={{
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                backgroundColor: '#f8f9fa',
-                padding: '10px',
-                borderRadius: '8px',
-                boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)',
+                padding: '5px 10px',
+                borderBottom: '2px dashed #ccc',
               }}
             >
               {editingFile && editingFile.name === file.name ? (
@@ -285,6 +297,7 @@ const GenerateHTML = () => {
                       color: 'white',
                       border: 'none',
                       borderRadius: '5px',
+                      marginLeft: 'auto',
                     }}
                   >
                     保存
@@ -309,6 +322,8 @@ const GenerateHTML = () => {
                       border: 'none',
                       borderRadius: '5px',
                       cursor: 'pointer',
+                      marginLeft: 'auto',
+                      marginRight: '10px',
                     }}
                   >
                     削除
@@ -335,19 +350,22 @@ const GenerateHTML = () => {
 
       {/* 保存ボタン */}
       <button
-        type="button"
         onClick={handleSaveFiles}
+        disabled={isSaveDisabled}
         style={{
           padding: '10px',
           marginTop: '20px',
-          backgroundColor: '#28a745',
+          backgroundColor: isSaveDisabled ? '#d3d3d3' : '#28a745',  // 無効化時に色を変える
           color: 'white',
           border: 'none',
           borderRadius: '5px',
+          cursor: isSaveDisabled ? 'not-allowed' : 'pointer',  // 無効化時はカーソルを変更
         }}
       >
         ファイルを保存
       </button>
+
+
     </div>
   );
 };
