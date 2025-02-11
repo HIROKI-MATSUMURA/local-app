@@ -5,13 +5,13 @@ import path from 'path';
 import fs from 'fs';
 
 export default defineConfig({
-  root: 'src', // プロジェクトのルート
+  root: 'src',
   server: {
     port: 3000,
     open: true,
     strictPort: true,
   },
-  base: './', // Viteがビルド時に出力パスを調整
+  base: './',
   plugins: [
     react(),
     sassGlobImports(),
@@ -21,7 +21,12 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: 'assets',
     rollupOptions: {
-      input: getHtmlFiles(), // HTMLファイルを動的に追加
+      input: {
+        // HTMLファイル
+        ...getHtmlFiles(),
+        // JSファイル（アニメーションや他のJS）
+        main: path.resolve(__dirname, 'src/js/main.js'), // main.jsなど、JSファイルを追加
+      },
     },
   },
   css: {
