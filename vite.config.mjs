@@ -2,34 +2,52 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import sassGlobImports from 'vite-plugin-sass-glob-import';
 import path from 'path';
+import fs from 'fs';
 
 export default defineConfig({
   root: 'src', // プロジェクトのルート
   server: {
-    port: 3000, // 開発サーバーのポート
-    open: true, // 自動的にブラウザを開く
-    strictPort: true, // 必ずこのポートで起動
+    port: 3000,
+    open: true,
+    strictPort: true,
   },
-  base: './', // 相対パスを利用
+  base: './', // Viteがビルド時に出力パスを調整
   plugins: [
-    react(), // React用のViteプラグイン
-    sassGlobImports(), // SCSSのグロブインポートを有効化
+    react(),
+    sassGlobImports(),
   ],
   build: {
-    outDir: '../dist', // 出力先
-    emptyOutDir: true, // ビルド時に出力ディレクトリをクリア
+    outDir: '../dist',
+    emptyOutDir: true,
+    assetsDir: 'assets',
     rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'src/index.html'), // メインエントリーポイント
-        styles: path.resolve(__dirname, 'src/scss/style.scss'), // スタイルエントリーポイント
-      },
+      input: getHtmlFiles(), // HTMLファイルを動的に追加
     },
   },
   css: {
     preprocessorOptions: {
       scss: {
-        includePaths: [path.resolve(__dirname, 'src/scss')], // SCSSファイルの検索パス
+        includePaths: [path.resolve(__dirname, 'src/scss')],
       },
     },
   },
 });
+
+// srcディレクトリ内のすべてのHTMLファイルを取得する関数
+function getHtmlFiles() {
+  const htmlFiles = {};
+  const dirPath = path.resolve(__dirname, 'src');
+
+  // srcディレクトリ内のすべてのファイルを取得
+  const files = fs.readdirSync(dirPath);
+
+  // HTMLファイルを抽出してinputに追加
+  files.forEach((file) => {
+    if (file.endsWith('.html')) {
+      const name = file.replace('.html', '');
+      htmlFiles[name] = path.resolve(dirPath, file);
+    }
+  });
+
+  return htmlFiles;
+}

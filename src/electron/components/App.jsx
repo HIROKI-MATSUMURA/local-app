@@ -21,7 +21,7 @@ const Footer = ({ footerText }) => (
 );
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState('responsive-config');  // デフォルトを「ページ作成」に設定
+  const [activeTab, setActiveTab] = useState('generate-html');  // デフォルトを「ページ作成」に設定
   const [logs, setLogs] = useState([]);
   const [savedPage, setSavedPage] = useState(null); // 保存されたページデータ
 
@@ -49,38 +49,8 @@ const App = () => {
         return <ResponsiveConfig addLog={addLog} />;
       case 'variable-config':
         return <VariableConfig addLog={addLog} />;
-      case 'drag-drop':
-        return <DragDropPage />; // ここではページ作成の部分を表示
       case 'generate-html':  // HTMLファイル生成タブ
         return <GenerateHTML />;
-      case 'preview':  // プレビュータブの処理
-        return (
-          <div>
-            <h2>ページプレビュー</h2>
-            {savedPage && savedPage.components && savedPage.components.length > 0 ? (
-              <div>
-                {savedPage.components.map((component, index) => {
-                  switch (component.type) {
-                    case 'header':
-                      return (
-                        <Header
-                          key={index}
-                          title={component.properties.title}
-                          logoUrl={component.properties.logoUrl}
-                        />
-                      );
-                    case 'footer':
-                      return <Footer key={index} footerText={component.properties.footerText} />;
-                    default:
-                      return null;
-                  }
-                })}
-              </div>
-            ) : (
-              <p>ページが保存されていません。</p>
-            )}
-          </div>
-        );
       default:
         return null;
     }
@@ -91,18 +61,16 @@ const App = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100%' }}>
+    <div style={{ display: 'flex', height: '100vw' }}>
       {/* サイドメニュー */}
       <div style={{ width: '200px', backgroundColor: '#f4f4f4', padding: '10px' }}>
         <h3>メニュー</h3>
-        <ul style={{ listStyleType: 'none', padding: 0 }}>
+        <ul style={{ listStyleType: 'none', display: 'grid', gap: '10px',padding: '0px' }}>
+          <li onClick={() => handleTabChange('generate-html')}>HTMLファイル生成</li> {/* ここで生成するHTMLタブを追加 */}
           <li onClick={() => handleTabChange('changelog')}>変更ログ</li>
           <li onClick={() => handleTabChange('reset-css')}>リセットCSS関連</li>
           <li onClick={() => handleTabChange('responsive-config')}>レスポンシブ関連</li>
           <li onClick={() => handleTabChange('variable-config')}>変数設定</li>
-          <li onClick={() => handleTabChange('drag-drop')}>ページ作成</li>
-          <li onClick={() => handleTabChange('generate-html')}>HTMLファイル生成</li> {/* ここで生成するHTMLタブを追加 */}
-          <li onClick={() => handleTabChange('preview')}>ページプレビュー</li> {/* プレビュータブを追加 */}
         </ul>
       </div>
 
