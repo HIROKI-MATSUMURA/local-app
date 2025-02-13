@@ -242,6 +242,41 @@ $secondary-color: ${secondaryColor};
     });
   });
 
+  // OpenAI APIキーの取得
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+  ipcMain.handle("generate-code", async (event, { prompt, uploadedImage }) => {
+    try {
+      // OpenAIリクエストを送信
+      const response = await axios.post(
+        "https://api.openai.com/v1/completions",
+        {
+          model: "text-davinci-003",
+          prompt,
+          max_tokens: 500,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+        }
+      );
+
+      const generatedCode = response.data.choices[0].text.trim();
+
+      // 必要に応じて画像と関連付ける処理
+      if (uploadedImage) {
+        const savePath = path.join(__dirname, "uploads", uploadedImage.name);
+        fs.copyFileSync(uploadedImage.path, savePath);
+      }
+
+      return { generatedCode };
+    } catch (error) {
+      console.error("Error generating code:", error);
+      throw error;
+    }
+  });
 });
 
 // アプリ終了時の処理

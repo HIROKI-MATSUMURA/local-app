@@ -117,11 +117,16 @@ const GenerateHTML = () => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${updatedFile.name}</title>
+  <title>Document</title>
+  <!-- style.scssを読み込むで正しい。buildすると勝手にcssに変換される 要コメント消 -->
   <link rel="stylesheet" href="./scss/style.scss">
 </head>
 <body>
 
+  <!-- 画像の書き方は以下でOK！buildすると勝手にwebpに変換される 要コメント消-->
+  <img src="./images/common/sample.jpeg" alt="">
+  <!-- main.jsの位置もbodyの閉じタグ直上に書く→buildすると勝手に変換される 要コメント消-->
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>`;
 

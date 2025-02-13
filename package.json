@@ -13,7 +13,9 @@
     "concurrently": "7.6.0",
     "electron": "33.3.1",
     "sass": "^1.83.1",
+    "sharp": "^0.33.5",
     "vite": "6.0.7",
+    "vite-plugin-imagemin": "^0.6.1",
     "vite-plugin-sass-glob-import": "^5.0.0"
   },
   "keywords": [],
@@ -30,5 +32,8 @@
     "react-dom": "^19.0.0",
     "react-syntax-highlighter": "^15.6.1",
     "uuid": "^11.0.5"
+  },
+  "volta": {
+    "node": "18.17.0"
   }
 }

@@ -4,17 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document</title>
-  <script type="module" crossorigin src="./assets/index-78ZMIeZJ.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/main-CQyncdjI.js">
-  <link rel="stylesheet" crossorigin href="./assets/style-B20rqIwv.css">
+  <!-- style.scssを読み込むで正しい。buildすると勝手にcssに変換される 要コメント消 -->
+  <script type="module" crossorigin src="./assets/main-J0WreZO1.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/main-BFUc2R7D.css">
 </head>
 <body>
-  <div class="test">ありがとう</div>
-  <div class="about">あぼうｔ</div>
 
-  <div class="fade-element">この要素をフェードイン</div>
-  <div class="slide-element">この要素をスライドアップ</div>
-
- <!-- JavaScriptファイルを読み込む -->
+  <div class="test">ああああ</div>
+  <!-- 画像の書き方は以下でOK！buildすると勝手にwebpに変換される 要コメント消-->
+  
+          <picture>
+            <source srcset="./images/common/sample.webp" type="image/webp">
+            <img src="./images/common/sample.jpeg" alt="">
+          </picture>
+        
+  <!-- main.jsの位置もbodyの閉じタグ直上に書く→buildすると勝手に変換される 要コメント消-->
 </body>
 </html>

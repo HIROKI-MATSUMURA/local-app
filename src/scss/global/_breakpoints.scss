@@ -6,18 +6,14 @@ $startFrom: sp;
 
 // ブレークポイント
 $breakpoints: (
-  sm: 600px,
   md: 768px,
-  lg: 1024px,
-  xl: 1500px
+  lg: 1022px
 );
 
 // メディアクエリ
 $mediaquerys: (
-  sm: "screen and (min-width: #{map.get($breakpoints,'sm')}px)",
   md: "screen and (min-width: #{map.get($breakpoints,'md')}px)",
-  lg: "screen and (min-width: #{map.get($breakpoints,'lg')}px)",
-  xl: "screen and (min-width: #{map.get($breakpoints,'xl')}px)"
+  lg: "screen and (min-width: #{map.get($breakpoints,'lg')}px)"
 );
 
 // スマホファースト用メディアクエリ
