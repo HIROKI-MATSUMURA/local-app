@@ -1,0 +1,15 @@
+@use "../../global" as *;
+
+.test {
+  color: red;
+  font-size: 2rem;
+  padding: 1rem;
+  letter-spacing: 1em;
+  background-color: $primary-color;
+}
+
+
+.about {
+  color: blue;
+  background-color: red;
+}

@@ -1,0 +1,28 @@
+
+@use "sass:map";
+
+// どっちファーストの設定（"sp" or "pc"）
+$startFrom: pc;
+
+// ブレークポイント
+$breakpoints: (
+  sm: 600px,
+  md: 768px,
+  lg: 1022px,
+  xl: 1440px
+);
+
+// メディアクエリ
+$mediaquerys: (
+  sm: "screen and (max-width: #{map.get($breakpoints,'sm')}px)",
+  md: "screen and (max-width: #{map.get($breakpoints,'md')}px)",
+  lg: "screen and (max-width: #{map.get($breakpoints,'lg')}px)",
+  xl: "screen and (max-width: #{map.get($breakpoints,'xl')}px)"
+);
+
+// スマホファースト用メディアクエリ
+@mixin mq($mediaquery: md) {
+  @media #{map.get($mediaquerys, $mediaquery)} {
+    @content;
+  }
+}
