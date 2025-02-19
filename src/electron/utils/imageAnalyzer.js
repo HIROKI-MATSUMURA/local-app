@@ -1,11 +1,17 @@
-import Tesseract from "tesseract.js";
+import { createWorker } from 'tesseract.js';
 
 /**
  * 画像の主要な色を抽出する
  */
-export const extractColors = (imageBase64) => {
+const extractColorsFromImage = async (imageBase64) => {
   return new Promise((resolve) => {
+    if (!imageBase64) {
+      resolve([]);
+      return;
+    }
+
     const img = new Image();
+    img.crossOrigin = "Anonymous"; // CORSエラー回避
     img.src = imageBase64;
 
     img.onload = () => {
@@ -28,26 +34,36 @@ export const extractColors = (imageBase64) => {
       const sortedColors = Object.entries(colorMap).sort((a, b) => b[1] - a[1]);
       resolve(sortedColors.slice(0, 5).map(([rgb]) => `rgb(${rgb})`));
     };
+
+    img.onerror = () => {
+      console.error("画像の読み込みに失敗しました");
+      resolve([]);
+    };
   });
 };
 
 /**
  * 画像からテキストを抽出する（OCR）
  */
-export const extractTextFromImage = async (imageBase64) => {
+const extractTextFromImage = async (imageFile) => {
   try {
-    console.log("OCR解析開始...");
-
-    // 最新バージョンでは loadLanguage は不要
-    const worker = await Tesseract.createWorker("jpn");
-
-    const { data } = await worker.recognize(imageBase64);
-    console.log("OCR抽出結果:", data.text);
-
+    const worker = await createWorker('jpn'); // logger を削除
+    const { data: { text } } = await worker.recognize(imageFile);
     await worker.terminate();
-    return data.text;
+
+    return text;
   } catch (error) {
-    console.error("OCR解析エラー:", error);
-    return "";
+    console.error('Error in OCR processing:', error);
+    return '';
   }
 };
+
+
+
+
+
+
+
+
+
+export { extractTextFromImage, extractColorsFromImage };

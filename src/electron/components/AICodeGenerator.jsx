@@ -3,7 +3,7 @@ import "../styles/AICodeGenerator.scss";
 import CodeDisplay from "./CodeDisplay";
 import CodeGenerationSettings from "./CodeGenerationSettings";
 import { generatePrompt } from "../utils/promptGenerator";
-import { extractColors, extractTextFromImage } from "../utils/imageAnalyzer.js";
+import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
 
 
 const LOCAL_STORAGE_KEY = "ai_code_generator_state";
@@ -87,7 +87,7 @@ const AICodeGenerator = () => {
           { role: "system", content: "You are an assistant that generates HTML and CSS." },
           { role: "user", content: prompt }
         ],
-        max_tokens: 1000, // 2000 から 1000 に変更（調整）
+        max_tokens: 3000, // 2000 から 1000 に変更（調整）
         temperature: 0.7
       };
 
@@ -173,12 +173,12 @@ const AICodeGenerator = () => {
       if (type === "pc") {
         setPcImage({ fileName: file.name, preview: fileUrl });
         setPcImageBase64(base64); // useState に保存
-        setPcColors(await extractColors(base64));
+        setPcColors(await extractColorsFromImage(base64));
         setPcText(await extractTextFromImage(base64));
       } else {
         setSpImage({ fileName: file.name, preview: fileUrl });
         setSpImageBase64(base64); // useState に保存
-        setSpColors(await extractColors(base64));
+        setSpColors(await extractColorsFromImage(base64));
         setSpText(await extractTextFromImage(base64));
       }
     };
