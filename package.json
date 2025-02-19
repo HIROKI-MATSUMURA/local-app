@@ -26,11 +26,13 @@
     "@dnd-kit/sortable": "^10.0.0",
     "esbuild": "^0.24.2",
     "express": "^4.21.2",
+    "face-api.js": "^0.22.2",
     "gsap": "^3.12.5",
     "highlight.js": "^11.11.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-syntax-highlighter": "^15.6.1",
+    "tesseract.js": "^6.0.0",
     "uuid": "^11.0.5"
   },
   "volta": {
