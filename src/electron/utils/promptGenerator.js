@@ -1,131 +1,292 @@
-import { extractTextFromImage, extractColorsFromImage } from "./imageAnalyzer";
+import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
+
+// ローカルストレージから設定を取得する関数
+const getSettingsFromLocalStorage = () => {
+  try {
+    // ローカルストレージからリセットCSSと変数設定を取得
+    const resetCSS = localStorage.getItem('resetCSS') || '';
+    const cssVariables = localStorage.getItem('cssVariables') || '';
+    const responsiveSettings = localStorage.getItem('responsiveSettings') || '';
+
+    return {
+      resetCSS,
+      cssVariables,
+      responsiveSettings
+    };
+  } catch (error) {
+    console.error('ローカルストレージからの設定取得エラー:', error);
+    return {
+      resetCSS: '',
+      cssVariables: '',
+      responsiveSettings: ''
+    };
+  }
+};
 
 const generatePrompt = async ({ responsiveMode, aiBreakpoints, pcImageBase64, spImageBase64 }) => {
-  // 画像から動的に色を取得
-  const pcColors = pcImageBase64 ? await extractColorsFromImage(pcImageBase64) : [];
-  const spColors = spImageBase64 ? await extractColorsFromImage(spImageBase64) : [];
+  try {
+    console.log("プロンプト生成処理を開始");
 
-  // ローカルストレージからカスタム変数を取得
-  let storedVariables = localStorage.getItem("customVariables");
-  let customVariables = storedVariables ? JSON.parse(storedVariables) : {};
-  let customColors = customVariables.customColors || [];
-  let fontSettings = customVariables.fonts || [];
+    // 基本的な画像解析を実行
+    console.log("基本的な画像解析を実行中...");
 
-  let predefinedColors = customColors.map((color, index) => `$custom-color-${index + 1}: ${color};`).join("\n");
-  let predefinedFonts = fontSettings.map(font => `${font.name}: ${font.url}`).join("\n");
+    // 画像から色を取得（エラーハンドリング付き）
+    let pcColors = [];
+    let spColors = [];
+    let pcText = '';
+    let spText = '';
+    let pcSections = [];
+    let spSections = [];
+    let pcElements = [];
+    let spElements = [];
 
-  // ローカルストレージから ResetCSS を取得
-  let resetCSS = localStorage.getItem("resetCSS") || "";
+    // より詳細な画像分析を実行
+    if (pcImageBase64) {
+      try {
+        pcColors = await extractColorsFromImage(pcImageBase64);
+        console.log("PC画像から色を抽出しました:", pcColors.length, "色");
+      } catch (error) {
+        console.error("PC画像の色抽出エラー:", error);
+      }
 
-  // 画像からテキストを抽出
-  const pcText = pcImageBase64 ? (await extractTextFromImage(pcImageBase64)).slice(0, 500) : "";
-  const spText = spImageBase64 ? (await extractTextFromImage(spImageBase64)).slice(0, 500) : "";
+      try {
+        pcText = await extractTextFromImage(pcImageBase64);
+        console.log("PC画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("PC画像のテキスト抽出エラー:", error);
+        pcText = '';
+      }
 
-  return [
-    "You are a professional front-end developer specializing in SCSS and HTML.",
-    "",
-    "## Guidelines:",
-    "- Use **FLOCSS methodology** for SCSS.",
-    "- Follow the **Mobile First** or **Desktop First** approach as specified.",
-    "- Write **semantic and accessible** HTML.",
-    "- Avoid unnecessary inline styles.",
-    "",
-    "## 制約条件:",
-    "- 添付画像のレイアウトを忠実に参照し、コードを生成する。",
-    "- コードの解説は不要。",
-    `- **レスポンシブモード**: ${responsiveMode === "pc-first" ? "PCファースト" : "SPファースト"} でコーディングする。`,
-    "",
-    "## コーディング規則:",
-    "### HTMLとCSS共通:",
-    "- 出力するコードは**絶対にFLOCSS記法のみ**。",
-    "- クラス名は**ハイフンケース**で出力する。",
-    "- **ハードコーディングを避け、再利用可能なフレキシブルなコードを生成する**。",
-    "- コードは**W3C規格**に準拠する。",
-    "",
-    "### HTML:",
-    "- `<!DOCTYPE>`, `<html>`, `<head>`, `<body>` タグは**不要**。",
-    "- `h` タグは**使用しない**。",
-    "- `section`, `article` タグは**使用しない**。",
-    "- `alt` の値は**日本語で50文字以内**にする。",
-    "- `img` タグには **`loading=\"lazy\"`** を付与する。",
-    "- `time` タグには **`datetime` 属性** を付与する。",
-    "",
-    "### CSS:",
-    "- `font-size` の単位は **ルート 16px 基準で `rem` に変換**。",
-    "- **要素間の余白:**",
-    "  - 縦方向の余白: `margin-top` を使用する。",
-    "  - 横方向の余白: `margin-left` を使用する。",
-    "- 要素単体の余白には `padding` を使用する。",
-    "",
-    "### **リセットCSSを参照すること:**",
-    "以下の ResetCSS の内容を考慮し、**重複しないようにコードを生成すること**。",
-    "```scss",
-    resetCSS || "No ResetCSS found",
-    "```",
-    "",
-    "## Provided Variables (These are reference values. You must NOT include them in the generated code.):",
-    "### Colors:",
-    predefinedColors || "No predefined colors",
-    "",
-    "### Fonts:",
-    predefinedFonts || "No predefined fonts",
-    "",
-    "### Breakpoints:",
-    aiBreakpoints.map(bp => `- ${bp.name}: (min-width: ${bp.value}px)`).join("\n"),
-    "",
-    "- **SCSS mixin for breakpoints** (Reference Only - DO NOT include in output SCSS):",
-    "```scss",
-    "@mixin mq($mediaquery: md) {",
-    "  @media #{map.get($mediaquerys, $mediaquery)} {",
-    "    @content;",
-    "  }",
-    "}",
-    "```",
-    "",
-    "**These reference values must NOT appear in the SCSS output.**",
-    "Use them for reference when applying styles, but do NOT output `$mediaquerys`, `$colors`, or `@mixin` in the final SCSS.",
-    "",
-    "---",
-    "",
-    "## Extracted Data:",
-    "- **PC Image Colors**:",
-    pcColors.length > 0 ? pcColors.map(color => `- ${color}`).join("\n") : "No colors detected",
-    "- **SP Image Colors**:",
-    spColors.length > 0 ? spColors.map(color => `- ${color}`).join("\n") : "No colors detected",
-    "",
-    "- **Extracted Text (PC Image):**",
-    pcText ? `"${pcText}"` : "No text detected",
-    "- **Extracted Text (SP Image):**",
-    spText ? `"${spText}"` : "No text detected",
-    "",
-    "**If a detected color is similar to a predefined variable, use the variable instead of the raw color code.**",
-    "**Use the extracted text to determine appropriate styles and class names.**",
-    "",
-    "---",
-    "",
-    "## Output Requirements:",
-    "1. **HTML Structure**:",
-    "   - Use **semantic elements** (`div`, `nav`, `ul`, `li`, etc.).",
-    "",
-    "2. **SCSS Styling**:",
-    "   - Use only **predefined colors** when applicable。",
-    "   - **DO NOT output color variables definition (`$colors`) in the SCSS.**",
-    "   - Apply **FLOCSS rules** (`.l-` for layout, `.c-` for components).",
-    "   - **Breakpoints must be applied using `@mixin mq()` as shown below:**",
-    "```scss",
-    ".c-button {",
-    "  color: red;",
-    "  @include mq(md) {",
-    "    color: blue;",
-    "  }",
-    "}",
-    "```",
-    "",
-    "3. **Format**:",
-    "   - HTML must be enclosed within `<html>...</html>`。",
-    "   - SCSS must be enclosed within `<style>...</style>`。",
-    "   - **DO NOT include extra comments or explanations in the output.**"
-  ].join("\n");
+      try {
+        pcSections = await analyzeImageSections(pcImageBase64);
+        console.log("PC画像のセクション分析が完了しました:", pcSections.length, "セクション");
+      } catch (error) {
+        console.error("PC画像のセクション分析エラー:", error);
+        pcSections = [];
+      }
+
+      try {
+        pcElements = await detectFeatureElements(pcImageBase64);
+        console.log("PC画像の要素検出が完了しました:", pcElements ? pcElements.elements?.length || 0 : 0, "要素");
+      } catch (error) {
+        console.error("PC画像の要素検出エラー:", error);
+        pcElements = { elements: [] };
+      }
+    }
+
+    if (spImageBase64) {
+      try {
+        spColors = await extractColorsFromImage(spImageBase64);
+        console.log("SP画像から色を抽出しました:", spColors.length, "色");
+      } catch (error) {
+        console.error("SP画像の色抽出エラー:", error);
+      }
+
+      try {
+        spText = await extractTextFromImage(spImageBase64);
+        console.log("SP画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("SP画像のテキスト抽出エラー:", error);
+        spText = '';
+      }
+
+      try {
+        spSections = await analyzeImageSections(spImageBase64);
+        console.log("SP画像のセクション分析が完了しました:", spSections.length, "セクション");
+      } catch (error) {
+        console.error("SP画像のセクション分析エラー:", error);
+        spSections = [];
+      }
+
+      try {
+        spElements = await detectFeatureElements(spImageBase64);
+        console.log("SP画像の要素検出が完了しました:", spElements ? spElements.elements?.length || 0 : 0, "要素");
+      } catch (error) {
+        console.error("SP画像の要素検出エラー:", error);
+        spElements = { elements: [] };
+      }
+    }
+
+    // ローカルストレージから設定を取得
+    const settings = getSettingsFromLocalStorage();
+
+    console.log("プロンプトの構築を開始");
+
+    // より構造化されたプロンプトを構築
+    let prompt = `
+# HTML/SCSS Code Generation from Design Comp
+
+## Basic Information
+- Output Type: ${responsiveMode === "both" ? "Responsive Design (PC/SP)" : `${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"}`}
+${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.map(bp => `${bp.width}px`).join(', ')}` : ''}
+
+## Image Analysis Results
+`;
+
+    // 抽出されたテキスト情報を追加
+    if (pcText || spText) {
+      prompt += `
+### Detected Text:
+${pcText ? `#### PC Image Text:
+\`\`\`
+${pcText}
+\`\`\`` : ""}
+${spText ? `#### SP Image Text:
+\`\`\`
+${spText}
+\`\`\`` : ""}
+
+`;
+    }
+
+    // 色情報を追加
+    if (pcColors.length > 0 || spColors.length > 0) {
+      prompt += `
+### Detected Colors:
+${pcColors.length > 0 ? `- PC Image Main Colors: ${pcColors.join(", ")}` : ""}
+${spColors.length > 0 ? `- SP Image Main Colors: ${spColors.join(", ")}` : ""}
+
+`;
+    }
+
+    // セクション情報を追加
+    if (pcSections.length > 0 || spSections.length > 0) {
+      prompt += `
+### Detected Section Structure:
+${pcSections.length > 0 ? `- PC Image: ${JSON.stringify(pcSections.map(section => ({
+        position: `section ${section.section} from top`,
+        dominantColor: section.dominantColor
+      })))}` : ""}
+${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section => ({
+        position: `section ${section.section} from top`,
+        dominantColor: section.dominantColor
+      })))}` : ""}
+
+`;
+    }
+
+    // 要素情報を追加（エラーハンドリング付き）
+    if ((pcElements && pcElements.elements && pcElements.elements.length > 0) ||
+      (spElements && spElements.elements && spElements.elements.length > 0)) {
+      prompt += `
+### Detected Main Elements:
+${pcElements && pcElements.elements && pcElements.elements.length > 0 ? `- PC Image: ${JSON.stringify(pcElements.elements)}` : ""}
+${spElements && spElements.elements && spElements.elements.length > 0 ? `- SP Image: ${JSON.stringify(spElements.elements)}` : ""}
+
+`;
+    }
+
+    // ローカルストレージから取得した設定を追加
+    if (settings.resetCSS || settings.cssVariables || settings.responsiveSettings) {
+      prompt += `
+## Project Settings
+${settings.resetCSS ? `### Reset CSS:
+\`\`\`css
+${settings.resetCSS}
+\`\`\`` : ""}
+
+${settings.cssVariables ? `### CSS Variables:
+\`\`\`css
+${settings.cssVariables}
+\`\`\`` : ""}
+
+${settings.responsiveSettings ? `### Responsive Settings:
+\`\`\`css
+${settings.responsiveSettings}
+\`\`\`` : ""}
+
+`;
+    }
+
+    // 最後に具体的な指示を追加
+    prompt += `
+## Coding Guidelines
+
+You are a professional front-end developer specializing in SCSS and HTML.
+
+### Core Requirements:
+- **ONLY code elements visible in the image** - no assumed or extra elements
+- **Be faithful to the design** - accurate colors, spacing, and layout
+- Use **FLOCSS methodology** instead of BEM
+- Use **CSS Grid** layout instead of Flexbox where appropriate
+- Do not create container elements (don't fix width of outer elements)
+- **No SCSS nesting** - write flat SCSS structure
+- **Maintain aspect ratios for all images** - use modern CSS techniques like aspect-ratio property
+- **Avoid fixed width values** - use percentages, max-width, or relative units
+- **Use height properties minimally** - only when absolutely necessary for the design
+
+### HTML Guidelines:
+- Create semantic, accessible HTML
+- Add class names to each block
+- Child elements should use element notation
+- Use proper naming conventions for FLOCSS
+- **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
+- Analyze the design and assign **specific, descriptive class names** that reflect design features
+
+### SCSS Guidelines:
+- Follow the ${responsiveMode === "both" ? "responsive approach" : `${responsiveMode === "pc" ? "Desktop-first" : "Mobile-first"} approach`}
+- Apply breakpoints using \`@mixin mq()\` like:
+\`\`\`scss
+.c-button {
+  color: red;
+  @include mq(md) {
+    color: blue;
+  }
+}
+\`\`\`
+- Reference the preset CSS variables when appropriate
+- Ensure compatibility with the provided Reset CSS
+- **For images**: use aspect-ratio property to maintain proportions (e.g., \`aspect-ratio: 16 / 9;\`)
+- **For width**: use percentages or relative units (e.g., \`width: 100%;\`, \`max-width: 100%;\`)
+- **For height**: use auto where possible or aspect-ratio to control dimensions
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+// SCSS code here (flat structure, no nesting)
+\`\`\`
+
+Analyze the image structure and layout in detail to create accurate HTML and SCSS that precisely reflect ONLY what is visible in the image.
+`;
+
+    console.log("プロンプト生成が完了しました");
+    return prompt;
+  } catch (error) {
+    console.error('プロンプト生成中にエラーが発生しました:', error);
+
+    // エラーが発生しても最低限のプロンプトを生成して返す
+    return `
+# HTML/SCSS Code Generation from Design Comp
+
+Analyze the uploaded image and generate HTML and SCSS code.
+Accurately reproduce the layout, elements, text, and colors in the image.
+
+## Important Instructions
+- ONLY code elements visible in the image - no assumed or extra elements
+- Be faithful to the design - accurate colors, spacing, and layout
+- Use FLOCSS methodology instead of BEM
+- Use CSS Grid layout instead of Flexbox where possible
+- No SCSS nesting - write flat SCSS structure
+- Apply responsive design using @mixin mq() as needed
+- DO NOT use <header> or <main> tags
+- Use specific, descriptive class names reflecting design features
+- Maintain aspect ratios for all images using aspect-ratio property
+- Avoid fixed width values - use percentages or relative units
+- Use height properties minimally - only when absolutely necessary
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+// SCSS code here (flat structure, no nesting)
+\`\`\`
+`;
+  }
 };
 
 export { generatePrompt };

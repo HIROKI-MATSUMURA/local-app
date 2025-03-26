@@ -10,7 +10,9 @@ contextBridge.exposeInMainWorld('api', {
       'save-page',
       'save-html-file',
       'delete-html-file',  // 'delete-html-file' を追加
-      'rename-file'  // 'rename-file' を追加
+      'rename-file',  // 'rename-file' を追加
+      'generate-code',  // 'generate-code' を追加
+      'save-api-key'    // 'save-api-key' を追加
     ];
 
     if (validChannels.includes(channel)) {
@@ -29,7 +31,8 @@ contextBridge.exposeInMainWorld('api', {
       'file-updated',
       'file-deleted',  // 'file-deleted' を追加
       'file-renamed', // 'file-renamed' を追加
-      'file-rename-error' // 'file-rename-error' を追加
+      'file-rename-error', // 'file-rename-error' を追加
+      'api-key-saved'  // 'api-key-saved' を追加
     ];
 
     if (validChannels.includes(channel)) {
@@ -47,6 +50,23 @@ contextBridge.exposeInMainWorld('api', {
       });
     } else {
       console.warn(`Preload: Ignored invalid channel ${channel}`);
+    }
+  },
+
+  // AIコード生成機能を呼び出す
+  generateCode: async (params) => {
+    try {
+      // paramsが文字列の場合、古い形式の呼び出しとみなし、互換性のために変換
+      if (typeof params === 'string') {
+        const prompt = params;
+        const uploadedImage = arguments[1];
+        return await ipcRenderer.invoke('generate-code', { prompt, uploadedImage });
+      }
+      // 新しい形式の呼び出し（オブジェクト形式）
+      return await ipcRenderer.invoke('generate-code', params);
+    } catch (error) {
+      console.error('Error generating code:', error);
+      throw error;
     }
   },
 
@@ -137,5 +157,23 @@ contextBridge.exposeInMainWorld('api', {
       callback(fileName);
     });
   },
-});
 
+  // APIキー関連の機能
+  saveApiKey: (apiData) => {
+    // apiDataがオブジェクトでない場合は単純なapiKeyとして扱う（後方互換性のため）
+    if (typeof apiData === 'string') {
+      ipcRenderer.send('save-api-key', { apiKey: apiData });
+    } else {
+      ipcRenderer.send('save-api-key', apiData);
+    }
+  },
+
+  getApiKey: async () => {
+    try {
+      return await ipcRenderer.invoke('get-api-key');
+    } catch (error) {
+      console.error('Error getting API key:', error);
+      return null;
+    }
+  },
+});
