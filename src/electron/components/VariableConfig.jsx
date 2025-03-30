@@ -1384,7 +1384,7 @@ ${colorVariables}
                       ref={imageRef}
                       src={designImage}
                       alt="Design Preview"
-                      className={`preview - image ${isProcessing ? 'processing' : ''} `}
+                      className={`preview-image ${isProcessing ? 'processing' : ''}`}
                       onClick={handleImageClick}
                       onMouseMove={handleMouseMove}
                       onMouseLeave={handleMouseLeave}
@@ -1784,8 +1784,8 @@ ${colorVariables}
                         className="color-popup"
                         style={{
                           position: 'fixed',
-                          left: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).x} px`,
-                          top: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).y} px`,
+                          left: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).x}px`,
+                          top: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).y}px`,
                           zIndex: 9999
                         }}
                       >
@@ -1813,13 +1813,13 @@ ${colorVariables}
                         <div className="color-popup-content">
                           <div className="tab-container">
                             <div
-                              className={`tab ${isNewVariable ? 'active' : ''} `}
+                              className={`tab ${isNewVariable ? 'active' : ''}`}
                               onClick={() => setIsNewVariable(true)}
                             >
                               新規変数
                             </div>
                             <div
-                              className={`tab ${!isNewVariable ? 'active' : ''} `}
+                              className={`tab ${!isNewVariable ? 'active' : ''}`}
                               onClick={() => setIsNewVariable(false)}
                             >
                               既存変数
@@ -1827,7 +1827,7 @@ ${colorVariables}
                           </div>
 
                           <div className="popup-options">
-                            <div className={`option - panel ${isNewVariable ? 'active' : ''} `}>
+                            <div className={`option-panel ${isNewVariable ? 'active' : ''}`}>
                               <div className="new-variable-input">
                                 <input
                                   type="text"
@@ -1838,7 +1838,7 @@ ${colorVariables}
                               </div>
                             </div>
 
-                            <div className={`option - panel ${!isNewVariable ? 'active' : ''} `}>
+                            <div className={`option-panel ${!isNewVariable ? 'active' : ''}`}>
                               <div className="existing-variable-select">
                                 <select
                                   value={selectedExistingVariable}
@@ -1883,8 +1883,8 @@ ${colorVariables}
                       <div
                         className="color-info-tooltip"
                         style={{
-                          left: `${mousePosition.x + 20} px`,
-                          top: `${mousePosition.y + 20} px`,
+                          left: `${mousePosition.x + 20}px`,
+                          top: `${mousePosition.y + 20}px`,
                           borderColor: hoverColor.color
                         }}
                       >
@@ -1957,6 +1957,7 @@ ${colorVariables}
                   className="apply-colors-button"
                   onClick={applyExtractedColors}
                 >
+                  <span className="button-glow"></span>
                   抽出した色を適用
                 </button>
               )}
