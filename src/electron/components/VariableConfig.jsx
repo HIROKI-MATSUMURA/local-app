@@ -1317,7 +1317,37 @@ ${colorVariables}
           {/* 画像アップロード */}
           <div className="form-group">
             <h3 className="group-title">デザインカンプから色を抽出</h3>
-            <div className="upload-area">
+            <div
+              className="upload-area"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.add('drag-over');
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.remove('drag-over');
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.remove('drag-over');
+
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  const file = e.dataTransfer.files[0];
+                  const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+                  if (validTypes.includes(file.type)) {
+                    const event = { target: { files: e.dataTransfer.files } };
+                    handleImageUpload(event);
+                  } else {
+                    alert('JPG、PNG、またはWEBP形式の画像ファイルをアップロードしてください。');
+                  }
+                }
+              }}
+              onClick={() => !isProcessing && fileInputRef.current.click()}
+            >
               <input
                 type="file"
                 ref={fileInputRef}
@@ -1326,51 +1356,57 @@ ${colorVariables}
                 style={{ display: 'none' }}
                 title="デザインカンプをアップロードして色を抽出"
               />
-              <div className="upload-button-container">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current.click()}
-                  className="upload-button"
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? "処理中..." : "デザインカンプをアップロード"}
-                </button>
-              </div>
-              <div className="input-description">
-                高品質な画像をアップロードすることで色を自動抽出します
-                <div className="hint">
-                  4MB未満の画像は圧縮せずに解析され、より正確な色抽出が可能です
-                </div>
-              </div>
 
-              <div className="extraction-tips">
-                <h4>より正確な色抽出のためのヒント</h4>
-                <div className="tips-layout">
-                  <div className="tip">
-                    <span className="tip-icon">✓</span>
-                    <div className="tip-content">
-                      <strong>高解像度で鮮明な画像を使用する</strong>
-                      <p>解像度が高く、鮮明な画像ほど正確な色を抽出できます</p>
+              {isProcessing ? (
+                <div className="processing-indicator">
+                  <span className="spinner-icon"></span>
+                  <span>処理中...</span>
+                </div>
+              ) : (
+                <div className="upload-content">
+                  <h4>デザインカンプ画像をアップロード</h4>
+                  <p>クリックまたはドラッグ＆ドロップ</p>
+
+                  <div className="input-description">
+                    高品質な画像をアップロードすることで色を自動抽出します
+                    <div className="hint">
+                      4MB未満の画像は圧縮せずに解析され、より正確な色抽出が可能です
                     </div>
                   </div>
-                  <div className="tip">
-                    <span className="tip-icon">✓</span>
-                    <div className="tip-content">
-                      <strong>画面全体のデザインを含む画像を選ぶ</strong>
-                      <p>ページ全体が映った画像から、より網羅的な色パレットを抽出できます</p>
-                    </div>
-                  </div>
-                  <div className="tip">
-                    <span className="tip-icon">⚠️</span>
-                    <div className="tip-content">
-                      <strong>低解像度の画像は避ける</strong>
-                      <p>画質の低い画像は色のブレンドが発生し、誤った色が抽出される場合があります</p>
+
+                  <div className="extraction-tips">
+                    <h4>より正確な色抽出のためのヒント</h4>
+                    <div className="tips-layout">
+                      <div className="tip">
+                        <span className="tip-icon">✓</span>
+                        <div className="tip-content">
+                          <strong>高解像度で鮮明な画像を使用する</strong>
+                          <p>解像度が高く、鮮明な画像ほど正確な色を抽出できます</p>
+                        </div>
+                      </div>
+                      <div className="tip">
+                        <span className="tip-icon">✓</span>
+                        <div className="tip-content">
+                          <strong>画面全体のデザインを含む画像を選ぶ</strong>
+                          <p>ページ全体が映った画像から、より網羅的な色パレットを抽出できます</p>
+                        </div>
+                      </div>
+                      <div className="tip">
+                        <span className="tip-icon">⚠️</span>
+                        <div className="tip-content">
+                          <strong>低解像度の画像は避ける</strong>
+                          <p>画質の低い画像は色のブレンドが発生し、誤った色が抽出される場合があります</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
+            </div>
 
-              {designImage && (
+            {/* 画像プレビューと解析結果 - アップロードエリアから分離 */}
+            {designImage && (
+              <div className="design-preview-container">
                 <div className="preview-container">
                   <div className="hover-instruction">
                     画像上にマウスを移動して色を確認 ・ クリックして色を抽出できます
@@ -1417,6 +1453,7 @@ ${colorVariables}
                         backdropFilter: 'blur(6px)',
                         borderRadius: '8px'
                       }}>
+                        {/* AI処理中のオーバーレイコンテンツはそのまま */}
                         <div className="ai-processing-content" style={{
                           backgroundColor: 'rgba(12, 20, 33, 0.9)',
                           borderRadius: '16px',
@@ -1919,62 +1956,62 @@ ${colorVariables}
                     )}
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {extractedColors.length > 0 && (
-                <div className="extracted-colors">
-                  <h4>抽出された色 ({extractedColors.length})</h4>
-                  <div className="color-chips">
-                    {extractedColors.map((color, index) => (
-                      <div
-                        key={index}
-                        className="color-chip"
-                        title="ホバーして削除ボタンを表示"
-                      >
-                        <div className="color-sample" style={{ backgroundColor: color.color }}></div>
-                        <div className="color-info">
-                          <div className="color-name">{color.name}</div>
-                          <div className="color-value">{color.color}</div>
-                          {color.description && <div className="color-description">{color.description}</div>}
-                        </div>
-                        <button
-                          type="button"
-                          className="delete-color-btn"
-                          onClick={() => removeExtractedColor(color.name)}
-                          title={`${color.name} を削除`}
-                        >
-                          ×
-                        </button>
+            {extractedColors.length > 0 && (
+              <div className="extracted-colors">
+                <h4>抽出された色 ({extractedColors.length})</h4>
+                <div className="color-chips">
+                  {extractedColors.map((color, index) => (
+                    <div
+                      key={index}
+                      className="color-chip"
+                      title="ホバーして削除ボタンを表示"
+                    >
+                      <div className="color-sample" style={{ backgroundColor: color.color }}></div>
+                      <div className="color-info">
+                        <div className="color-name">{color.name}</div>
+                        <div className="color-value">{color.color}</div>
+                        {color.description && <div className="color-description">{color.description}</div>}
                       </div>
-                    ))}
-                  </div>
+                      <button
+                        type="button"
+                        className="delete-color-btn"
+                        onClick={() => removeExtractedColor(color.name)}
+                        title={`${color.name} を削除`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {extractedColors.length > 0 && (
-                <div className="caution-notice">
-                  <div className="caution-title">注意事項：</div>
-                  <div className="caution-content">
-                    <ul>
-                      <li>AIで抽出した色が完璧とは限りません。</li>
-                      <li>手動で抽出した色も解像度の関係で若干ずれる可能性があります。</li>
-                      <li>曖昧な場合はデザインカンプから直接カラーコードを確認をしてください。</li>
-                    </ul>
-                  </div>
+            {extractedColors.length > 0 && (
+              <div className="caution-notice">
+                <div className="caution-title">注意事項：</div>
+                <div className="caution-content">
+                  <ul>
+                    <li>AIで抽出した色が完璧とは限りません。</li>
+                    <li>手動で抽出した色も解像度の関係で若干ずれる可能性があります。</li>
+                    <li>曖昧な場合はデザインカンプから直接確認をしてください。</li>
+                  </ul>
                 </div>
-              )}
+              </div>
+            )}
 
-              {extractedColors.length > 0 && (
-                <button
-                  type="button"
-                  className="apply-colors-button"
-                  onClick={applyExtractedColors}
-                >
-                  <span className="button-glow"></span>
-                  抽出した色を適用
-                </button>
-              )}
-            </div>
+            {extractedColors.length > 0 && (
+              <button
+                type="button"
+                className="apply-colors-button"
+                onClick={applyExtractedColors}
+              >
+                <span className="button-glow"></span>
+                抽出した色を適用
+              </button>
+            )}
           </div>
 
           {/* 色設定 */}
