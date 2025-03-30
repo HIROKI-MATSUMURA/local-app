@@ -15,7 +15,10 @@ export default defineConfig({
   },
   base: "./",
   plugins: [
-    react(),
+    react({
+      include: ["**/*.jsx", "**/*.tsx"],
+      jsxRuntime: "classic"
+    }),
     sassGlobImports(),
     viteImagemin({
       gifsicle: { optimizationLevel: 3 },
@@ -36,9 +39,7 @@ export default defineConfig({
       output: {
         assetFileNames: `assets/[name]-[hash][extname]`,
         entryFileNames: `assets/[name]-[hash].js`,
-
       },
-
     },
   },
   css: {
@@ -49,6 +50,12 @@ export default defineConfig({
     },
   },
   publicDir: path.resolve(__dirname, "public"),
+  resolve: {
+    extensions: [".mjs", ".js", ".jsx", ".json"]
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom"]
+  }
 });
 
 // 画像をWebPに変換するプラグイン

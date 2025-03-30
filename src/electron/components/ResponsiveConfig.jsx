@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Breakpoints from './Breakpoints';
+import '../styles/ResponsiveConfig.scss';
+import Header from './Header';
 
 const ResponsiveConfig = () => {
   const [responsiveMode, setResponsiveMode] = useState('sp'); // 'sp' -> スマホファースト, 'pc' -> PCファースト
@@ -67,8 +69,8 @@ ${Object.entries(breakpoints).map(([name, value]) => `  ${name}: ${value}px`).jo
 $mediaquerys: (
 ${Object.entries(breakpoints).map(([name, value]) =>
       responsiveMode === 'sp'
-        ? `  ${name}: "screen and (min-width: #{map.get($breakpoints,'${name}')}px)"`
-        : `  ${name}: "screen and (max-width: #{map.get($breakpoints,'${name}')}px)"`
+        ? `  ${name}: "screen and (min-width: #{map.get($breakpoints,'${name}')})"`
+        : `  ${name}: "screen and (max-width: #{map.get($breakpoints,'${name}')})"`
     ).join(',\n')}
 );
 
@@ -82,11 +84,14 @@ ${Object.entries(breakpoints).map(([name, value]) =>
   };
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h2>レスポンシブ設定</h2>
+    <div className="responsive-config">
+      <Header
+        title="レスポンシブ設定"
+        description="レスポンシブデザインの設定を管理します"
+      />
 
       {/* スマホファースト/PCファースト切り替え */}
-      <div style={styles.radioGroup}>
+      <div className="radio-group">
         <label>
           <input
             type="radio"
@@ -94,7 +99,6 @@ ${Object.entries(breakpoints).map(([name, value]) =>
             value="sp"
             checked={responsiveMode === 'sp'}
             onChange={handleModeChange}
-            style={styles.radioInput}
           />
           スマホファースト
         </label>
@@ -105,50 +109,96 @@ ${Object.entries(breakpoints).map(([name, value]) =>
             value="pc"
             checked={responsiveMode === 'pc'}
             onChange={handleModeChange}
-            style={styles.radioInput}
           />
           PCファースト
         </label>
       </div>
 
       {/* ブレークポイント設定 */}
-      <Breakpoints
-        responsiveMode={responsiveMode}
-        breakpoints={breakpoints}
-        setBreakpoints={setBreakpoints}
-      />
+      <div className="breakpoints-container">
+        <h3>ブレークポイント設定</h3>
+        <table className="breakpoints-table">
+          <thead>
+            <tr>
+              <th>有効</th>
+              <th>名前</th>
+              <th>値(px)</th>
+              <th>削除</th>
+            </tr>
+          </thead>
+          <tbody>
+            {breakpoints.map((bp) => (
+              <tr key={bp.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={bp.active}
+                    onChange={() => {
+                      setBreakpoints((prev) =>
+                        prev.map((item) => (item.id === bp.id ? { ...item, active: !item.active } : item))
+                      );
+                    }}
+                    disabled={bp.name === 'md'}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={bp.name}
+                    onChange={(e) => {
+                      setBreakpoints((prev) =>
+                        prev.map((item) => (item.id === bp.id ? { ...item, name: e.target.value } : item))
+                      );
+                    }}
+                    disabled={bp.name === 'md'}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    value={bp.value}
+                    onChange={(e) => {
+                      setBreakpoints((prev) =>
+                        prev.map((item) => (item.id === bp.id ? { ...item, value: parseInt(e.target.value, 10) } : item))
+                      );
+                    }}
+                  />
+                </td>
+                <td>
+                  {bp.name !== 'md' && (
+                    <button
+                      onClick={() => {
+                        setBreakpoints((prev) => prev.filter((item) => item.id !== bp.id));
+                      }}
+                      className="remove-button"
+                    >
+                      削除
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button
+          onClick={() => {
+            setBreakpoints((prev) => [
+              ...prev,
+              { id: Date.now(), name: 'new', value: 0, active: true },
+            ]);
+          }}
+          className="add-button"
+        >
+          ブレークポイントを追加
+        </button>
+      </div>
 
       {/* 保存ボタン */}
-      <button onClick={handleSave} style={styles.saveButton}>
+      <button onClick={handleSave} className="save-button">
         保存
       </button>
     </div>
   );
-};
-
-// スタイルの定義
-const styles = {
-  radioGroup: {
-    display: 'flex',
-    gap: '20px',
-    marginBottom: '20px',
-  },
-  radioInput: {
-    accentColor: '#007bff',
-    marginRight: '5px',
-  },
-  saveButton: {
-    backgroundColor: '#007bff',
-    color: 'white',
-    padding: '10px 20px',
-    border: 'none',
-    borderRadius: '5px',
-    cursor: 'pointer',
-    fontSize: '16px',
-    width: '100%',
-    marginTop: '20px',
-    transition: 'background-color 0.3s',
-  },
 };
 
 export default ResponsiveConfig;

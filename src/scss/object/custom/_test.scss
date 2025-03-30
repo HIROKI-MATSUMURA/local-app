@@ -1,98 +1,79 @@
 @use "../../global" as *;
-
-.test {
-  color: red;
-  font-size: 2rem;
-  padding: 1rem;
-  letter-spacing: 1em;
-  background-color: $primary-color;
-}
-
-
-.about {
-  color: blue;
-  background-color: red;
-}
-.l-header {
-  display: flex;
-  justify-content: space-between;
-  background-color: rgb(64, 143, 149);
-  padding: 1rem;
-}
-
-.l-header__list {
-  list-style: none;
-  display: flex;
-  margin: 0;
-  padding: 0;
-}
-
-.l-header__item {
-  margin-left: 1rem;
-}
-
-.c-link {
-  color: rgb(255, 255, 255);
-  text-decoration: none;
-}
-
-.l-main {
-  padding: 1rem;
-}
-
-.c-hero {
-  position: relative;
-  text-align: center;
-  color: rgb(255, 255, 255);
-}
-
-.c-hero__image {
+// Information Section Styles
+.p-information {
   width: 100%;
-  height: auto;
-}
-
-.c-hero__text {
-  position: absolute;
-  bottom: 10%;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: rgba(0, 0, 0, 0.5);
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-}
-
-.c-article {
-  margin-top: 2rem;
-}
-
-.c-article__content {
   background-color: rgb(221, 240, 241);
-  padding: 1rem;
-  border-radius: 0.5rem;
+  padding: 2rem 0;
 }
 
-.l-footer {
-  background-color: rgb(13, 41, 54);
-  padding: 1rem;
+.p-information__container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.p-information__title {
   text-align: center;
+  color: rgb(13, 41, 54);
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
 }
 
-.l-footer__text {
-  
-  color: rgb(255, 255, 255);
+.p-information__subtitle {
+  text-align: center;
+  color: rgb(64, 143, 149);
+  margin-bottom: 2rem;
 }
 
-@media (min-width: 600px) {
-  .l-header {
-    padding: 2rem;
+.p-information__content {
+  display: grid;
+  grid-template-columns:1fr;
+  gap: 2rem;
+  align-items: center;
+  @include mq(md) {
+    grid-template-columns: 1fr 1fr;
   }
+}
 
-  .c-hero__text {
-    bottom: 15%;
-    padding: 1rem 2rem;
-  }
+.p-information__image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+}
 
-  .c-article__content {
-    padding: 2rem;
-  }
+.p-information__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.p-information__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.p-information__text-title {
+  color: rgb(13, 41, 54);
+  font-size: 1.5rem;
+}
+
+.p-information__text-description {
+  color: rgb(0, 0, 0);
+  line-height: 1.6;
+}
+
+.c-button.p-information__button {
+  align-self: flex-start;
+  background-color: rgb(64, 143, 149);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background-color 0.3s ease;
+}
+
+.c-button.p-information__button:hover {
+  background-color: rgb(142, 191, 195);
 }

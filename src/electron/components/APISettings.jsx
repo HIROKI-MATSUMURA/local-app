@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Header from './Header';
 
 const APISettings = () => {
   const [openaiKey, setOpenaiKey] = useState("");
@@ -67,6 +68,13 @@ const APISettings = () => {
       return;
     }
 
+    // OpenAI APIキーの簡易検証
+    if (selectedProvider === 'openai' && !openaiKey.startsWith('sk-')) {
+      if (!confirm('OpenAI APIキーは通常「sk-」から始まります。このキーを使用しますか？')) {
+        return;
+      }
+    }
+
     // Claude APIキーの簡易検証
     if (selectedProvider === 'claude' && !claudeKey.startsWith('sk-ant-')) {
       if (!confirm('Claude APIキーは通常「sk-ant-」から始まります。このキーを使用しますか？')) {
@@ -115,122 +123,112 @@ const APISettings = () => {
   };
 
   if (isLoading) {
-    return <div>API設定を読み込み中...</div>;
+    return (
+      <div className="api-settings">
+        <div className="loader">
+          <div className="spinner"></div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div style={{ padding: "20px", maxWidth: "500px", margin: "0 auto", backgroundColor: "#f9f9f9", borderRadius: "8px", boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>API設定</h2>
+    <div className="api-settings">
+      <Header
+        title="API設定"
+        description="AI機能を使用するためのAPIキーを設定します"
+      />
 
-      <div style={{ marginBottom: "20px" }}>
-        <label style={{ fontWeight: "bold", display: "block", marginBottom: "10px" }}>
-          APIプロバイダの選択:
+      <div className="provider-selection">
+        <label className="section-title">
+          APIプロバイダの選択
         </label>
-        <div style={{ display: "flex", gap: "15px", marginBottom: "20px" }}>
-          <label>
+        <div className="provider-options">
+          <div className="provider-option">
             <input
               type="radio"
+              id="provider-openai"
               name="provider"
               value="openai"
               checked={selectedProvider === "openai"}
               onChange={handleProviderChange}
-            />{" "}
-            OpenAI (GPT-4o)
-          </label>
-          <label>
+            />
+            <label htmlFor="provider-openai" className="provider-card">
+              <div className="provider-icon">🤖</div>
+              <div className="provider-name">OpenAI (GPT-4o)</div>
+              <div className="provider-check">✓</div>
+            </label>
+          </div>
+          <div className="provider-option">
             <input
               type="radio"
+              id="provider-claude"
               name="provider"
               value="claude"
               checked={selectedProvider === "claude"}
               onChange={handleProviderChange}
-            />{" "}
-            Anthropic (Claude)
-          </label>
+            />
+            <label htmlFor="provider-claude" className="provider-card">
+              <div className="provider-icon">🧠</div>
+              <div className="provider-name">Anthropic (Claude)</div>
+              <div className="provider-check">✓</div>
+            </label>
+          </div>
         </div>
+      </div>
 
-        <div style={{ marginBottom: "20px" }}>
-          <label>
-            <strong>OpenAI APIキー:</strong>
-          </label>
+      <div className="api-form">
+        <div className={`api-field ${selectedProvider === "openai" ? "active" : "inactive"}`}>
+          <div className="field-header">
+            <label className="api-label">OpenAI APIキー</label>
+          </div>
           <input
             type={showApiKeys ? "text" : "password"}
             value={openaiKey}
             onChange={(e) => setOpenaiKey(e.target.value)}
             placeholder="OpenAI APIキーを入力"
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "10px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
-              backgroundColor: selectedProvider === "openai" ? "#fff" : "#f0f0f0",
-            }}
+            className={`api-input ${selectedProvider !== "openai" ? "disabled" : ""}`}
           />
+          <div className="field-info">
+            <p>※ OpenAI APIキーは「sk-」から始まるキーを使用してください。</p>
+            <p>※ API Key Console: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">https://platform.openai.com/api-keys</a></p>
+          </div>
         </div>
 
-        <div style={{ marginBottom: "20px" }}>
-          <label>
-            <strong>Claude APIキー:</strong>
-          </label>
+        <div className={`api-field ${selectedProvider === "claude" ? "active" : "inactive"}`}>
+          <div className="field-header">
+            <label className="api-label">Claude APIキー</label>
+          </div>
           <input
             type={showApiKeys ? "text" : "password"}
             value={claudeKey}
             onChange={(e) => setClaudeKey(e.target.value)}
             placeholder="Claude APIキーを入力"
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "10px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
-              backgroundColor: selectedProvider === "claude" ? "#fff" : "#f0f0f0",
-            }}
+            className={`api-input ${selectedProvider !== "claude" ? "disabled" : ""}`}
           />
-          <div style={{ fontSize: "12px", marginTop: "5px", color: "#666" }}>
+          <div className="field-info">
             <p>※ Claude APIキーは「sk-ant-」から始まるキーを使用してください。</p>
             <p>※ API Key Console: <a href="https://console.anthropic.com/keys" target="_blank" rel="noopener noreferrer">https://console.anthropic.com/keys</a></p>
           </div>
         </div>
 
-        <div style={{ marginTop: "10px" }}>
-          <label>
-            <input
-              type="checkbox"
-              checked={showApiKeys}
-              onChange={() => setShowApiKeys((prev) => !prev)}
-            />{" "}
-            APIキーを表示
-          </label>
+        <div className="show-api-toggle">
+          <input
+            type="checkbox"
+            id="show-api-keys"
+            checked={showApiKeys}
+            onChange={() => setShowApiKeys((prev) => !prev)}
+          />
+          <label htmlFor="show-api-keys">APIキーを表示</label>
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <button
-          onClick={handleSave}
-          style={{
-            backgroundColor: "#007bff",
-            color: "white",
-            padding: "10px 20px",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          保存
+      <div className="action-buttons">
+        <button onClick={handleSave} className="save-button">
+          <span>保存</span>
         </button>
-        <button
-          onClick={handleDelete}
-          style={{
-            backgroundColor: "#dc3545",
-            color: "white",
-            padding: "10px 20px",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          削除
+        <button onClick={handleDelete} className="delete-button">
+          <span>削除</span>
         </button>
       </div>
     </div>

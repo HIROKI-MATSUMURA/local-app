@@ -1,11 +1,174 @@
 import React, { useState, useEffect, useRef } from "react";
-import "../styles/AICodeGenerator.scss";
+import { Controlled as CodeMirror } from 'react-codemirror2';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/material.css';
+import 'codemirror/mode/htmlmixed/htmlmixed';
+import 'codemirror/mode/css/css';
+import 'codemirror/addon/edit/matchbrackets';
+import 'codemirror/addon/edit/closebrackets';
+import 'codemirror/addon/comment/comment';
+import 'codemirror/addon/fold/foldcode';
+import 'codemirror/addon/fold/foldgutter';
+import 'codemirror/addon/fold/foldgutter.css';
+import 'codemirror/addon/fold/brace-fold';
+import 'codemirror/addon/fold/xml-fold';
 import CodeDisplay from "./CodeDisplay";
 import CodeGenerationSettings from "./CodeGenerationSettings";
 import { generatePrompt } from "../utils/promptGenerator";
 import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
+import "../styles/AICodeGenerator.scss";
+import 'highlight.js/styles/github.css';
+import Header from './Header';
 
 const LOCAL_STORAGE_KEY = "ai_code_generator_state";
+
+// SCSSのネスト構造を平坦化する関数
+const flattenSCSS = (scss) => {
+  if (!scss) return scss;
+
+  // 結果を格納する配列
+  const lines = scss.split('\n');
+  const result = [];
+
+  // 現在の親セレクタとインデントレベルを追跡
+  let parentSelector = null;
+  let currentIndent = 0;
+  let inComment = false;
+  let inMediaQuery = false;
+  let mediaQueryBlock = '';
+  let mediaQueryIndent = 0;
+
+  // 各行を処理
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    // コメント処理
+    if (trimmedLine.startsWith('/*')) inComment = true;
+    if (trimmedLine.endsWith('*/')) {
+      inComment = false;
+      result.push(line);
+      continue;
+    }
+    if (inComment) {
+      result.push(line);
+      continue;
+    }
+
+    // 空行の場合はそのまま追加
+    if (trimmedLine === '') {
+      result.push('');
+      continue;
+    }
+
+    // インデントレベルを計算
+    const indentMatch = line.match(/^(\s+)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
+
+    // メディアクエリ処理
+    if (trimmedLine.startsWith('@include mq(') && !inMediaQuery) {
+      inMediaQuery = true;
+      mediaQueryBlock = line;
+      mediaQueryIndent = indent;
+      continue;
+    }
+
+    if (inMediaQuery) {
+      mediaQueryBlock += '\n' + line;
+      if (trimmedLine === '}') {
+        inMediaQuery = false;
+        result.push(mediaQueryBlock);
+        mediaQueryBlock = '';
+      }
+      continue;
+    }
+
+    // セレクタ行の検出
+    if (trimmedLine.includes('{') && !trimmedLine.includes('}')) {
+      // インデントレベルが下がった場合、親セレクタをリセット
+      if (indent <= currentIndent) {
+        parentSelector = null;
+      }
+
+      // 親セレクタを記録
+      parentSelector = trimmedLine.split('{')[0].trim();
+      currentIndent = indent;
+      result.push(line);
+    }
+    // ネストされたセレクタの検出 (&__)
+    else if (trimmedLine.startsWith('&') && parentSelector) {
+      const nestedPart = trimmedLine.split('{')[0].trim();
+      // &__title { のようなパターンを.parent__titleに変換
+      if (nestedPart.startsWith('&__')) {
+        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
+        // インデントを親と同じレベルに調整
+        const spaces = ' '.repeat(currentIndent);
+        result.push(`${spaces}${newSelector}`);
+      }
+      // &:hover { のようなパターンを.parent:hoverに変換
+      else if (nestedPart.startsWith('&:')) {
+        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
+        const spaces = ' '.repeat(currentIndent);
+        result.push(`${spaces}${newSelector}`);
+      }
+    }
+    // 通常の行はそのまま追加
+    else {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+};
+
+// pxをremに変換する関数
+const convertPxToRem = (scss) => {
+  if (!scss) return scss;
+
+  // base font-size: 16px
+  const ROOT_FONT_SIZE = 16;
+
+  // 行ごとに処理
+  const lines = scss.split('\n');
+  const result = [];
+
+  // メディアクエリ内かどうかのフラグ
+  let inMediaQuery = false;
+
+  for (const line of lines) {
+    // メディアクエリの開始と終了を検出
+    if (line.includes('@include mq(')) {
+      inMediaQuery = true;
+    }
+    if (inMediaQuery && line.trim() === '}') {
+      inMediaQuery = false;
+    }
+
+    // メディアクエリ内またはborderの1pxはそのまま残す
+    if (inMediaQuery ||
+      line.includes('border') && line.includes('1px') ||
+      line.includes('box-shadow') && line.includes('px')) {
+      result.push(line);
+      continue;
+    }
+
+    // pxをremに変換（数値とpxの間にスペースがあってもマッチ）
+    let processedLine = line;
+    const pxRegex = /(\d*\.?\d+)\s*px/g;
+
+    processedLine = processedLine.replace(pxRegex, (match, pixelValue) => {
+      // 小数点第3位までの精度で変換
+      const remValue = (parseFloat(pixelValue) / ROOT_FONT_SIZE).toFixed(3);
+      // 末尾の0を削除（例：1.500rem → 1.5rem、1.000rem → 1rem）
+      const trimmedRemValue = parseFloat(remValue);
+      return `${trimmedRemValue}rem`;
+    });
+
+    result.push(processedLine);
+  }
+
+  return result.join('\n');
+};
 
 const AICodeGenerator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
@@ -13,6 +176,7 @@ const AICodeGenerator = () => {
   const [generatedCSS, setGeneratedCSS] = useState("");
   const [loading, setLoading] = useState(false);
   const [showGeneratedCode, setShowGeneratedCode] = useState(false);
+  const generatedCodeRef = useRef(null);
 
   // レスポンシブ設定
   const [responsiveMode, setResponsiveMode] = useState("sp");
@@ -48,12 +212,16 @@ const AICodeGenerator = () => {
   // 再生成用の指示
   const [regenerateInstructions, setRegenerateInstructions] = useState("");
 
+  // iframeの高さを制御する状態
+  const [iframeHeight, setIframeHeight] = useState(400); // 初期値を400pxに設定
+
   // 初期化処理（ローカルストレージから設定を読み込む）
   useEffect(() => {
     const storedResponsiveMode = localStorage.getItem("responsiveMode") || "sp";
     const storedBreakpoints = JSON.parse(localStorage.getItem("breakpoints")) || [];
     setResponsiveMode(storedResponsiveMode);
     setBreakpoints(storedBreakpoints);
+    // アクティブなブレークポイントのみを設定
     setAiBreakpoints(storedBreakpoints.filter((bp) => bp.active).map((bp) => ({ ...bp, aiActive: true })));
   }, []);
 
@@ -69,57 +237,339 @@ const AICodeGenerator = () => {
     }
   }, [generatedHTML, generatedCSS]);
 
+  // iframeのコンテンツの高さに基づいてiframeの高さを調整する関数
+  const adjustIframeHeight = () => {
+    try {
+      if (previewRef.current) {
+        const iframe = previewRef.current;
+        const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
+
+        // プレビューコンテナ要素のサイズを取得
+        const previewContainer = iframeDocument.querySelector('.preview-container');
+
+        // 実際のコンテンツ領域のサイズを取得（余白込み）
+        const bodyHeight = Math.max(
+          iframeDocument.body.scrollHeight,
+          iframeDocument.documentElement.scrollHeight,
+          iframeDocument.body.offsetHeight,
+          iframeDocument.documentElement.offsetHeight
+        );
+
+        // プレビューコンテナがある場合はその高さを優先、なければbodyの高さを使用
+        const contentHeight = previewContainer
+          ? previewContainer.offsetHeight + 40 // 余白分を追加
+          : bodyHeight;
+
+        // 高さに最小値を設定（400px以下にはならない）
+        const newHeight = Math.max(contentHeight, 400);
+
+        // 現在の高さと比較して異なる場合のみ更新（閾値：50px）
+        if (Math.abs(newHeight - iframeHeight) > 50) {
+          console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px）`);
+          setIframeHeight(newHeight);
+        }
+      }
+    } catch (error) {
+      console.error("iframeの高さ調整中にエラーが発生しました:", error);
+    }
+  };
+
+  // コンテンツが変更された場合にiframeの高さを調整
+  useEffect(() => {
+    if (previewRef.current && editingHTML && editingCSS) {
+      // 小さな遅延を入れてからiframeの高さを調整
+      const adjustHeightWithDelay = () => {
+        setTimeout(() => {
+          adjustIframeHeight();
+        }, 300); // 300ミリ秒後に高さを調整
+      };
+
+      // コンテンツが読み込まれた後に高さを調整
+      const iframe = previewRef.current;
+      iframe.onload = adjustHeightWithDelay;
+
+      // 初回レンダリング後にも高さを調整
+      adjustHeightWithDelay();
+
+      // オブザーバーを設定して動的なコンテンツ変更を監視
+      try {
+        const iframeWindow = iframe.contentWindow;
+        if (iframeWindow) {
+          // リサイズイベントのリスナーを追加
+          iframeWindow.addEventListener('resize', adjustHeightWithDelay);
+
+          // MutationObserverを使用してDOMの変更を監視
+          const iframeDocument = iframe.contentDocument || iframeWindow.document;
+          const iframeContentObserver = new MutationObserver(() => {
+            // 変更が検出されたら少し遅延させて高さを調整
+            adjustHeightWithDelay();
+          });
+
+          iframeContentObserver.observe(iframeDocument.body, {
+            childList: true,
+            subtree: true,
+            attributes: true
+          });
+
+          // 高さを更新する関数を定義
+          const updateHeight = () => {
+            adjustIframeHeight();
+          };
+
+          // 遅延して高さを更新する関数
+          const debouncedUpdateHeight = () => {
+            clearTimeout(window.resizeTimer);
+            window.resizeTimer = setTimeout(updateHeight, 100);
+          };
+
+          // ページ読み込み完了時に実行
+          window.addEventListener('load', function () {
+            // すぐに一度実行
+            updateHeight();
+          });
+
+          // リサイズイベント時も高さを更新
+          window.addEventListener('resize', debouncedUpdateHeight);
+        }
+      } catch (error) {
+        console.error("iframe観測設定中にエラーが発生しました:", error);
+      }
+    }
+  }, [editingHTML, editingCSS, previewWidth]); // previewWidthも依存関係に追加
+
   // プレビュー更新
   useEffect(() => {
     if (previewRef.current && editingHTML && editingCSS) {
       try {
         // SCSSの@includeをCSSメディアクエリに変換する処理
-        let processedCSS = editingCSS;
+        let processedCSS = editingCSS || '';
 
-        // mixinを処理する（@include mq(md) { ... } を対応するメディアクエリに変換）
+        // 抽出した色情報から変数の色を決定する
+        // PC/SP画像から抽出した色を優先的に使用
+        const extractedColors = pcColors.length > 0 ? pcColors : spColors;
+
+        // デフォルトの色値
+        const defaultColors = {
+          '$primary-color': '#0D2936',
+          '$secondary-color': '#DDF0F1',
+          '$accent-color': '#408F95'
+        };
+
+        // ローカルストレージから保存されている色を読み込み
+        const storedPrimaryColor = localStorage.getItem("primary-color");
+        const storedSecondaryColor = localStorage.getItem("secondary-color");
+        const storedAccentColor = localStorage.getItem("accent-color");
+
+        // ローカルストレージの値があればデフォルト値を上書き
+        const colorValues = { ...defaultColors };
+        if (storedPrimaryColor) colorValues['$primary-color'] = storedPrimaryColor;
+        if (storedSecondaryColor) colorValues['$secondary-color'] = storedSecondaryColor;
+        if (storedAccentColor) colorValues['$accent-color'] = storedAccentColor;
+
+        // 色が設定されていない場合のみ、抽出した色を使用
+        if (extractedColors.length > 0 && (!storedPrimaryColor || !storedSecondaryColor || !storedAccentColor)) {
+          // 明るい色を背景色（primary）に、濃い色をアクセント色に設定
+          const sortedColors = [...extractedColors].sort((a, b) => {
+            // 明度でソート（HSLに変換して比較）
+            const getHSL = (hex) => {
+              // 簡易的なRGB→HSL変換（明度のみで判断）
+              const r = parseInt(hex.slice(1, 3), 16) / 255;
+              const g = parseInt(hex.slice(3, 5), 16) / 255;
+              const b = parseInt(hex.slice(5, 7), 16) / 255;
+              const max = Math.max(r, g, b);
+              const min = Math.min(r, g, b);
+              return (max + min) / 2; // 明度
+            };
+            return getHSL(b) - getHSL(a); // 明るい色が先頭に来るようにソート
+          });
+
+          // ローカルストレージに保存されていない色のみ、抽出した色で上書き
+          if (!storedPrimaryColor && sortedColors.length > 0) {
+            colorValues['$primary-color'] = sortedColors[0];
+          }
+
+          if (!storedSecondaryColor && sortedColors.length > 1) {
+            colorValues['$secondary-color'] = sortedColors[Math.floor(sortedColors.length / 2)];
+          }
+
+          if (!storedAccentColor && sortedColors.length > 2) {
+            colorValues['$accent-color'] = sortedColors[sortedColors.length - 1];
+          }
+        }
+
+        // これらの色変数をプレビュー時に使用
+        console.log("プレビューに使用する色変数:", colorValues);
+
+        // SCSS変数を実際の色値に置換
+        Object.entries(colorValues).forEach(([variable, value]) => {
+          const regex = new RegExp(variable.replace('$', '\\$'), 'g');
+          processedCSS = processedCSS.replace(regex, value);
+        });
+
+        // メディアクエリの変換処理
         if (breakpoints && breakpoints.length > 0) {
-          // ブレークポイントを取得してmapを作成
+          // アクティブなブレークポイントのマップを作成
           const bpMap = {};
           breakpoints.forEach(bp => {
             if (bp.active) {
               bpMap[bp.name] = bp.value;
+              console.log(`ブレークポイント "${bp.name}" (${bp.value}px) を使用します`);
             }
           });
 
-          console.log("レスポンシブプレビューに使用するブレークポイント:", bpMap);
+          // メディアクエリのパターンを修正
+          const processMediaQueries = (css) => {
+            // セレクタとその中身を含むパターン
+            const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]+)}/g;
+            let processedCss = css;
+            let match;
 
-          // @include mq(BREAKPOINT_NAME) { ... } パターンを検出して置換
-          // マッチパターン: @include mq(md) { ... } （括弧内の任意の内容を含む）
-          const mqPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]*)}/g;
+            while ((match = mqBlockPattern.exec(css)) !== null) {
+              const [fullMatch, bpName, content] = match;
+              // 設定されているブレークポイントのみを処理
+              if (bpMap[bpName]) {
+                const mediaQueryStart = responsiveMode === "sp"
+                  ? `@media (min-width: ${bpMap[bpName]}px)`
+                  : `@media (max-width: ${bpMap[bpName]}px)`;
 
-          processedCSS = processedCSS.replace(mqPattern, (match, bpName, content) => {
-            // ブレークポイント名が見つかった場合、対応するメディアクエリに変換
-            if (bpMap[bpName]) {
-              return `@media (min-width: ${bpMap[bpName]}px) {${content}}`;
+                // セレクタと中身を抽出
+                const contentLines = content.trim().split('\n');
+                const processedContent = contentLines
+                  .map(line => line.trim())
+                  .filter(line => line)
+                  .join('\n  ');
+
+                const replacement = `${mediaQueryStart} {\n  ${processedContent}\n}`;
+                processedCss = processedCss.replace(fullMatch, replacement);
+
+                console.log(`メディアクエリを変換: ${bpName} → ${mediaQueryStart}`);
+              } else {
+                // 未設定のブレークポイントは削除
+                processedCss = processedCss.replace(fullMatch, '');
+                console.warn(`未設定のブレークポイント "${bpName}" をスキップします`);
+              }
             }
-            // 見つからなかった場合はそのまま
-            console.warn(`ブレークポイント "${bpName}" が設定に見つかりません`);
-            return match;
-          });
 
-          console.log("メディアクエリ変換後のCSS:", processedCSS.substring(0, 100) + "...");
+            return processedCss;
+          };
+
+          // メディアクエリの変換を適用
+          processedCSS = processMediaQueries(processedCSS);
+          console.log("メディアクエリの変換が完了しました");
         }
 
+        // デフォルトのスタイル（プレビュー用）
+        let baseCSS = `
+          body {
+            margin: 0;
+            padding: 0;
+            font-family: "Noto Sans JP", sans-serif;
+            width: 100%;
+            min-height: 100vh;
+            overflow-x: hidden;
+          }
+          img[src^="path-to-"] {
+            background-color: #ccc;
+            min-height: 100px;
+            max-width: 100%;
+            object-fit: cover;
+          }
+          /* 横幅100%のコンポーネントがiframeの外にはみ出さないようにするため */
+          .c-information {
+            box-sizing: border-box;
+            max-width: 100%;
+          }
+        `;
+
+        // より確実なレンダリングのため、DOCTYPE宣言を追加
         const doc = previewRef.current.contentDocument;
         doc.open();
+
+        // テンプレートリテラル内のスクリプトでの変数名の衝突を避けるため
+        const scriptContent = `
+          // 親ウィンドウに高さを通知するシンプルなスクリプト
+          function updateHeight() {
+            // コンテンツの高さを計算
+            const previewContainer = document.querySelector('.preview-container');
+
+            let contentHeight;
+            if (previewContainer) {
+              contentHeight = previewContainer.getBoundingClientRect().height;
+            } else {
+              contentHeight = Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight,
+                document.body.offsetHeight,
+                document.documentElement.offsetHeight
+              );
+            }
+
+            // 余裕を持たせる
+            const heightWithMargin = Math.ceil(contentHeight) + 20;
+
+            // 親ウィンドウに通知
+            if (window.parent) {
+              window.parent.postMessage({
+                type: 'resize',
+                height: heightWithMargin
+              }, '*');
+            }
+          }
+
+          // 画像の読み込み完了時に高さを更新
+          window.addEventListener('load', function() {
+            // 初期実行
+            updateHeight();
+
+            // 少し遅延して再実行（CSS適用後）
+            setTimeout(updateHeight, 300);
+
+            // 画像の読み込み完了時にも高さを更新
+            document.querySelectorAll('img').forEach(img => {
+              if (!img.complete) {
+                img.addEventListener('load', updateHeight);
+              }
+            });
+          });
+
+          // リサイズ時に高さを更新
+          window.addEventListener('resize', function() {
+            clearTimeout(window.resizeTimer);
+            window.resizeTimer = setTimeout(updateHeight, 100);
+          });
+        `;
+
         doc.write(`
+          <!DOCTYPE html>
           <html>
             <head>
+              <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <style>${processedCSS}</style>
               <style>
-                body {
-                  margin: 0;
-                  padding: 0;
+                ${baseCSS}
+                ${processedCSS}
+                /* レスポンシブ表示のためのコンテナスタイル */
+                .preview-container {
+                  width: 100%;
+                  max-width: ${previewWidth}px;
+                  margin: 0 auto;
+                  box-sizing: border-box;
+                }
+                /* すべての画像にブロック表示を適用 */
+                img {
+                  display: block;
+                  max-width: 100%;
                 }
               </style>
+              <script>
+                ${scriptContent}
+              </script>
             </head>
-            <body>${editingHTML}</body>
+            <body>
+              <div class="preview-container">
+                ${editingHTML}
+              </div>
+            </body>
           </html>
         `);
         doc.close();
@@ -127,7 +577,7 @@ const AICodeGenerator = () => {
         console.error("プレビュー更新エラー:", error);
       }
     }
-  }, [editingHTML, editingCSS, breakpoints, previewWidth]);
+  }, [editingHTML, editingCSS, breakpoints, previewWidth, responsiveMode, pcColors, spColors]);
 
   // スケールの計算
   const calculateScale = () => {
@@ -340,62 +790,111 @@ const AICodeGenerator = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const fileUrl = URL.createObjectURL(file);
-    const reader = new FileReader();
+    console.log(`画像アップロード開始: ${file.name}, タイプ: ${type}, サイズ: ${Math.round(file.size / 1024)}KB`);
 
-    reader.onload = async () => {
-      const base64 = reader.result;
-      console.log(`アップロードされた画像: ${file.name}, サイズ: ${Math.round(file.size / 1024)}KB, タイプ: ${file.type}`);
+    try {
+      // FileReaderを使用してデータURLを作成
+      const reader = new FileReader();
 
-      try {
-        // 画像を処理
-        const processedImage = await processImage(base64);
-        console.log(`画像処理が完了しました: メディアタイプ=${processedImage.mediaType}`);
+      reader.onload = async (event) => {
+        const dataUrl = event.target.result;
+        console.log(`画像をデータURLに変換しました: ${dataUrl.substring(0, 50)}...`);
 
+        // プレビュー用の状態を更新
         if (type === "pc") {
+          console.log("PC画像プレビューを設定中...");
           setPcImage({
             fileName: file.name,
-            preview: fileUrl,
-            mimeType: processedImage.mediaType
+            preview: dataUrl,
+            mimeType: file.type
           });
-          setPcImageBase64(processedImage.base64);
-          // 色抽出処理
-          try {
-            setPcColors(await extractColorsFromImage(processedImage.base64));
-            console.log("PC画像の色を抽出しました");
-          } catch (error) {
-            console.error("PC画像の色抽出エラー:", error);
-          }
         } else {
+          console.log("SP画像プレビューを設定中...");
           setSpImage({
             fileName: file.name,
-            preview: fileUrl,
-            mimeType: processedImage.mediaType
+            preview: dataUrl,
+            mimeType: file.type
           });
-          setSpImageBase64(processedImage.base64);
-          // 色抽出処理
-          try {
-            setSpColors(await extractColorsFromImage(processedImage.base64));
-            console.log("SP画像の色を抽出しました");
-          } catch (error) {
-            console.error("SP画像の色抽出エラー:", error);
-          }
         }
 
-        console.log(`画像の処理が完了しました（${type}）`);
-      } catch (error) {
-        console.error("画像処理エラー:", error);
-        alert(`画像の処理中にエラーが発生しました: ${error.message}`);
-      }
-    };
+        try {
+          // 画像を処理
+          const processedImage = await processImage(dataUrl);
+          console.log(`画像処理が完了しました: メディアタイプ=${processedImage.mediaType}`);
 
-    reader.readAsDataURL(file);
+          if (type === "pc") {
+            setPcImageBase64(processedImage.base64);
+            console.log("PC画像のBase64データを設定しました");
+
+            // 色抽出処理
+            try {
+              const colors = await extractColorsFromImage(processedImage.base64);
+              setPcColors(colors);
+              console.log(`PC画像の色を抽出しました: ${colors.length}色`);
+            } catch (error) {
+              console.error("PC画像の色抽出エラー:", error);
+            }
+          } else {
+            setSpImageBase64(processedImage.base64);
+            console.log("SP画像のBase64データを設定しました");
+
+            // 色抽出処理
+            try {
+              const colors = await extractColorsFromImage(processedImage.base64);
+              setSpColors(colors);
+              console.log(`SP画像の色を抽出しました: ${colors.length}色`);
+            } catch (error) {
+              console.error("SP画像の色抽出エラー:", error);
+            }
+          }
+
+          console.log(`画像の処理が完了しました（${type}）`);
+        } catch (error) {
+          console.error("画像処理エラー:", error);
+          alert(`画像の処理中にエラーが発生しました: ${error.message}`);
+        }
+      };
+
+      reader.onerror = (error) => {
+        console.error("FileReader エラー:", error);
+        alert(`画像の読み込み中にエラーが発生しました`);
+      };
+
+      console.log("FileReaderでDataURLとして読み込み開始...");
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("画像処理中にエラーが発生しました:", error);
+      alert(`画像の処理中にエラーが発生しました: ${error.message}`);
+    }
   };
 
   // 編集したコードを反映
   const handleUpdateCode = () => {
+    // SCSSのネスト構造を検出した場合は自動的に平坦化
+    const processedCss = flattenSCSS(editingCSS);
+
+    // pxをremに変換
+    const remCss = convertPxToRem(processedCss);
+
+    // 処理済みのCSSが元のものと異なる場合はユーザーに通知
+    let message = '';
+    if (processedCss !== editingCSS) {
+      console.log("ネストされたSCSS構造を平坦化しました");
+      message += "SCSSのネスト構造を検出したため、自動的に平坦化しました。FLOCSSに沿った構造に変換されています。\n";
+    }
+
+    if (remCss !== processedCss) {
+      console.log("pxの単位をremに変換しました");
+      message += "pxの単位を検出したため、自動的にremに変換しました（基準: 16px = 1rem）。\n";
+    }
+
+    if (message) {
+      alert(message);
+    }
+
     setGeneratedHTML(editingHTML);
-    setGeneratedCSS(editingCSS);
+    setGeneratedCSS(remCss);
+    setEditingCSS(remCss);
   };
 
   // 再生成処理
@@ -421,29 +920,82 @@ const AICodeGenerator = () => {
       console.log("再生成開始", regenerateInstructions);
 
       const regeneratePrompt = `
-以下のHTMLとCSSの構造を維持したまま、指示に基づいた修正のみを行ってください。
-元のレイアウト、要素の配置、クラス名は可能な限り維持してください。
+Modify the HTML and CSS below based on the instructions while maintaining the original structure.
+Keep the original layout, element placement, and class names as much as possible.
 
-修正内容: ${regenerateInstructions}
+Modification: ${regenerateInstructions}
 
-HTML（この構造と要素を基本的に維持してください）:
+HTML (maintain this structure and elements):
 \`\`\`html
 ${editingHTML}
 \`\`\`
 
-SCSS（このスタイル構造を基本的に維持してください）:
+SCSS (maintain this style structure):
 \`\`\`scss
 ${editingCSS}
 \`\`\`
 
-## ガイドライン:
-1. 元のHTML要素とクラス名を維持する
-2. 元のCSSセレクタと基本構造を維持する
-3. 特に指示がない限り、新しい要素やクラスを追加しない
-4. 指示されたポイントのみを変更し、それ以外はそのまま保持する
+## Guidelines:
+1. Maintain original HTML elements and class names
+2. Maintain original CSS selectors and basic structure
+3. Don't add new elements or classes unless specified
+4. Only change what's requested, keep everything else the same
+5. Apply display: block; to all image (img) elements
+6. Wrap inline elements like anchor tags (a) with div tags
+7. Use single class names for component elements (buttons, etc.) and avoid multiple class combinations
 
-返答は必ずHTML部分とSCSS部分の両方を含めてください。
-\`\`\`html\`と\`\`\`scss\`のフォーマットで出力してください。
+## SCSS Rules:
+- **❌ NO NESTING IN SCSS! ❌** - Critical requirement
+- **⚠️ WARNING: No nested selectors using & operator**
+- **✅ ONLY exception: @include mq() media queries**
+
+### Correct SCSS structure (follow this):
+
+\`\`\`scss
+/* Correct: Each selector written individually */
+.c-card {
+  background-color: white;
+  padding: 20px;
+}
+
+.c-card__title {
+  font-size: 1.25rem;
+  color: $primary-color;
+}
+
+.c-card__content {
+  font-size: 1rem;
+}
+
+.c-card:hover {
+  background-color: #f9f9f9;
+}
+\`\`\`
+
+### Incorrect SCSS structure (avoid):
+
+\`\`\`scss
+/* Incorrect: Using & operator for nesting */
+.c-card {
+  background-color: white;
+
+  &__title {  /* Never do this! */
+    font-size: 1.25rem;
+  }
+
+  &__content {  /* Never do this! */
+    font-size: 1rem;
+  }
+
+  &:hover {  /* Never do this! */
+    background-color: #f9f9f9;
+  }
+}
+\`\`\`
+
+Include both HTML and SCSS parts in your response.
+Output in \`\`\`html\` and \`\`\`scss\` format.
+Always use flat SCSS structure without nesting.
 `;
 
       console.log("window.api:", window.api ? "存在します" : "存在しません");
@@ -490,15 +1042,59 @@ ${editingCSS}
       console.log("再生成で抽出された CSS:", cssMatch ? cssMatch[0] : "なし");
 
       // 編集フォームの内容を更新
-      if (htmlMatch) setEditingHTML(htmlMatch[0]);
-      if (cssMatch) setEditingCSS(cssMatch[0].includes("<style>") ? cssMatch[0].replace(/<\/?style>/g, "") : cssMatch[0]);
+      if (htmlMatch) {
+        const htmlContent = htmlMatch[0];
+        console.log("新しいHTMLを設定:", htmlContent.substring(0, 50) + "...");
+        setEditingHTML(htmlContent);
+        setGeneratedHTML(htmlContent); // 表示用の状態も同時に更新
+      }
 
-      // 表示用の状態も同時に更新
-      if (htmlMatch) setGeneratedHTML(htmlMatch[0]);
-      if (cssMatch) setGeneratedCSS(cssMatch[0].includes("<style>") ? cssMatch[0].replace(/<\/?style>/g, "") : cssMatch[0]);
+      if (cssMatch) {
+        const cssContent = cssMatch[0].includes("<style>")
+          ? cssMatch[0].replace(/<\/?style>/g, "")
+          : cssMatch[0];
+        console.log("新しいCSSを設定:", cssContent.substring(0, 50) + "...");
+        // SCSSのネスト構造を検出してフラット化
+        const flattenedCSS = flattenSCSS(cssContent);
+
+        // ネスト構造が検出されたかどうかチェック
+        if (flattenedCSS !== cssContent) {
+          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+          // 次回のAI生成時の参考情報として表示
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
+        }
+
+        // pxをremに変換
+        const remCSS = convertPxToRem(flattenedCSS);
+        setEditingCSS(remCSS);
+        setGeneratedCSS(remCSS); // 表示用の状態も同時に更新
+      }
+
+      // 再生成完了メッセージ
+      console.log("コードの再生成が完了し、編集・表示タブ両方のコードを更新しました");
+
+      // 編集タブに切り替え - ユーザーがすぐに編集できるようにする
+      setIsEditing(true);
 
       // 指示をクリア
       setRegenerateInstructions("");
+
+      // 生成されたコードをステートに設定
+      setGeneratedCode(generatedCode);
+      setGeneratedHTML(htmlMatch ? htmlMatch[0] : editingHTML);
+      setGeneratedCSS(cssMatch ? convertPxToRem(flattenSCSS(cssMatch[0].includes("<style>") ? cssMatch[0].replace(/<\/?style>/g, "") : cssMatch[0])) : editingCSS);
+      setShowGeneratedCode(true);
+
+      // 画面を生成されたコードセクションまでスクロール
+      setTimeout(() => {
+        if (generatedCodeRef.current) {
+          generatedCodeRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+          console.log("再生成後、コードセクションまでスクロールしました");
+        }
+      }, 500);
 
     } catch (error) {
       console.error("再生成エラー:", error);
@@ -546,20 +1142,27 @@ ${editingCSS}
         console.error("プロンプト生成でエラーが発生:", promptError);
         // エラー時はデフォルトのプロンプトを使用
         prompt = `
-HTMLとSCSSコードを生成してください。
-画像に表示されている要素のみを正確にコード化してください。見えない要素や推測による補完は行わないでください。正確に画像の内容を反映したHTMLとCSSのみをデザインに忠実に生成してください。
+Generate HTML and SCSS code based on the image.
+Code only what is visible in the image without adding invisible elements or making assumptions.
+Create HTML and CSS that accurately reflect the design shown in the image.
 
-以下の要素を含む、ダイビング情報サイトのセクションを作成してください：
+Follow these coding guidelines:
+1. Apply display: block; to all image (img) elements
+2. Wrap inline elements like anchor tags (a) with div tags
+3. Use single class names for component elements (buttons, etc.) and avoid multiple class combinations
+4. Write SCSS with flat structure, no nesting (except media queries)
 
-- 「Information」というタイトル
-- 「ダイビング情報」という日本語のサブタイトル
-- サンゴ礁と黄色い熱帯魚の画像
-- 「ライセンス講習」というセクション見出し
-- PADIダイビングライセンス（Cカード）についての説明文
-- 「View more」ボタン
-- 水色の背景
+Create a diving information website section with:
 
-\`\`\`html\` と \`\`\`scss\` でそれぞれのコードを提供してください。
+- "Information" title
+- "ダイビング情報" Japanese subtitle
+- Image of coral reef with yellow tropical fish
+- "ライセンス講習" section heading
+- Description of PADI diving license (C-card)
+- "View more" button
+- Light blue background
+
+Provide code in \`\`\`html\` and \`\`\`scss\` format.
 `;
       }
 
@@ -660,11 +1263,36 @@ HTMLとSCSSコードを生成してください。
           return;
         }
 
+        // SCSSのネスト構造を検出してフラット化
+        const flattenedCSS = flattenSCSS(css);
+
+        // ネスト構造が検出されたかどうかチェック
+        if (flattenedCSS !== css) {
+          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+          // 次回のAI生成時の参考情報として表示
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
+        }
+
+        // pxをremに変換
+        const remCSS = convertPxToRem(flattenedCSS);
+
         // 生成されたコードをステートに設定
         setGeneratedCode(generatedCode);
         setGeneratedHTML(html);
-        setGeneratedCSS(css);
+        setGeneratedCSS(remCSS);
         setShowGeneratedCode(true);
+
+        // 画面を生成されたコードセクションまでスクロール
+        setTimeout(() => {
+          if (generatedCodeRef.current) {
+            generatedCodeRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+            console.log("再生成後、コードセクションまでスクロールしました");
+          }
+        }, 500);
+
       } catch (innerError) {
         console.error("generateCode関数の呼び出しエラー:", innerError);
 
@@ -688,81 +1316,207 @@ HTMLとSCSSコードを生成してください。
     }
   };
 
+  // コードのみリセット処理
+  const handleResetCode = () => {
+    // 生成されたコードをクリア
+    setGeneratedCode("");
+    setGeneratedHTML("");
+    setGeneratedCSS("");
+    setEditingHTML("");
+    setEditingCSS("");
+    setShowGeneratedCode(false);
+
+    // 再生成指示をクリア
+    setRegenerateInstructions("");
+
+    console.log("生成コードをリセットしました（画像は保持）");
+  };
+
+  // 全てのデータをリセット（既存のhandleResetを改名）
+  const handleResetAll = () => {
+    // 生成されたコードをクリア
+    setGeneratedCode("");
+    setGeneratedHTML("");
+    setGeneratedCSS("");
+    setEditingHTML("");
+    setEditingCSS("");
+    setShowGeneratedCode(false);
+
+    // 画像をクリア
+    setPcImage(null);
+    setSpImage(null);
+    setPcImageBase64(null);
+    setSpImageBase64(null);
+
+    // 画像解析結果をクリア
+    setPcColors([]);
+    setSpColors([]);
+    setPcText("");
+    setSpText("");
+
+    // 再生成指示をクリア
+    setRegenerateInstructions("");
+
+    console.log("すべての生成データをリセットしました");
+  };
+
+  // iframeからのメッセージを受け取るイベントリスナー
+  useEffect(() => {
+    // iframeからの高さ更新メッセージをリスン
+    const handleMessage = (event) => {
+      if (event.data && event.data.type === 'resize' && typeof event.data.height === 'number') {
+        const newHeight = Math.max(event.data.height, 400); // 最小高さは400px
+        console.log(`iframeから高さ通知を受信: ${newHeight}px`);
+        setIframeHeight(newHeight);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    // クリーンアップ
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
+
   return (
     <div className="ai-code-generator">
-      <h2>AIコードジェネレーター</h2>
-
-      {/* 設定表示 */}
-      <CodeGenerationSettings
-        responsiveMode={responsiveMode}
-        setResponsiveMode={setResponsiveMode}
-        breakpoints={breakpoints}
-        setBreakpoints={setBreakpoints}
-        aiBreakpoints={aiBreakpoints}
-        setAiBreakpoints={setAiBreakpoints}
+      <Header
+        title="AIコード生成"
+        description="AIを活用してデザイン画像からHTMLとCSSを自動生成します"
       />
 
-      {/* 画像アップロード */}
-      <div className="form-group">
-        <label>画像をアップロード:</label>
-        <div className="image-container">
-          {/* PC用 */}
-          <div className="image-preview">
-            <h4>PC用画像</h4>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleImageUpload(e, "pc")}
-            />
-            {pcImage && (
-              <>
-                <img src={pcImage.preview} alt="PC用画像" />
-                <p>{pcImage.fileName}</p>
-                <button
-                  onClick={() => setPcImage(null)}
-                  className="delete-button"
-                >
-                  削除
-                </button>
-              </>
-            )}
-          </div>
-          {/* SP用 */}
-          <div className="image-preview">
-            <h4>SP用画像</h4>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleImageUpload(e, "sp")}
-            />
-            {spImage && (
-              <>
-                <img src={spImage.preview} alt="SP用画像" />
-                <p>{spImage.fileName}</p>
-                <button
-                  onClick={() => setSpImage(null)}
-                  className="delete-button"
-                >
-                  削除
-                </button>
-              </>
-            )}
+      <div className="upload-section">
+        <div
+          className={`upload-area ${pcImage ? 'has-image' : ''}`}
+          onClick={() => document.getElementById('pc-image-input').click()}
+        >
+          {pcImage ? (
+            <div className="image-preview-container">
+              <img
+                src={pcImage.preview}
+                alt="PC Preview"
+                className="preview-image"
+                onError={(e) => {
+                  console.error("画像の読み込みに失敗しました", e);
+                  e.target.style.display = 'none';
+                }}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="upload-icon">🖥️</div>
+              <div className="upload-text">PC用デザイン画像をアップロード</div>
+              <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+            </>
+          )}
+          <input
+            type="file"
+            id="pc-image-input"
+            accept="image/*"
+            onChange={(e) => handleImageUpload(e, 'pc')}
+            style={{ display: 'none' }}
+          />
+        </div>
+
+        <div
+          className={`upload-area ${spImage ? 'has-image' : ''}`}
+          onClick={() => document.getElementById('sp-image-input').click()}
+        >
+          {spImage ? (
+            <div className="image-preview-container">
+              <img
+                src={spImage.preview}
+                alt="SP Preview"
+                className="preview-image"
+                onError={(e) => {
+                  console.error("画像の読み込みに失敗しました", e);
+                  e.target.style.display = 'none';
+                }}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="upload-icon">📱</div>
+              <div className="upload-text">SP用デザイン画像をアップロード</div>
+              <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+            </>
+          )}
+          <input
+            type="file"
+            id="sp-image-input"
+            accept="image/*"
+            onChange={(e) => handleImageUpload(e, 'sp')}
+            style={{ display: 'none' }}
+          />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2>生成設定</h2>
+        <div className="settings-grid">
+          <div className="setting-group">
+            <label className="setting-label">レスポンシブ設定</label>
+            <div className="responsive-settings-display">
+              <div className="responsive-settings-header">
+                <div className="responsive-mode">
+                  <span className="label">モード</span>
+                  <div className="mode-badge">
+                    <span className="mode-icon">{responsiveMode === "sp" ? "📱" : "🖥️"}</span>
+                    <span className="mode-text">{responsiveMode === "sp" ? "SP優先" : "PC優先"}</span>
+                  </div>
+                </div>
+                <div className="breakpoints-summary">
+                  <span className="label">適用ブレークポイント</span>
+                  <div className="breakpoint-list">
+                    {aiBreakpoints
+                      .filter(bp => bp.aiActive && bp.active)
+                      .sort((a, b) => a.value - b.value)
+                      .map(bp => (
+                        <div key={bp.name} className="breakpoint-item">
+                          <span className="bp-name">{bp.name}</span>
+                          <span className="bp-px">({bp.value}px)</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ボタン */}
       <button
+        className={`generate-button ${loading ? 'loading' : ''}`}
         onClick={handleGenerateCode}
-        disabled={loading || (!pcImageBase64 && !spImageBase64)}
-        style={{ marginBottom: '20px' }}
+        disabled={loading || (!pcImage && !spImage)}
       >
         {loading ? "生成中..." : "コードを生成"}
       </button>
 
-      {/* 生成されたコードの表示 */}
       {showGeneratedCode && (
-        <div className="generated-code-container">
+        <div className="reset-buttons-container">
+          <button
+            className="reset-code-button"
+            onClick={handleResetCode}
+            disabled={loading}
+            title="生成したコードのみをリセットします。アップロードした画像は保持されます。"
+          >
+            コードをリセット
+          </button>
+          <button
+            className="reset-all-button"
+            onClick={handleResetAll}
+            disabled={loading}
+            title="生成したコードとアップロードした画像を含むすべてのデータをリセットします。"
+          >
+            すべてリセット
+          </button>
+        </div>
+      )}
+
+      {showGeneratedCode && (
+        <div className="generated-code-container" ref={generatedCodeRef}>
           <div className="tabs">
             <button
               onClick={() => setIsEditing(false)}
@@ -782,23 +1536,81 @@ HTMLとSCSSコードを生成してください。
             <div className="code-editor-container">
               <div className="html-editor">
                 <h3>HTML</h3>
-                <textarea
+                <CodeMirror
                   value={editingHTML}
-                  onChange={(e) => setEditingHTML(e.target.value)}
-                  rows={10}
+                  options={{
+                    mode: 'text/html',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingHTML(value);
+                  }}
+                  className="code-editor-wrapper"
                 />
               </div>
 
               <div className="css-editor">
                 <h3>CSS</h3>
-                <textarea
+                <CodeMirror
                   value={editingCSS}
-                  onChange={(e) => setEditingCSS(e.target.value)}
-                  rows={10}
+                  options={{
+                    mode: 'text/x-scss',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingCSS(value);
+                  }}
+                  className="code-editor-wrapper"
                 />
               </div>
 
-              <button onClick={handleUpdateCode} className="update-button">
+              <div className="editor-hint">
+                <p><span>💡</span> タブや自動インデント、シンタックスハイライトに対応</p>
+              </div>
+
+              <button className="update-button" onClick={handleUpdateCode}>
                 変更を適用
               </button>
             </div>
@@ -806,10 +1618,12 @@ HTMLとSCSSコードを生成してください。
             <CodeDisplay htmlCode={generatedHTML} cssCode={generatedCSS} />
           )}
 
-          {/* プレビュー表示 */}
           <div className="preview-container" ref={previewContainerRef}>
             <div className="preview-header">
-              <h3>プレビュー</h3>
+              <div className="preview-title">
+                <h3>コードプレビュー {previewWidth}px</h3>
+                {isDragging && <span className="preview-size">{previewWidth}px</span>}
+              </div>
               <div className="preview-controls">
                 <div className="preview-size-buttons">
                   <button
@@ -853,7 +1667,9 @@ HTMLとSCSSコードを生成してください。
                       max="2560"
                     />
                     <span>px</span>
-                    <button onClick={applyCustomSize} className="apply-button">適用</button>
+                    <button className="apply-button" onClick={applyCustomSize}>
+                      適用
+                    </button>
                   </div>
                 ) : (
                   <div className="preview-size-display">
@@ -863,48 +1679,39 @@ HTMLとSCSSコードを生成してください。
               </div>
             </div>
             <div
-              className="preview-frame-container"
+              className="preview-iframe-container"
+              style={{
+                width: `${previewWidth}px`,
+                transform: `scale(${scaleRatio})`,
+                transformOrigin: 'top left',
+                minHeight: `${iframeHeight * scaleRatio}px` // コンテナの高さもiframeの高さに合わせて調整
+              }}
             >
-              <div
-                className="preview-frame"
-                style={{
-                  width: `${previewWidth}px`,
-                  maxWidth: '100%',
-                  height: '400px'
-                }}
-              >
-                <iframe
-                  ref={previewRef}
-                  title="コードプレビュー"
-                  className="code-preview"
-                  sandbox="allow-same-origin allow-scripts"
-                  style={{ width: '100%', height: '100%' }}
-                />
-              </div>
-              <div
-                className="preview-resizer"
-                onMouseDown={handleDragStart}
-              >
-                <div className="resizer-handle"></div>
-              </div>
+              <iframe
+                ref={previewRef}
+                title="Preview"
+                className="preview-iframe"
+                style={{ width: `${previewWidth}px`, height: `${iframeHeight}px` }}
+                scrolling="auto"
+              ></iframe>
             </div>
           </div>
 
-          {/* 再生成フォーム */}
           <div className="regenerate-form">
             <h3>コードの再生成</h3>
             <textarea
               value={regenerateInstructions}
               onChange={(e) => setRegenerateInstructions(e.target.value)}
-              placeholder="例: ヘッダーの背景色を青に変更してください。ボタンを角丸にしてください。など"
-              rows={3}
+              className="regenerate-textarea"
+              placeholder="コードの修正指示を入力してください"
+              rows={6}
             />
             <button
+              className={`regenerate-button ${loading ? 'loading' : ''}`}
               onClick={handleRegenerate}
               disabled={loading || !regenerateInstructions.trim()}
-              className="regenerate-button"
             >
-              {loading ? "処理中..." : "指示に基づき再生成"}
+              {loading ? "" : "再生成"}
             </button>
           </div>
         </div>

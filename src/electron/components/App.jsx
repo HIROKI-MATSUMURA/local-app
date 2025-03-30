@@ -5,11 +5,25 @@ import ResponsiveConfig from "./ResponsiveConfig";
 import VariableConfig from "./VariableConfig";
 import GenerateHTML from "./GenerateHTML";
 import AICodeGenerator from "./AICodeGenerator";
-import APISettings from "./APISettings"; // 新しいAPI設定コンポーネント
-import StyleXConverter from "./StyleXConverter"; // StyleXコンバーターを追加
+import APISettings from "./APISettings";
+import StyleXConverter from "./StyleXConverter";
+import "../styles/css/main.css";
+import "../styles/css/components.css";
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState("generate-html"); // デフォルトタブ
+  const [activeTab, setActiveTab] = useState("generate-html");
+
+  const menuItems = [
+    { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
+    { id: "changelog", label: "変更ログ", icon: "📝" },
+    { id: "reset-css", label: "リセットCSS関連", icon: "🎨" },
+    { id: "responsive-config", label: "レスポンシブ関連", icon: "📱" },
+    { id: "variable-config", label: "変数設定", icon: "⚙️" },
+    { id: "ai-code-generator", label: "AIコード生成", icon: "🤖" },
+    { id: "stylex-converter", label: "StyleXコンバーター", icon: "🔄" },
+    { id: "api-settings", label: "API設定", icon: "🔑" },
+  ];
+
   const renderContent = () => {
     switch (activeTab) {
       case "changelog":
@@ -24,9 +38,9 @@ const App = () => {
         return <GenerateHTML />;
       case "ai-code-generator":
         return <AICodeGenerator />;
-      case "stylex-converter": // StyleXコンバーターのタブ
+      case "stylex-converter":
         return <StyleXConverter />;
-      case "api-settings": // 新しいタブ
+      case "api-settings":
         return <APISettings />;
       default:
         return null;
@@ -34,36 +48,31 @@ const App = () => {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      <div style={{
-        width: "200px",
-        backgroundColor: "#f4f4f4",
-        padding: "10px",
-        position: "fixed",
-        height: "100vh",
-        overflowY: "auto"
-      }}>
-        <h3>メニュー</h3>
-        <ul style={{ listStyleType: "none", padding: 0, display: 'grid', gap: '10px' }}>
-          <li onClick={() => setActiveTab("generate-html")}>HTMLファイル生成</li>
-          <li onClick={() => setActiveTab("changelog")}>変更ログ</li>
-          <li onClick={() => setActiveTab("reset-css")}>リセットCSS関連</li>
-          <li onClick={() => setActiveTab("responsive-config")}>レスポンシブ関連</li>
-          <li onClick={() => setActiveTab("variable-config")}>変数設定</li>
-          <li onClick={() => setActiveTab("ai-code-generator")}>AIコード生成</li>
-          <li onClick={() => setActiveTab("stylex-converter")}>StyleXコンバーター</li>
-          <li onClick={() => setActiveTab("api-settings")}>API設定</li>
-        </ul>
-      </div>
-      <div style={{
-        width: "calc(100% - 220px)",
-        marginLeft: "220px",
-        padding: "20px",
-        height: "100vh",
-        overflowY: "auto"
-      }}>
-        {renderContent()}
-      </div>
+    <div className="app-container">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h2>CodeUps</h2>
+        </div>
+        <nav className="sidebar-nav">
+          <ul>
+            {menuItems.map((item) => (
+              <li
+                key={item.id}
+                className={`nav-item ${activeTab === item.id ? "active" : ""}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span className="nav-label">{item.label}</span>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+      <main className="main-content">
+        <div className="content-wrapper">
+          {renderContent()}
+        </div>
+      </main>
     </div>
   );
 };

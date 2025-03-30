@@ -2,6 +2,10 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { session } = require('electron');
+
+// 開発環境かどうかを判定
+const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow;
 
@@ -37,7 +41,8 @@ function watchDirectory() {
 // 監視を1秒ごとにチェック
 setInterval(watchDirectory, 1000); // 定期的にディレクトリの内容をチェック
 
-app.on('ready', () => {
+// メインウィンドウ作成関数
+function createMainWindow() {
   // uploadsディレクトリを作成
   const uploadsDir = path.join(__dirname, "uploads");
   if (!fs.existsSync(uploadsDir)) {
@@ -48,20 +53,62 @@ app.on('ready', () => {
   const express = require('express');
   const server = express();
 
+  // MIMEタイプの設定
+  express.static.mime.define({ 'application/javascript': ['js', 'jsx'] });
+
   // Content-Security-Policy ヘッダーの設定
   server.use((req, res, next) => {
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:*;"
+      "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://unpkg.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://unpkg.com; object-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' http://localhost:* https://api.anthropic.com https://api.openai.com https://unpkg.com https://fonts.googleapis.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com;"
     );
+    next();
+  });
+
+  // JSXファイルのMIMEタイプを設定するミドルウェア
+  server.use((req, res, next) => {
+    if (req.path.endsWith('.jsx')) {
+      res.type('application/javascript');
+    }
     next();
   });
 
   server.use(express.static(path.join(__dirname, 'src')));
 
+  // JSXファイルのMIMEタイプを適切に設定
+  server.get('*.jsx', (req, res, next) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    next();
+  });
+
   server.get('/renderer.jsx', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.sendFile(path.join(__dirname, 'src/electron/renderer.jsx'));
+  });
+
+  server.get('/electron/renderer.jsx', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(__dirname, 'src/electron/renderer.jsx'));
+  });
+
+  // コンポーネントのJSXファイルを処理
+  server.get('/electron/components/*.jsx', (req, res) => {
+    const componentPath = req.path.replace('/electron/components/', '');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(__dirname, 'src/electron/components', componentPath));
+  });
+
+  server.get('/renderer.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    // Reactやその他のJSXトランスパイラがブラウザ側で処理できるように変換
+    const jsxFilePath = path.join(__dirname, 'src/electron/renderer.jsx');
+    fs.readFile(jsxFilePath, 'utf8', (err, data) => {
+      if (err) {
+        res.status(500).send(`Error reading file: ${err.message}`);
+        return;
+      }
+      res.send(data);
+    });
   });
 
   server.listen(3000, () => {
@@ -70,19 +117,83 @@ app.on('ready', () => {
 
   // メインウィンドウの作成
   mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1280,
     height: 800,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
-      contextIsolation: true,
       nodeIntegration: false,
+      contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
-  mainWindow.loadURL('http://localhost:3000/electron/index.html');
+  // 開発モードなら開発サーバーのURLを、そうでなければローカルのHTMLファイルを読み込む
+  if (isDevelopment) {
+    mainWindow.loadURL('http://localhost:3000/electron/index.html');
+  } else {
+    mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
+  }
 
-  // 開発ツールを開く（開発時のみ推奨）
-  mainWindow.webContents.openDevTools();
+  // リロードイベントをハンドリング
+  mainWindow.webContents.on('did-finish-load', () => {
+    // webContents APIを使ってリロード後も正しく動作するようにする
+    mainWindow.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['*://*/*'] },
+      (details, callback) => {
+        // リロードやナビゲーションをハンドリング
+        if (details.url.includes('index.html') && details.method === 'GET' && details.resourceType === 'mainFrame') {
+          console.log('メインフレームがリロードされました:', details.url);
+        }
+        // リクエストをブロックせずに続行する
+        callback({ cancel: false });
+      }
+    );
+  });
+
+  // Cmd+Rが押された時の処理（macOS）
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if ((input.meta && input.key === 'r') || (input.control && input.key === 'r')) {
+      console.log('リロードコマンドを検出しました');
+
+      // デフォルトのリロード動作を防止
+      event.preventDefault();
+
+      // 手動で正しいリロードを実行
+      if (isDevelopment) {
+        mainWindow.loadURL('http://localhost:3000/electron/index.html');
+      } else {
+        mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
+      }
+    }
+  });
+
+  // リロード時に白画面になる問題の対応
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.log('ページの読み込みに失敗しました:', errorCode, errorDescription);
+
+    // リロードを試みる
+    if (isDevelopment) {
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('ページを再度読み込みます...');
+          mainWindow.loadURL('http://localhost:3000/electron/index.html');
+        }
+      }, 1000);
+    } else {
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('ページを再度読み込みます...');
+          mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
+        }
+      }, 1000);
+    }
+  });
+
+  // 開発ツールを開く
+  if (isDevelopment) {
+    mainWindow.webContents.openDevTools();
+  }
 
   // ファイル監視対象
   const watchFiles = [
@@ -210,14 +321,56 @@ $secondary-color: ${secondaryColor};
   // SCSSファイルの保存処理
   ipcMain.on('save-scss-file', (event, { filePath, content, breakpoints }) => {
     // 動的なブレークポイントの生成
-    const breakpointsContent = breakpoints && breakpoints.length > 0
-      ? `$breakpoints: (\n  ${breakpoints
-        .map(bp => `${bp.name}: ${bp.value}px`)
-        .join(',\n  ')}\n);`
-      : '';
+    let breakpointsContent = '';
 
-    // 新しい内容でstyle.scssを更新
-    const newContent = `${breakpointsContent}\n${content}`;
+    if (breakpoints && breakpoints.length > 0) {
+      // _breakpoints.scssの場合、完全なファイル内容を構築
+      if (filePath.includes('_breakpoints.scss')) {
+        breakpointsContent = `
+@use "sass:map";
+
+// どっちファーストの設定（"sp" or "pc"）
+$startFrom: sp;
+
+// ブレークポイント
+$breakpoints: (
+  ${breakpoints.map(bp => `${bp.name}: ${bp.value}px`).join(',\n  ')}
+);
+
+// メディアクエリ
+$mediaquerys: (
+  ${breakpoints.map(bp => `${bp.name}: "screen and (min-width: #{map.get($breakpoints,'${bp.name}')})"`)
+            .join(',\n  ')}
+);
+
+// スマホファースト用メディアクエリ
+@mixin mq($mediaquery: md) {
+  @media #{map.get($mediaquerys, $mediaquery)} {
+    @content;
+  }
+}
+`;
+        // ブレークポイントファイルの場合は、生成した内容をそのまま保存
+        fs.writeFile(filePath, breakpointsContent, 'utf8', (err) => {
+          if (err) {
+            console.error(`Error writing ${filePath}:`, err);
+          } else {
+            console.log(`${filePath} updated successfully`);
+          }
+        });
+        return;
+      } else {
+        // 他のSCSSファイルの場合は従来通りの処理
+        breakpointsContent = `$breakpoints: (\n  ${breakpoints
+          .map(bp => `${bp.name}: ${bp.value}px`)
+          .join(',\n  ')}\n);`;
+      }
+    }
+
+    // 通常のSCSSファイル更新
+    const newContent = filePath.includes('_breakpoints.scss')
+      ? content
+      : `${breakpointsContent}\n${content}`;
 
     // SCSSファイルを保存
     fs.writeFile(filePath, newContent, 'utf8', (err) => {
@@ -227,6 +380,126 @@ $secondary-color: ${secondaryColor};
         console.log(`${filePath} updated successfully`);
       }
     });
+  });
+
+  // 画像から色を抽出するハンドラ
+  ipcMain.on('extract-colors-from-image', async (event, { apiKey, prompt, imageData }) => {
+    try {
+      console.log("extract-colors-from-image ハンドラが呼び出されました");
+      console.log("プロンプト長:", prompt.length);
+      console.log("画像データ長:", imageData.length);
+
+      if (!apiKey) {
+        console.log("APIキーが設定されていません");
+        event.reply('extract-colors-response', {
+          error: 'APIキーが設定されていません。API設定から必要なAPIキーを設定してください。'
+        });
+        return;
+      }
+
+      // 画像サイズチェック（base64データの長さから概算）
+      const estimatedSizeInBytes = Math.ceil((imageData.length * 3) / 4);
+      const estimatedSizeInMB = (estimatedSizeInBytes / (1024 * 1024)).toFixed(2);
+      console.log(`推定画像サイズ: 約${estimatedSizeInMB}MB`);
+
+      // 5MBを超える場合はエラーを返す
+      const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+      if (estimatedSizeInBytes > MAX_SIZE_BYTES) {
+        console.log(`画像サイズが大きすぎます: ${estimatedSizeInMB}MB > 5MB`);
+        event.reply('extract-colors-response', {
+          error: `画像サイズが制限を超えています（${estimatedSizeInMB}MB > 5MB）。画像を小さくしてから再試行してください。`
+        });
+        return;
+      }
+
+      // 画像処理
+      let base64Image = imageData;
+      let media_type = 'image/jpeg'; // デフォルト
+      let base64Data = '';
+
+      // データURLの形式を確認してメディアタイプを適切に設定
+      const dataUrlMatch = base64Image.match(/^data:([^;]+);base64,(.+)$/);
+      if (dataUrlMatch) {
+        media_type = dataUrlMatch[1]; // 実際のMIMEタイプ
+        base64Data = dataUrlMatch[2]; // base64データ部分
+        console.log(`データURLから検出されたメディアタイプ: ${media_type}`);
+      } else {
+        // データURLでない場合はそのまま使用
+        base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+        console.log(`標準的なデータURL形式ではありません。メディアタイプ: ${media_type} を使用します`);
+      }
+
+      console.log("API リクエスト送信中...");
+      console.log("APIキー長:", apiKey.length > 0 ? apiKey.length : "設定なし");
+      console.log("使用モデル: claude-3-opus-20240229");
+      console.log("メディアタイプ:", media_type);
+
+      const response = await axios.post('https://api.anthropic.com/v1/messages', {
+        model: "claude-3-opus-20240229",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: media_type,
+                  data: base64Data
+                }
+              }
+            ]
+          }
+        ]
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        }
+      });
+
+      if (!response.data || !response.data.content || response.data.content.length === 0) {
+        throw new Error("API からのレスポンスが不正です");
+      }
+
+      // レスポンスからテキスト部分を抽出
+      const textContents = response.data.content
+        .filter(item => item.type === 'text')
+        .map(item => item.text)
+        .join('\n');
+
+      console.log("色抽出完了 (テキスト長: " + textContents.length + ")");
+      console.log("テキストのサンプル:", textContents.substring(0, 200) + "...");
+
+      // レスポンスをレンダラープロセスに送信
+      event.reply('extract-colors-response', { content: textContents });
+
+    } catch (error) {
+      console.error("色抽出API呼び出しエラー:", error.response ? {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      } : error.message);
+
+      // エラーメッセージの詳細を整形
+      let errorMessage = "API呼び出しエラー: ";
+      if (error.response) {
+        errorMessage += error.response.status + " - ";
+        if (error.response.data && error.response.data.error) {
+          errorMessage += error.response.data.error.message || JSON.stringify(error.response.data);
+        } else {
+          errorMessage += JSON.stringify(error.response.data);
+        }
+      } else {
+        errorMessage += error.message;
+      }
+
+      // エラーをレンダラープロセスに送信
+      event.reply('extract-colors-response', { error: errorMessage });
+    }
   });
 
   // ページ保存用のIPCリスナー
@@ -526,11 +799,245 @@ $secondary-color: ${secondaryColor};
   ipcMain.handle('get-api-key', async () => {
     return getApiKey();
   });
+
+  // ウィンドウ状態を保存
+  mainWindow.on('close', (e) => {
+    const windowState = {
+      bounds: mainWindow.getBounds()
+    };
+    // 状態をファイルに保存
+    fs.writeFileSync(
+      path.join(app.getPath('userData'), 'window-state.json'),
+      JSON.stringify(windowState)
+    );
+  });
+
+  return mainWindow;
+}
+
+app.on('ready', async () => {
+  // セッション設定を保持するための設定
+  const ses = session.defaultSession;
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders['Accept-Language'] = 'ja';
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
+  mainWindow = createMainWindow();
+
+  // ファイル監視対象
+  const watchFiles = [
+    path.join(__dirname, 'src/scss/base/_reset.scss'),
+    path.join(__dirname, 'src/scss/global/_breakpoints.scss'),
+  ];
+
+  // ファイルの監視処理
+  watchFiles.forEach((file) => {
+    fs.watchFile(file, (curr, prev) => {
+      fs.readFile(file, 'utf8', (err, data) => {
+        if (!err) {
+          mainWindow.webContents.send('file-updated', { file, content: data });
+        }
+      });
+    });
+  });
+
+  // 管理画面がファイルの内容をリクエストした際に、その内容を返す処理
+  ipcMain.on('request-file-content', (event, filePath) => {
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        console.error('Error reading file:', err);
+      } else {
+        event.sender.send('file-updated', { file: path.basename(filePath), content: data });
+      }
+    });
+  });
+
+  // 変数管理
+  ipcMain.on('save-variables', (event, variables) => {
+    const {
+      lInner,
+      paddingPc,
+      paddingSp,
+      jaFont,
+      enFont,
+      regularWeight,
+      normalWeight,
+      boldWeight,
+      primaryColor,
+      secondaryColor,
+    } = variables;
+
+    const scssContent = `
+@use "sass:map";
+
+// インナー幅設定（remに変換済み）
+$l-inner: ${lInner}rem;
+$padding-pc: ${paddingPc}rem;
+$padding-sp: ${paddingSp}rem;
+
+// フォント設定
+$ja: "${jaFont}";
+$en: "${enFont}";
+$regular: ${regularWeight};
+$normal: ${normalWeight};
+$bold: ${boldWeight};
+
+// 色の指定
+$primary-color: ${primaryColor};
+$secondary-color: ${secondaryColor};
+`;
+
+    const filePath = path.join(__dirname, 'src/scss/global/_settings.scss');
+    fs.writeFile(filePath, scssContent, 'utf8', (err) => {
+      if (err) {
+        console.error(`Error writing to ${filePath}:`, err);
+      } else {
+        console.log(`Successfully updated ${filePath}`);
+      }
+    });
+  });
+
+  // 管理画面からファイルを保存する要求を受け取る
+  ipcMain.on('save-html-file', (event, { filePath, content }) => {
+    console.log('Received save request:', filePath, content);  // ここでログを確認
+
+    const absolutePath = path.join(__dirname, 'src', filePath);  // 絶対パスに変換
+    fs.writeFile(absolutePath, content, 'utf8', (err) => {
+      if (err) {
+        console.error('Error occurred while saving file:', err);
+        event.reply('save-html-file-error', err);
+      } else {
+        console.log(`Successfully saved file at: ${absolutePath}`);
+        event.reply('save-html-file-success', absolutePath);
+      }
+    });
+  });
+
+  // ファイル削除処理
+  ipcMain.on('delete-html-file', (event, { fileName }) => {
+    const filePath = path.join(__dirname, 'src', `${fileName}`);
+    console.log(`取得しているファイルパス: ${filePath}`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);  // ファイル削除
+      console.log(`Successfully deleted file: ${filePath}`);
+      event.reply('file-deleted', fileName);
+      mainWindow.webContents.send('file-deleted', fileName); // 監視しているレンダラープロセスに通知
+    } else {
+      console.log(`File not found(Delete Path): ${filePath}`);
+    }
+  });
+
+  // ファイル名を変更する処理
+  ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
+    // 拡張子が重複しないように処理
+    const oldFilePath = path.join(__dirname, 'src', oldFileName);
+    const newFileNameWithHtml = newFileName.endsWith('.html') ? newFileName : newFileName + '.html'; // .htmlがなければ追加
+    const newFilePath = path.join(__dirname, 'src', newFileNameWithHtml);
+
+    // ファイル名を変更する
+    try {
+      fs.renameSync(oldFilePath, newFilePath);
+      console.log(`File renamed from ${oldFileName} to ${newFileNameWithHtml}`);
+
+      // フロントエンドに変更が成功したことを通知
+      event.reply('file-renamed', { oldFileName, newFileName: newFileNameWithHtml });
+    } catch (err) {
+      console.error('Error renaming file:', err);
+      event.reply('file-rename-error', err.message);
+    }
+  });
+
+  // SCSSファイルの保存処理
+  ipcMain.on('save-scss-file', (event, { filePath, content, breakpoints }) => {
+    // 動的なブレークポイントの生成
+    let breakpointsContent = '';
+
+    if (breakpoints && breakpoints.length > 0) {
+      // _breakpoints.scssの場合、完全なファイル内容を構築
+      if (filePath.includes('_breakpoints.scss')) {
+        breakpointsContent = `
+@use "sass:map";
+
+// どっちファーストの設定（"sp" or "pc"）
+$startFrom: sp;
+
+// ブレークポイント
+$breakpoints: (
+  ${breakpoints.map(bp => `${bp.name}: ${bp.value}px`).join(',\n  ')}
+);
+
+// メディアクエリ
+$mediaquerys: (
+  ${breakpoints.map(bp => `${bp.name}: "screen and (min-width: #{map.get($breakpoints,'${bp.name}')})"`)
+            .join(',\n  ')}
+);
+
+// スマホファースト用メディアクエリ
+@mixin mq($mediaquery: md) {
+  @media #{map.get($mediaquerys, $mediaquery)} {
+    @content;
+  }
+}
+`;
+        // ブレークポイントファイルの場合は、生成した内容をそのまま保存
+        fs.writeFile(filePath, breakpointsContent, 'utf8', (err) => {
+          if (err) {
+            console.error(`Error writing ${filePath}:`, err);
+          } else {
+            console.log(`${filePath} updated successfully`);
+          }
+        });
+        return;
+      } else {
+        // 他のSCSSファイルの場合は従来通りの処理
+        breakpointsContent = `$breakpoints: (\n  ${breakpoints
+          .map(bp => `${bp.name}: ${bp.value}px`)
+          .join(',\n  ')}\n);`;
+      }
+    }
+
+    // 通常のSCSSファイル更新
+    const newContent = filePath.includes('_breakpoints.scss')
+      ? content
+      : `${breakpointsContent}\n${content}`;
+
+    // SCSSファイルを保存
+    fs.writeFile(filePath, newContent, 'utf8', (err) => {
+      if (err) {
+        console.error(`Error writing ${filePath}:`, err);
+      } else {
+        console.log(`${filePath} updated successfully`);
+      }
+    });
+  });
+
+  // ページ保存用のIPCリスナー
+  ipcMain.on('save-page', (event, pageData) => {
+    console.log('Received page data:', pageData); // デバッグ用
+    const pageFilePath = path.join(__dirname, 'src/pages', `${pageData.pageName}.json`);
+
+    // ファイルを保存
+    fs.writeFile(pageFilePath, JSON.stringify(pageData, null, 2), 'utf8', (err) => {
+      if (err) {
+        console.error(`Error saving page data:`, err); // エラーメッセージを表示
+      } else {
+        console.log(`Successfully saved page data to ${pageFilePath}`);
+      }
+    });
+  });
 });
 
-// アプリ終了時の処理
+// Macでアプリケーションが閉じられる際の処理
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+// Macでアプリケーションがアクティブになった際の処理
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createMainWindow();
   }
 });

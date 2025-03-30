@@ -1,4 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { Controlled as CodeMirror } from 'react-codemirror2';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/material.css';
+import 'codemirror/mode/css/css';
+import 'codemirror/addon/edit/matchbrackets';
+import 'codemirror/addon/edit/closebrackets';
+import 'codemirror/addon/comment/comment';
+import 'codemirror/addon/fold/foldcode';
+import 'codemirror/addon/fold/foldgutter';
+import 'codemirror/addon/fold/foldgutter.css';
+import 'codemirror/addon/fold/brace-fold';
+import '../styles/ResetCSS.scss';
+import Header from './Header';
 
 const ResetCSS = () => {
   const [resetCssContent, setResetCssContent] = useState('');
@@ -20,9 +33,8 @@ const ResetCSS = () => {
     }
   }, []);
 
-  const handleContentChange = (event) => {
-    const updatedContent = event.target.value;
-    setResetCssContent(updatedContent); // 編集内容を更新
+  const handleContentChange = (editor, data, value) => {
+    setResetCssContent(value);
   };
 
   const handleSave = () => {
@@ -39,26 +51,57 @@ const ResetCSS = () => {
     setIsProcessing(false);
   };
 
+  // CodeMirrorのオプション
+  const codeMirrorOptions = {
+    mode: 'text/x-scss',
+    theme: 'material',
+    lineNumbers: true,
+    lineWrapping: true,
+    smartIndent: true,
+    tabSize: 2,
+    indentWithTabs: false,
+    matchBrackets: true,
+    autoCloseBrackets: true,
+    foldGutter: true,
+    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+    extraKeys: {
+      'Ctrl-Space': 'autocomplete',
+      'Ctrl-/': 'toggleComment',
+      'Cmd-/': 'toggleComment',
+      Tab: (cm) => {
+        if (cm.somethingSelected()) {
+          cm.indentSelection('add');
+        } else {
+          cm.replaceSelection('  ', 'end');
+        }
+      },
+    },
+  };
+
   return (
-    <div>
-      <h2>リセットCSSの編集</h2>
-      <textarea
-        value={resetCssContent}
-        onChange={handleContentChange}
-        style={{ width: '100%', height: '400px', fontFamily: 'monospace' }}
+    <div className="reset-css">
+      <Header
+        title="リセットCSSの編集"
+        description="ブラウザのデフォルトスタイルをリセットするCSSを管理します"
       />
-      <div style={{ marginTop: '10px' }}>
+
+      <div className="editor-container">
+        <CodeMirror
+          value={resetCssContent}
+          options={codeMirrorOptions}
+          onBeforeChange={handleContentChange}
+          className="code-editor-wrapper"
+        />
+      </div>
+
+      <div className="editor-actions">
+        <div className="editor-hint">
+          <p><span>💡</span> タブや自動インデント、シンタックスハイライトに対応</p>
+        </div>
         <button
+          className="save-button"
           onClick={handleSave}
-          disabled={isProcessing} // 処理中は無効化
-          style={{
-            backgroundColor: '#007bff',
-            color: 'white',
-            padding: '10px 20px',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: 'pointer',
-          }}
+          disabled={isProcessing}
         >
           変更する
         </button>

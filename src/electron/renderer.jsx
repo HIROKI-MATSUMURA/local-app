@@ -1,6 +1,8 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client'; // React 18+ 用のインポート
+import ReactDOM from 'react-dom/client';
 import App from './components/App';
+import './styles/css/main.css';
+import './styles/css/components.css';
 
-const root = ReactDOM.createRoot(document.getElementById('root')); // React 18 の createRoot
+const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);

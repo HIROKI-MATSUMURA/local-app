@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "../styles/StyleXConverter.scss";
+import Header from './Header';
 
 const StyleXConverter = () => {
   const [htmlContent, setHtmlContent] = useState("");
@@ -91,8 +92,10 @@ ${cssContent}
 
   return (
     <div className="stylex-converter">
-      <h2>StyleXコンバーター</h2>
-      <p>HTMLとCSSをStyleXを使用したReactコンポーネントに変換します</p>
+      <Header
+        title="StyleXコンバーター"
+        description="HTMLとCSSをStyleXを使用したReactコンポーネントに変換します"
+      />
 
       <div className="input-container">
         <div className="input-group">

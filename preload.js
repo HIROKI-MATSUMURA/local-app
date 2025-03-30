@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('api', {
       'delete-html-file',  // 'delete-html-file' を追加
       'rename-file',  // 'rename-file' を追加
       'generate-code',  // 'generate-code' を追加
-      'save-api-key'    // 'save-api-key' を追加
+      'save-api-key',    // 'save-api-key' を追加
+      'extract-colors-from-image'  // 画像から色を抽出するチャンネル
     ];
 
     if (validChannels.includes(channel)) {
@@ -32,7 +33,8 @@ contextBridge.exposeInMainWorld('api', {
       'file-deleted',  // 'file-deleted' を追加
       'file-renamed', // 'file-renamed' を追加
       'file-rename-error', // 'file-rename-error' を追加
-      'api-key-saved'  // 'api-key-saved' を追加
+      'api-key-saved',  // 'api-key-saved' を追加
+      'extract-colors-response'  // 色抽出結果を受け取るチャンネル
     ];
 
     if (validChannels.includes(channel)) {

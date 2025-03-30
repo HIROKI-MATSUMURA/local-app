@@ -34,6 +34,8 @@ const extractColorsFromImage = async (imageBase64) => {
 
       // 出現回数が多い順に並べて上位5色を取得
       const sortedColors = Object.entries(colorMap).sort((a, b) => b[1] - a[1]);
+
+      // RGB形式で返す
       resolve(sortedColors.slice(0, 5).map(([rgb]) => `rgb(${rgb})`));
     };
 
@@ -46,46 +48,12 @@ const extractColorsFromImage = async (imageBase64) => {
 
 /**
  * 画像からテキストを抽出する（OCR）
+ * 一時的にダミー実装に置き換え
  */
 const extractTextFromImage = async (imageFile) => {
-  try {
-    const worker = await createWorker('jpn', {
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-      gzip: false,
-      cacheMethod: 'none',
-      workerPath: 'https://unpkg.com/tesseract.js@v4.0.0/dist/worker.min.js',
-      corePath: 'https://unpkg.com/tesseract.js-core@4.0.0/tesseract-core.wasm.js',
-      langDataPath: 'https://tessdata.projectnaptha.com/4.0.0',
-      cachePath: 'https://tessdata.projectnaptha.com/4.0.0',
-      dataPath: 'https://tessdata.projectnaptha.com/4.0.0',
-      workerBlobURL: false,
-      workerOrigin: 'https://unpkg.com',
-      workerSpawnDelay: 0,
-      workerTerminateDelay: 0,
-      workerId: 'worker',
-      workerType: 'worker',
-      workerOptions: {
-        type: 'module',
-        credentials: 'omit',
-        mode: 'cors',
-        cache: 'no-cache',
-        redirect: 'follow',
-        referrer: 'no-referrer',
-        referrerPolicy: 'no-referrer',
-        integrity: '',
-        keepalive: false,
-        signal: undefined,
-        duplex: 'half'
-      }
-    });
-    const { data: { text } } = await worker.recognize(imageFile);
-    await worker.terminate();
-
-    return text;
-  } catch (error) {
-    console.error('Error in OCR processing:', error);
-    return '';
-  }
+  console.log('OCR処理をスキップしています (CSP制限のため)');
+  // 一時的なダミーテキストを返す
+  return 'OCR処理は現在無効化されています。CSP設定の制限により、Web Workerが使用できません。';
 };
 
 /**

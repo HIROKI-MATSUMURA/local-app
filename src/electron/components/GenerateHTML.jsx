@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid'; // UUIDを使う
+import Header from './Header';
+import '../styles/GenerateHTML.scss';
 
 const GenerateHTML = () => {
   const [fileName, setFileName] = useState('');
@@ -154,7 +156,6 @@ const GenerateHTML = () => {
 
   const isSaveDisabled = fileList.every(file => file.status === '保存済');
 
-
   const handleSaveFileName = () => {
     if (fileName === '') {
       setError('ファイル名を入力してください');
@@ -183,23 +184,6 @@ const GenerateHTML = () => {
     });
   };
 
-
-
-  // リダイレクトを監視する
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      console.log('Before unload, checking location:', window.location.href);
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
-
-
-
   // 削除処理
   const handleDeleteFile = (fileName) => {
     let fileNameWithHtml = fileName;
@@ -226,58 +210,40 @@ const GenerateHTML = () => {
   };
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h2>HTMLファイル生成</h2>
+    <div className="generate-html-container">
+      <Header
+        title="HTMLファイル生成"
+        description="新しいHTMLファイルを生成・管理します"
+      />
 
-      {/* ファイル名入力フォーム */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-        <input
-          type="text"
-          value={fileName}
-          onChange={handleFileNameChange}
-          onKeyDown={handleKeyPress}  // エンターキーでファイル追加（保存しない）
-          placeholder="ファイル名を入力（英数字のみ）"
-          style={{
-            padding: '10px',
-            width: '200px',
-            marginRight: '10px',
-            border: '1px solid #ccc',
-            borderRadius: '5px',
-          }}
-        />
-        <button
-          onClick={handleAddFile}
-          style={{
-            padding: '10px',
-            backgroundColor: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-          }}
-        >
-          ファイルを追加
-        </button>
+      {/* ファイル追加フォーム */}
+      <div className="file-form">
+        <div className="file-form-input-container">
+          <input
+            type="text"
+            value={fileName}
+            onChange={handleFileNameChange}
+            onKeyDown={handleKeyPress}
+            placeholder="ファイル名を入力（英数字のみ）"
+            className="file-input"
+          />
+          <button onClick={handleAddFile} className="add-button">
+            ファイルを追加
+          </button>
+        </div>
+
+        {/* エラーメッセージ表示 */}
+        {error && <div className="error-message">{error}</div>}
       </div>
 
-      {/* エラーメッセージ表示 */}
-      {error && <div style={{ color: 'red', marginBottom: '10px' }}>{error}</div>}
-
       {/* 作成されたファイルのリスト */}
-      <div style={{ marginTop: '20px' }}>
+      <div className="file-list">
         <h3>作成されたファイル</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="file-list-items">
           {fileList.map((file) => (
-            <div
-              key={file.id}  // 一意なIDをkeyとして使用
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '5px 10px',
-                borderBottom: '2px dashed #ccc',
-              }}
-            >
+            <div key={file.id} className="file-item">
               {editingFile && editingFile.name === file.name ? (
-                <>
+                <div className="file-edit-form">
                   <input
                     type="text"
                     value={fileName}
@@ -287,66 +253,24 @@ const GenerateHTML = () => {
                         handleSaveFileName();
                       }
                     }}
-                    style={{
-                      padding: '5px',
-                      fontSize: '14px',
-                      borderRadius: '4px',
-                      border: '1px solid #ccc',
-                      marginRight: '10px',
-                    }}
                   />
-                  <button
-                    onClick={handleSaveFileName}
-                    style={{
-                      padding: '5px 10px',
-                      backgroundColor: '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '5px',
-                      marginLeft: 'auto',
-                    }}
-                  >
+                  <button onClick={handleSaveFileName} className="save-button">
                     保存
                   </button>
-                </>
+                </div>
               ) : (
                 <>
-                  <div
-                    style={{
-                      fontWeight: 'bold',
-                      color: file.status === '保存済' ? '#28a745' : '#dc3545',
-                    }}
-                  >
-                    {file.name} {file.status === '保存済' && <span style={{ color: '#28a745' }}>(保存済)</span>}
+                  <div className="file-name">
+                    {file.name} {file.status === '保存済' && <span className="saved-badge">保存済</span>}
                   </div>
-                  <button
-                    onClick={() => handleDeleteFile(file.name)}
-                    style={{
-                      padding: '5px 10px',
-                      backgroundColor: '#dc3545',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '5px',
-                      cursor: 'pointer',
-                      marginLeft: 'auto',
-                      marginRight: '10px',
-                    }}
-                  >
-                    削除
-                  </button>
-                  <button
-                    onClick={() => handleEditFile(file)}
-                    style={{
-                      padding: '5px 10px',
-                      backgroundColor: '#ffc107',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '5px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    編集
-                  </button>
+                  <div className="file-actions">
+                    <button onClick={() => handleDeleteFile(file.name)} className="delete-button">
+                      削除
+                    </button>
+                    <button onClick={() => handleEditFile(file)} className="edit-button">
+                      編集
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -358,20 +282,10 @@ const GenerateHTML = () => {
       <button
         onClick={handleSaveFiles}
         disabled={isSaveDisabled}
-        style={{
-          padding: '10px',
-          marginTop: '20px',
-          backgroundColor: isSaveDisabled ? '#d3d3d3' : '#28a745',  // 無効化時に色を変える
-          color: 'white',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: isSaveDisabled ? 'not-allowed' : 'pointer',  // 無効化時はカーソルを変更
-        }}
+        className={`save-all-button ${isSaveDisabled ? 'disabled' : ''}`}
       >
         ファイルを保存
       </button>
-
-
     </div>
   );
 };
