@@ -35,6 +35,9 @@ const VariableConfig = () => {
   const [selectedExistingVariable, setSelectedExistingVariable] = useState('');
   const [isNewVariable, setIsNewVariable] = useState(false);
 
+  // トースト通知の状態
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
   const fileInputRef = useRef(null);
   const imageRef = useRef(null);
   const canvasRef = useRef(null);
@@ -70,6 +73,179 @@ const VariableConfig = () => {
     }
   }, [designImage]);
 
+  useEffect(() => {
+    // 処理中のカウンター
+    let timer = null;
+    let seconds = 0;
+
+    if (isProcessing) {
+      // カウンターを毎秒更新
+      timer = setInterval(() => {
+        seconds++;
+        const statusEl = document.querySelector('.processing-time');
+        if (statusEl) {
+          statusEl.textContent = `経過時間: ${seconds}秒`;
+        }
+      }, 1000);
+
+      // アニメーションの動きを直接JavaScriptで制御
+      const progressWave = document.querySelector('.progress-waves');
+      const progressGlow = document.querySelector('.progress-glow');
+      const particles = document.querySelectorAll('.particle-effect > div');
+      const hexElements = document.querySelectorAll('.hex');
+      const aiIcon = document.querySelector('.ai-icon');
+      const statusDot = document.querySelector('.status-dot');
+
+      if (progressWave) {
+        // プログレスウェーブアニメーション
+        let wavePos = 100;
+        const waveAnimation = setInterval(() => {
+          wavePos = wavePos <= 0 ? 100 : wavePos - 1;
+          progressWave.style.backgroundPosition = `${wavePos}% 50%`;
+        }, 20);
+
+        // グローアニメーション
+        let glowPos = -20;
+        const glowAnimation = setInterval(() => {
+          glowPos = glowPos >= 100 ? -20 : glowPos + 1;
+          if (progressGlow) progressGlow.style.left = `${glowPos}%`;
+        }, 15);
+
+        // パーティクルアニメーション
+        if (particles && particles.length > 0) {
+          particles.forEach((particle, index) => {
+            // ランダムな動きを付ける
+            const speed = Math.random() * 3 + 1;
+            let particleY = 0;
+            let particleX = 0;
+            let direction = 1;
+
+            const particleAnimation = setInterval(() => {
+              particleY += speed * direction * 0.1;
+              particleX += speed * direction * 0.1;
+
+              if (Math.abs(particleY) > 20) {
+                direction *= -1;
+              }
+
+              particle.style.transform = `translate(${particleX}px, ${particleY}px)`;
+            }, 50);
+
+            // 各パーティクルのアニメーションタイマーをクリーンアップ対象に追加
+            const originalCleanup = window.particleCleanupFunctions || [];
+            originalCleanup.push(() => clearInterval(particleAnimation));
+            window.particleCleanupFunctions = originalCleanup;
+          });
+        }
+
+        // 六角形のパルスアニメーション
+        if (hexElements && hexElements.length > 0) {
+          hexElements.forEach((hex, index) => {
+            let scale = 0.8;
+            let growing = true;
+            const pulseSpeed = 0.01 + (index * 0.002);
+
+            const hexAnimation = setInterval(() => {
+              if (growing) {
+                scale += pulseSpeed;
+                if (scale >= 1) growing = false;
+              } else {
+                scale -= pulseSpeed;
+                if (scale <= 0.8) growing = true;
+              }
+
+              hex.style.transform = `scale(${scale})`;
+              hex.style.opacity = 0.4 + (scale - 0.8) * 2; // 0.4〜1.0の間で変化
+            }, 50);
+
+            // 六角形のアニメーションタイマーをクリーンアップ対象に追加
+            const originalCleanup = window.hexCleanupFunctions || [];
+            originalCleanup.push(() => clearInterval(hexAnimation));
+            window.hexCleanupFunctions = originalCleanup;
+          });
+        }
+
+        // AIアイコンのグロウパルスアニメーション
+        if (aiIcon) {
+          let glowIntensity = 0.5;
+          let glowIncreasing = true;
+
+          const aiIconAnimation = setInterval(() => {
+            if (glowIncreasing) {
+              glowIntensity += 0.02;
+              if (glowIntensity >= 0.8) glowIncreasing = false;
+            } else {
+              glowIntensity -= 0.02;
+              if (glowIntensity <= 0.5) glowIncreasing = true;
+            }
+
+            aiIcon.style.boxShadow = `0 0 ${15 + (glowIntensity * 15)}px rgba(0, 118, 173, ${glowIntensity})`;
+          }, 50);
+
+          // アイコンアニメーションのクリーンアップを追加
+          window.aiIconCleanupFunction = () => clearInterval(aiIconAnimation);
+        }
+
+        // ステータスドットのパルスアニメーション
+        if (statusDot) {
+          let dotScale = 1;
+          let dotGrowing = true;
+
+          const statusDotAnimation = setInterval(() => {
+            if (dotGrowing) {
+              dotScale += 0.05;
+              if (dotScale >= 1.5) dotGrowing = false;
+            } else {
+              dotScale -= 0.05;
+              if (dotScale <= 1) dotGrowing = true;
+            }
+
+            statusDot.style.transform = `scale(${dotScale})`;
+            statusDot.style.boxShadow = dotScale > 1.3 ? `0 0 8px #6eb6db` : 'none';
+          }, 50);
+
+          // ステータスドットアニメーションのクリーンアップを追加
+          window.statusDotCleanupFunction = () => clearInterval(statusDotAnimation);
+        }
+
+        // クリーンアップ関数に追加
+        return () => {
+          clearInterval(timer);
+          clearInterval(waveAnimation);
+          clearInterval(glowAnimation);
+
+          // パーティクルのクリーンアップ
+          if (window.particleCleanupFunctions) {
+            window.particleCleanupFunctions.forEach(cleanup => cleanup());
+            window.particleCleanupFunctions = [];
+          }
+
+          // 六角形のクリーンアップ
+          if (window.hexCleanupFunctions) {
+            window.hexCleanupFunctions.forEach(cleanup => cleanup());
+            window.hexCleanupFunctions = [];
+          }
+
+          // AIアイコンのクリーンアップ
+          if (window.aiIconCleanupFunction) {
+            window.aiIconCleanupFunction();
+          }
+
+          // ステータスドットのクリーンアップ
+          if (window.statusDotCleanupFunction) {
+            window.statusDotCleanupFunction();
+          }
+        };
+      }
+    }
+
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [isProcessing]);
+
   const handleColorChange = (index, value) => {
     const updatedColors = [...variables.customColors];
     updatedColors[index].color = value;
@@ -93,20 +269,96 @@ const VariableConfig = () => {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        setIsProcessing(true);
         const image = event.target.result;
 
-        // 画像をリサイズして処理を軽くする
+        // 画像をリサイズして処理を軽くする（この処理中はローディングを表示しない）
         const resizedImage = await resizeImage(image, 1200);
+
+        // 画像を表示
         setDesignImage(resizedImage);
 
-        // 色を抽出
-        await extractColorsFromImage(resizedImage);
+        // レンダリングが完了するまで少し待つ
+        setTimeout(() => {
+          // ここでAI処理のためのローディングを開始
+          setIsProcessing(true);
+
+          // CSS Animationが動作しない場合に備えて明示的にアニメーションスタイルをDOMに適用
+          const styleElement = document.createElement('style');
+          styleElement.textContent = `
+            @keyframes spinner-rotation {
+              to { transform: rotate(360deg); }
+            }
+            @keyframes loading-bar-progress {
+              0% { background-position: 0 0; }
+              100% { background-position: 48px 0; }
+            }
+            @keyframes text-blink {
+              0%, 100% { opacity: 0.6; }
+              50% { opacity: 1; }
+            }
+            @keyframes particle-float {
+              0% { transform: translateY(0) translateX(0); }
+              25% { transform: translateY(10px) translateX(10px); }
+              50% { transform: translateY(20px) translateX(0); }
+              75% { transform: translateY(10px) translateX(-10px); }
+              100% { transform: translateY(0) translateX(0); }
+            }
+            @keyframes hex-pulse {
+              0%, 100% { transform: scale(0.8); opacity: 0.4; }
+              50% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes hex-color-shift {
+              0% { background: linear-gradient(135deg, rgba(0, 118, 173, 0.3) 0%, rgba(0, 118, 173, 0.6) 100%); }
+              33% { background: linear-gradient(135deg, rgba(0, 173, 118, 0.3) 0%, rgba(0, 173, 118, 0.6) 100%); }
+              66% { background: linear-gradient(135deg, rgba(118, 0, 173, 0.3) 0%, rgba(118, 0, 173, 0.6) 100%); }
+              100% { background: linear-gradient(135deg, rgba(0, 118, 173, 0.3) 0%, rgba(0, 118, 173, 0.6) 100%); }
+            }
+            @keyframes progress-wave-animation {
+              0% { background-position: 100% 50%; }
+              100% { background-position: 0% 50%; }
+            }
+            @keyframes progress-glow-animation {
+              0% { left: -20%; }
+              100% { left: 100%; }
+            }
+            @keyframes pulse-glow {
+              0%, 100% { box-shadow: 0 0 15px rgba(0, 118, 173, 0.5); }
+              50% { box-shadow: 0 0 30px rgba(0, 118, 173, 0.8); }
+            }
+            @keyframes ai-process {
+              0%, 100% { opacity: 0.5; }
+              50% { opacity: 0.9; }
+            }
+            @keyframes stage-pulse {
+              0%, 100% { transform: scale(1); opacity: 0.5; }
+              50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 15px rgba(0, 118, 173, 0.7); }
+            }
+            @keyframes stage-active {
+              0% { transform: scale(0); opacity: 0; }
+              80% { transform: scale(1.2); opacity: 1; }
+              100% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes status-blink {
+              0%, 100% { opacity: 0.7; }
+              50% { opacity: 1; }
+            }
+            @keyframes status-dot-pulse {
+              0%, 100% { transform: scale(1); opacity: 0.7; }
+              50% { transform: scale(1.5); opacity: 1; box-shadow: 0 0 8px #6eb6db; }
+            }
+          `;
+          document.head.appendChild(styleElement);
+
+          // 色を抽出（この処理中にローディングアニメーションを表示）
+          extractColorsFromImage(resizedImage)
+            .finally(() => {
+              // 処理終了時にスタイル要素を削除
+              document.head.removeChild(styleElement);
+            });
+        }, 100);
       } catch (error) {
         console.error('画像処理エラー:', error);
         alert('画像の処理中にエラーが発生しました。');
-      } finally {
-        setIsProcessing(false);
       }
     };
 
@@ -230,12 +482,18 @@ const VariableConfig = () => {
 
 抽出する色について:
 1. 16進数形式（#RRGGBB）で表示
-2. 変数名は意味のある名前（例: $primary-color, $secondary-color, $accent-color など）
+2. 変数名は以下のようなシンプルな命名規則を使用してください:
+   - $primary-color: メインの色
+   - $secondary-color: セカンダリの色
+   - $accent-color: アクセントの色
+   - $background-color: 背景色
+   - その他は $color-1, $color-2 などの連番
 3. コメントにはどこで使用されているか簡潔に記述
 
 例のフォーマット:
 $primary-color: #3F51B5; // ヘッダー背景色
 $secondary-color: #FFC107; // アクセントボタン色
+$color-1: #FF5722; // カード背景
 
 レスポンスは上記の形式のみで返してください。説明は不要です。
 `;
@@ -244,13 +502,69 @@ $secondary-color: #FFC107; // アクセントボタン色
         // ロード状態の更新
         setIsProcessing(true);
 
+        // プロセスステージを更新する関数
+        const updateStageUI = (stage) => {
+          const stageIcons = document.querySelectorAll('.stage-icon');
+          const stageNames = document.querySelectorAll('.stage-name');
+
+          if (!stageIcons || stageIcons.length < 4) return;
+
+          // 準備・分析・抽出・完了の4ステージ
+          for (let i = 0; i < 4; i++) {
+            if (i < stage) {
+              // 完了したステージ
+              stageIcons[i].style.background = 'rgba(0, 118, 173, 1)';
+              stageIcons[i].style.boxShadow = '0 0 10px rgba(0, 118, 173, 0.7)';
+              stageIcons[i].innerHTML = '<span style="color: white; font-size: 12px">✓</span>';
+              stageNames[i].style.color = 'rgba(255, 255, 255, 0.7)';
+            } else if (i === stage) {
+              // 現在のステージ
+              stageIcons[i].style.background = 'rgba(0, 118, 173, 0.5)';
+              stageIcons[i].style.animation = 'stage-pulse 1.5s infinite';
+              stageIcons[i].innerHTML = '<div style="width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>';
+              stageNames[i].style.color = 'rgba(255, 255, 255, 0.9)';
+              stageNames[i].style.fontWeight = '600';
+            } else {
+              // これからのステージ
+              stageIcons[i].style.background = 'rgba(255, 255, 255, 0.1)';
+              stageIcons[i].style.animation = 'none';
+              stageIcons[i].style.boxShadow = 'none';
+              stageIcons[i].innerHTML = '';
+              stageIcons[i].style.border = '1px solid rgba(255, 255, 255, 0.2)';
+              stageNames[i].style.color = 'rgba(255, 255, 255, 0.4)';
+              stageNames[i].style.fontWeight = '400';
+            }
+          }
+        };
+
+        // 進捗状況表示用の状態
+        const processingStatusEl = document.querySelector('.processing-status');
+        if (processingStatusEl) {
+          processingStatusEl.textContent = 'APIに画像を送信中...';
+        }
+
+        // ステージ0: 準備
+        updateStageUI(0);
+        setTimeout(() => {
+          // ステージ1: 分析
+          updateStageUI(1);
+        }, 1500);
+
         // 古いリスナーを削除する必要はありません
         // window.api.receive メソッドは内部で古いリスナーを自動的に削除します
 
         // 新しいレスポンスリスナーを設定
         const responseHandler = (result) => {
+          // ステージ2: 抽出 (APIからレスポンスがあった時点)
+          updateStageUI(2);
+
+          if (processingStatusEl) {
+            processingStatusEl.textContent = 'レスポンスを処理中...';
+          }
+
           if (result.error) {
             console.error("API エラー:", result.error);
+            setIsProcessing(false); // エラー時もisProcessingをリセット
             reject(new Error(result.error));
             return;
           }
@@ -277,22 +591,38 @@ $secondary-color: #FFC107; // アクセントボタン色
               .map(color => colors.find(c => c.color === color));
 
             console.log("抽出された色:", uniqueColors);
-            setExtractedColors(uniqueColors);
 
-            // アラートで通知
-            alert(`${uniqueColors.length}色を抽出しました。`);
-            resolve(uniqueColors);
+            // ステージ3: 完了
+            updateStageUI(3);
+
+            // データ表示前に少し遅延を入れて完了ステージを見せる
+            setTimeout(() => {
+              setExtractedColors(uniqueColors);
+              setIsProcessing(false); // 処理完了時にisProcessingをリセット
+              // アラートで通知を削除
+              resolve(uniqueColors);
+            }, 1000);
           } catch (err) {
             console.error("色情報の解析エラー:", err);
+            setIsProcessing(false); // エラー時もisProcessingをリセット
             reject(err);
-          } finally {
-            // 処理完了後のクリーンアップは必要ありません
-            // preload.jsのreceive関数の仕様上、次回呼び出し時に自動的に古いリスナーが削除されます
           }
         };
 
         // レスポンスを受け取るリスナーを設定
         window.api.receive('extract-colors-response', responseHandler);
+
+        // APIリクエスト送信前にステータス更新
+        if (processingStatusEl) {
+          processingStatusEl.textContent = 'APIリクエストを準備中...';
+
+          // 非同期でステータスを更新（UIをブロックしないため）
+          setTimeout(() => {
+            if (processingStatusEl && isProcessing) {
+              processingStatusEl.textContent = 'APIに画像を送信中...';
+            }
+          }, 500);
+        }
 
         // データを送信
         window.api.send('extract-colors-from-image', {
@@ -300,32 +630,50 @@ $secondary-color: #FFC107; // アクセントボタン色
           prompt,
           imageData: base64Image
         });
+
+        // 送信後ステータス更新
+        setTimeout(() => {
+          if (processingStatusEl && isProcessing) {
+            processingStatusEl.textContent = 'AIによる画像解析中...';
+          }
+        }, 2000);
       });
 
     } catch (error) {
       console.error('色抽出エラー:', error);
       alert('色の抽出に失敗しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
+      setIsProcessing(false); // エラー時にも確実にisProcessingをリセット
+      throw error; // 上位でハンドリングできるようにエラーを再スロー
     }
   };
 
   // 抽出した色を変数に適用
   const applyExtractedColors = () => {
-    if (extractedColors.length === 0) return;
+    console.log('Applying extracted colors:', extractedColors);
+    if (extractedColors.length === 0) {
+      return;
+    }
 
-    // 既存の色変数を更新
-    const newCustomColors = [...extractedColors.map(c => ({
-      name: c.name,
-      color: c.color
-    }))];
+    // 既存の変数に新しい色を適用
+    const newCustomColors = [...variables.customColors];
+    extractedColors.forEach(ec => {
+      const existingIndex = newCustomColors.findIndex(v => v.name === ec.name);
+      if (existingIndex !== -1) {
+        newCustomColors[existingIndex].color = ec.color;
+      }
+    });
 
+    // 変数を更新
     setVariables({
       ...variables,
       customColors: newCustomColors
     });
 
-    alert('抽出した色を変数に適用しました。「変更を保存」で確定してください。');
+    console.log('新しいカスタムカラー:', newCustomColors);
+
+    // トースト通知を表示
+    showToast('抽出した色を変数に適用しました。「変更を保存」で確定してください。', 'success');
+    console.log('トースト通知を表示しました');
   };
 
   // キャンバスをクリア
@@ -417,7 +765,7 @@ $secondary-color: #FFC107; // アクセントボタン色
 
   // マウス移動時の処理
   const handleMouseMove = (e) => {
-    if (!designImage) return;
+    if (!designImage || isProcessing) return;
 
     setIsHovering(true);
 
@@ -444,6 +792,8 @@ $secondary-color: #FFC107; // アクセントボタン色
 
   // 画像から離れた時の処理
   const handleMouseLeave = () => {
+    if (isProcessing) return;
+
     setIsHovering(false);
     setHoverColor(null);
 
@@ -455,7 +805,7 @@ $secondary-color: #FFC107; // アクセントボタン色
 
   // クリックで色を抽出して吹き出しを表示
   const handleImageClick = (e) => {
-    if (!designImage) return;
+    if (!designImage || isProcessing) return;
 
     const colorInfo = getColorAtPoint(e);
     if (!colorInfo) return;
@@ -800,386 +1150,870 @@ ${colorVariables}
     });
 
     console.log('Variables saved:', scssContent);
-    alert('変更を保存しました');
+
+    // トースト通知を表示
+    showToast('変更を保存しました', 'success');
+  };
+
+  // トースト通知を表示する関数
+  const showToast = (message, type = 'success') => {
+    // トースト状態を更新（React制御部分）
+    setToast({ show: true, message, type });
+
+    // 直接DOM操作によるフォールバックトースト
+    if (!document.querySelector('.toast-notification')) {
+      console.log('トースト要素が見つからないため、直接DOMに挿入します');
+
+      // 既存のトースト要素があれば削除
+      const existingToast = document.querySelector('.toast-notification-fallback');
+      if (existingToast) {
+        document.body.removeChild(existingToast);
+      }
+
+      const toastContainer = document.createElement('div');
+      toastContainer.className = 'toast-notification-fallback';
+
+      // タイプに応じた色を設定
+      let bgColor, iconBgColor, boxShadowColor, borderColor, iconPath;
+
+      if (type === 'success') {
+        bgColor = 'linear-gradient(135deg, rgba(40, 167, 69, 0.97), rgba(32, 134, 55, 0.95))';
+        iconBgColor = 'rgba(25, 135, 84, 0.95)';
+        boxShadowColor = 'rgba(25, 135, 84, 0.6)';
+        borderColor = 'rgba(25, 200, 84, 0.25)';
+        iconPath = '<path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="white"/>';
+      } else if (type === 'warning' || type === 'error') {
+        bgColor = 'linear-gradient(135deg, rgba(220, 53, 69, 0.97), rgba(178, 43, 56, 0.95))';
+        iconBgColor = 'rgba(220, 53, 69, 0.95)';
+        boxShadowColor = 'rgba(220, 53, 69, 0.6)';
+        borderColor = 'rgba(255, 100, 100, 0.25)';
+        iconPath = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="white"/>';
+      } else {
+        bgColor = 'linear-gradient(135deg, rgba(13, 110, 253, 0.97), rgba(11, 94, 215, 0.95))';
+        iconBgColor = 'rgba(13, 110, 253, 0.95)';
+        boxShadowColor = 'rgba(13, 110, 253, 0.6)';
+        borderColor = 'rgba(13, 150, 253, 0.25)';
+        iconPath = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="white"/>';
+      }
+
+      toastContainer.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: calc(50% + 120px);
+        transform: translate(-50%, -50%);
+        background: ${bgColor};
+        color: white;
+        padding: 20px 28px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px ${boxShadowColor}, 0 0 0 2px ${borderColor};
+        z-index: 200000;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-width: 360px;
+        max-width: 500px;
+        backdrop-filter: blur(10px);
+        border: 1px solid ${borderColor};
+        font-weight: 600;
+        animation: toast-pulse 2s ease-in-out infinite;
+      `;
+
+      toastContainer.innerHTML = `
+        <div style="
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background-color: ${iconBgColor};
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          position: relative;
+          box-shadow: 0 0 20px ${boxShadowColor};
+        ">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            ${iconPath}
+          </svg>
+        </div>
+        <div style="font-size: 16px; line-height: 1.4; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+          ${message}
+        </div>
+      `;
+
+      // アニメーション用のスタイルを追加
+      const animStyle = document.createElement('style');
+      animStyle.textContent = `
+        @keyframes toast-pulse {
+          0%, 100% { transform: translate(-50%, -50%) scale(1); }
+          50% { transform: translate(-50%, -50%) scale(1.02); }
+        }
+        .toast-notification-fallback {
+          animation: toast-pulse 2s ease-in-out infinite;
+        }
+      `;
+      document.head.appendChild(animStyle);
+      document.body.appendChild(toastContainer);
+
+      // クリーンアップ時にスタイル要素も削除
+      setTimeout(() => {
+        if (document.body.contains(toastContainer)) {
+          document.body.removeChild(toastContainer);
+        }
+        if (document.head.contains(animStyle)) {
+          document.head.removeChild(animStyle);
+        }
+        setToast({ show: false, message: '', type: 'success' });
+      }, 3000);
+    }
   };
 
   return (
     <div className="variable-config">
-      <Header
-        title="変数設定"
-        description="SCSSの変数を設定・管理します"
-      />
+      <Header />
 
-      <form className="variable-form">
-        {/* レイアウト設定 */}
-        <div className="form-group">
-          <h3 className="group-title">レイアウト設定</h3>
+      <div className="content">
+        <form className="variable-form">
+          {/* レイアウト設定 */}
+          <div className="form-group">
+            <h3 className="group-title">レイアウト設定</h3>
 
-          <div className="input-row">
-            <label className="input-label">インナー幅:</label>
-            <input
-              type="number"
-              name="lInner"
-              value={variables.lInner}
-              onChange={(e) => setVariables({ ...variables, lInner: e.target.value })}
-              className="input-field"
-            />
-            <div className="input-description">pxで入力、自動的にremに変換されます</div>
-          </div>
-
-          <div className="input-row">
-            <label className="input-label">PC用Padding幅:</label>
-            <input
-              type="number"
-              name="paddingPc"
-              value={variables.paddingPc}
-              onChange={(e) => setVariables({ ...variables, paddingPc: e.target.value })}
-              className="input-field"
-            />
-            <div className="input-description">pxで入力、自動的にremに変換されます</div>
-          </div>
-
-          <div className="input-row">
-            <label className="input-label">SP用Padding幅:</label>
-            <input
-              type="number"
-              name="paddingSp"
-              value={variables.paddingSp}
-              onChange={(e) => setVariables({ ...variables, paddingSp: e.target.value })}
-              className="input-field"
-            />
-            <div className="input-description">pxで入力、自動的にremに変換されます</div>
-          </div>
-        </div>
-
-        {/* 画像アップロード */}
-        <div className="form-group">
-          <h3 className="group-title">デザインカンプから色を抽出</h3>
-          <div className="upload-area">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageUpload}
-              accept="image/jpeg,image/png,image/webp"
-              style={{ display: 'none' }}
-              title="デザインカンプをアップロードして色を抽出"
-            />
-            <div className="upload-button-container">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current.click()}
-                className={`upload-button ${isProcessing ? 'processing' : ''}`}
-                disabled={isProcessing}
-              >
-                {isProcessing ? "処理中..." : "デザインカンプをアップロード"}
-              </button>
-              {isProcessing && (
-                <div className="progress-bar-container">
-                  <div className="progress-bar"></div>
-                </div>
-              )}
-            </div>
-            <div className="input-description">
-              高品質な画像をアップロードすることで色を自動抽出します
-              <div className="hint">
-                4MB未満の画像は圧縮せずに解析され、より正確な色抽出が可能です
-              </div>
+            <div className="input-row">
+              <label className="input-label">インナー幅:</label>
+              <input
+                type="number"
+                name="lInner"
+                value={variables.lInner}
+                onChange={(e) => setVariables({ ...variables, lInner: e.target.value })}
+                className="input-field"
+              />
+              <div className="input-description">pxで入力、自動的にremに変換されます</div>
             </div>
 
-            <div className="extraction-tips">
-              <h4>より正確な色抽出のためのヒント</h4>
-              <div className="tips-layout">
-                <div className="tip">
-                  <span className="tip-icon">✓</span>
-                  <div className="tip-content">
-                    <strong>高解像度で鮮明な画像を使用する</strong>
-                    <p>解像度が高く、鮮明な画像ほど正確な色を抽出できます</p>
-                  </div>
-                </div>
-                <div className="tip">
-                  <span className="tip-icon">✓</span>
-                  <div className="tip-content">
-                    <strong>画面全体のデザインを含む画像を選ぶ</strong>
-                    <p>ページ全体が映った画像から、より網羅的な色パレットを抽出できます</p>
-                  </div>
-                </div>
-                <div className="tip">
-                  <span className="tip-icon">⚠️</span>
-                  <div className="tip-content">
-                    <strong>低解像度の画像は避ける</strong>
-                    <p>画質の低い画像は色のブレンドが発生し、誤った色が抽出される場合があります</p>
-                  </div>
-                </div>
-              </div>
+            <div className="input-row">
+              <label className="input-label">PC用Padding幅:</label>
+              <input
+                type="number"
+                name="paddingPc"
+                value={variables.paddingPc}
+                onChange={(e) => setVariables({ ...variables, paddingPc: e.target.value })}
+                className="input-field"
+              />
+              <div className="input-description">pxで入力、自動的にremに変換されます</div>
             </div>
 
-            {designImage && (
-              <div className="preview-container">
-                <div className="hover-instruction">
-                  画像上にマウスを移動して色を確認 ・ クリックして色を抽出できます
-                </div>
-                <div
-                  className="image-container"
-                  ref={imageContainerRef}
-                  style={{ overflow: 'visible' }}
+            <div className="input-row">
+              <label className="input-label">SP用Padding幅:</label>
+              <input
+                type="number"
+                name="paddingSp"
+                value={variables.paddingSp}
+                onChange={(e) => setVariables({ ...variables, paddingSp: e.target.value })}
+                className="input-field"
+              />
+              <div className="input-description">pxで入力、自動的にremに変換されます</div>
+            </div>
+          </div>
+
+          {/* 画像アップロード */}
+          <div className="form-group">
+            <h3 className="group-title">デザインカンプから色を抽出</h3>
+            <div className="upload-area">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageUpload}
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                title="デザインカンプをアップロードして色を抽出"
+              />
+              <div className="upload-button-container">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current.click()}
+                  className="upload-button"
+                  disabled={isProcessing}
                 >
-                  <img
-                    ref={imageRef}
-                    src={designImage}
-                    alt="Design Preview"
-                    className="preview-image"
-                    onClick={handleImageClick}
-                    onMouseMove={handleMouseMove}
-                    onMouseLeave={handleMouseLeave}
-                    style={{ maxWidth: '100%', display: 'block', position: 'relative' }}
-                  />
-                  <canvas
-                    ref={canvasRef}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      pointerEvents: 'none',
-                      width: '100%',
-                      height: '100%',
-                    }}
-                  ></canvas>
+                  {isProcessing ? "処理中..." : "デザインカンプをアップロード"}
+                </button>
+              </div>
+              <div className="input-description">
+                高品質な画像をアップロードすることで色を自動抽出します
+                <div className="hint">
+                  4MB未満の画像は圧縮せずに解析され、より正確な色抽出が可能です
+                </div>
+              </div>
 
-                  {/* 吹き出し表示 */}
-                  {showColorPopup && selectedColorPosition && ReactDOM.createPortal(
-                    <div
-                      className="color-popup"
+              <div className="extraction-tips">
+                <h4>より正確な色抽出のためのヒント</h4>
+                <div className="tips-layout">
+                  <div className="tip">
+                    <span className="tip-icon">✓</span>
+                    <div className="tip-content">
+                      <strong>高解像度で鮮明な画像を使用する</strong>
+                      <p>解像度が高く、鮮明な画像ほど正確な色を抽出できます</p>
+                    </div>
+                  </div>
+                  <div className="tip">
+                    <span className="tip-icon">✓</span>
+                    <div className="tip-content">
+                      <strong>画面全体のデザインを含む画像を選ぶ</strong>
+                      <p>ページ全体が映った画像から、より網羅的な色パレットを抽出できます</p>
+                    </div>
+                  </div>
+                  <div className="tip">
+                    <span className="tip-icon">⚠️</span>
+                    <div className="tip-content">
+                      <strong>低解像度の画像は避ける</strong>
+                      <p>画質の低い画像は色のブレンドが発生し、誤った色が抽出される場合があります</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {designImage && (
+                <div className="preview-container">
+                  <div className="hover-instruction">
+                    画像上にマウスを移動して色を確認 ・ クリックして色を抽出できます
+                  </div>
+                  <div
+                    className="image-container"
+                    ref={imageContainerRef}
+                    style={{ overflow: 'visible', position: 'relative' }}
+                  >
+                    <img
+                      ref={imageRef}
+                      src={designImage}
+                      alt="Design Preview"
+                      className={`preview - image ${isProcessing ? 'processing' : ''} `}
+                      onClick={handleImageClick}
+                      onMouseMove={handleMouseMove}
+                      onMouseLeave={handleMouseLeave}
+                      style={{ maxWidth: '100%', display: 'block', position: 'relative' }}
+                    />
+                    <canvas
+                      ref={canvasRef}
                       style={{
-                        position: 'fixed',
-                        left: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).x}px`,
-                        top: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).y}px`,
-                        zIndex: 9999
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        pointerEvents: 'none',
+                        width: '100%',
+                        height: '100%',
                       }}
-                    >
-                      <div className="color-popup-header">
-                        <div
-                          className="color-sample"
-                          style={{ backgroundColor: selectedColorPosition.color }}
-                        ></div>
-                        <div className="color-info">
-                          <div>{selectedColorPosition.color}</div>
-                          <div>{selectedColorPosition.rgbValue}</div>
+                    ></canvas>
+
+                    {isProcessing && (
+                      <div className="ai-processing-overlay" style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 9999,
+                        backdropFilter: 'blur(6px)',
+                        borderRadius: '8px'
+                      }}>
+                        <div className="ai-processing-content" style={{
+                          backgroundColor: 'rgba(12, 20, 33, 0.9)',
+                          borderRadius: '16px',
+                          padding: '30px',
+                          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 118, 173, 0.3)',
+                          textAlign: 'center',
+                          width: '90%',
+                          maxWidth: '380px',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          overflow: 'hidden',
+                          position: 'relative',
+                          transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                          willChange: 'transform'      // アニメーションの最適化を促進
+                        }}>
+                          {/* Particle Animation Background */}
+                          <div className="particle-effect" style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            overflow: 'hidden',
+                            opacity: 0.15,
+                            zIndex: 0
+                          }}>
+                            {Array.from({ length: 50 }).map((_, i) => (
+                              <div key={i} style={{
+                                position: 'absolute',
+                                top: `${Math.random() * 100}% `,
+                                left: `${Math.random() * 100}% `,
+                                width: `${Math.random() * 6 + 2} px`,
+                                height: `${Math.random() * 6 + 2} px`,
+                                backgroundColor: `rgba(${Math.random() * 155 + 100}, ${Math.random() * 155 + 100}, 255, 1)`,
+                                borderRadius: '50%',
+                                filter: 'blur(1px)',
+                                transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                                willChange: 'transform',     // アニメーションの最適化を促進
+                              }} />
+                            ))}
+                          </div>
+
+                          {/* Hex Grid Animation */}
+                          <div style={{
+                            position: 'relative',
+                            zIndex: 2,
+                            marginBottom: '25px'
+                          }}>
+                            <div className="hex-grid" style={{
+                              display: 'flex',
+                              justifyContent: 'center',
+                              position: 'relative',
+                              height: '80px',
+                              marginBottom: '5px',
+                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                              willChange: 'transform'      // アニメーションの最適化を促進
+                            }}>
+                              {Array.from({ length: 7 }).map((_, i) => (
+                                <div key={i} className="hex" style={{
+                                  width: '32px',
+                                  height: '35px',
+                                  margin: '0 -4px',
+                                  background: `linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %)`,
+                                  clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+                                  transformOrigin: 'center',
+                                  position: 'relative',
+                                  opacity: 0.9,
+                                  transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                                  willChange: 'transform, opacity'  // アニメーションの最適化を促進
+                                }} />
+                              ))}
+                            </div>
+
+                            <div className="ai-icon" style={{
+                              width: '60px',
+                              height: '60px',
+                              background: 'linear-gradient(180deg, #0076ad, #004a6b)',
+                              borderRadius: '30%',
+                              margin: '0 auto',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              boxShadow: '0 10px 25px rgba(0, 118, 173, 0.5)',
+                              position: 'relative',
+                              overflow: 'hidden',
+                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                              willChange: 'box-shadow'     // アニメーションの最適化を促進
+                            }}>
+                              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 2L21.5 7.5V16.5L12 22L2.5 16.5V7.5L12 2Z" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" />
+                                <path d="M12 22V12M12 12L2.5 7.5M12 12L21.5 7.5M17 14.5V10L7 5" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" strokeLinecap="round" />
+                                <circle cx="12" cy="12" r="2" fill="rgba(255,255,255,0.9)" />
+                              </svg>
+                              <div className="ai-icon-pulse" style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: '100%',
+                                background: 'radial-gradient(circle, rgba(0,118,173,0) 30%, rgba(0,118,173,0.8) 100%)',
+                                animation: 'ai-process 2s infinite',
+                                opacity: 0.7
+                              }}></div>
+                            </div>
+                          </div>
+
+                          <div className="processing-title" style={{
+                            fontSize: '24px',
+                            fontWeight: 700,
+                            marginBottom: '8px',
+                            background: 'linear-gradient(90deg, #ffffff, #6eb6db)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            position: 'relative',
+                            zIndex: 2
+                          }}>AIカラー解析中</div>
+
+                          <div className="processing-description" style={{
+                            fontSize: '14px',
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            marginBottom: '25px',
+                            position: 'relative',
+                            zIndex: 2
+                          }}>高精度な色抽出には15〜30秒ほど時間がかかります</div>
+
+                          {/* Smart Progress Indicator */}
+                          <div className="progress-container" style={{
+                            position: 'relative',
+                            height: '10px',
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            borderRadius: '10px',
+                            overflow: 'hidden',
+                            margin: '0 10px 25px',
+                            boxShadow: 'inset 0 1px 5px rgba(0, 0, 0, 0.3)',
+                            zIndex: 2
+                          }}>
+                            <div className="progress-waves" style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              height: '100%',
+                              width: '100%',
+                              background: 'linear-gradient(90deg, rgba(0, 118, 173, 0.8), rgba(110, 182, 219, 0.8))',
+                              backgroundSize: '200% 100%',
+                              borderRadius: '10px',
+                              boxShadow: '0 0 10px rgba(110, 182, 219, 0.5)',
+                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                              willChange: 'background-position'  // アニメーションの最適化を促進
+                            }}></div>
+
+                            <div className="progress-glow" style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: '-20%',
+                              height: '100%',
+                              width: '40%',
+                              background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent)',
+                              borderRadius: '10px',
+                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
+                              willChange: 'left'           // アニメーションの最適化を促進
+                            }}></div>
+                          </div>
+
+                          <div className="process-stages" style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            marginBottom: '20px',
+                            position: 'relative',
+                            padding: '0 10px',
+                            zIndex: 2
+                          }}>
+                            <div className="stage-item" style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              width: '25%'
+                            }}>
+                              <div className="stage-icon" style={{
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 118, 173, 1)',
+                                marginBottom: '5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 0 10px rgba(0, 118, 173, 0.7)',
+                                animation: 'stage-active 0.5s ease-out'
+                              }}>
+                                <span style={{ color: 'white', fontSize: '12px' }}>✓</span>
+                              </div>
+                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>準備</div>
+                            </div>
+                            <div className="stage-item" style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              width: '25%'
+                            }}>
+                              <div className="stage-icon" style={{
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 118, 173, 1)',
+                                marginBottom: '5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 0 10px rgba(0, 118, 173, 0.7)',
+                                animation: 'stage-active 0.5s ease-out 0.5s both'
+                              }}>
+                                <span style={{ color: 'white', fontSize: '12px' }}>✓</span>
+                              </div>
+                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>分析</div>
+                            </div>
+                            <div className="stage-item" style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              width: '25%'
+                            }}>
+                              <div className="stage-icon" style={{
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 118, 173, 0.5)',
+                                marginBottom: '5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                animation: 'stage-pulse 1.5s infinite'
+                              }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }}></div>
+                              </div>
+                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>抽出</div>
+                            </div>
+                            <div className="stage-item" style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              width: '25%'
+                            }}>
+                              <div className="stage-icon" style={{
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                background: 'rgba(255, 255, 255, 0.1)',
+                                marginBottom: '5px',
+                                border: '1px solid rgba(255, 255, 255, 0.2)'
+                              }}></div>
+                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)' }}>完了</div>
+                            </div>
+                          </div>
+
+                          <div className="status-container" style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            position: 'relative',
+                            zIndex: 2
+                          }}>
+                            <div className="processing-status" style={{
+                              fontSize: '12px',
+                              color: '#6eb6db',
+                              fontWeight: 500,
+                              animation: 'status-blink 2s infinite',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}>
+                              <div className="status-dot" style={{
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                backgroundColor: '#6eb6db',
+                                marginRight: '5px',
+                                animation: 'status-dot-pulse 1.5s infinite'
+                              }}></div>
+                              最適なカラーパレットを検出中...
+                            </div>
+                            <div className="processing-time" style={{
+                              fontSize: '12px',
+                              color: 'rgba(255, 255, 255, 0.6)',
+                              fontFamily: 'monospace',
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              padding: '3px 8px',
+                              borderRadius: '10px'
+                            }}>経過時間: 0秒</div>
+                          </div>
+
+                          <style dangerouslySetInnerHTML={{
+                            __html: `
+    @keyframes particle - float {
+      0 % { transform: translateY(0) translateX(0); }
+      25 % { transform: translateY(10px) translateX(10px); }
+      50 % { transform: translateY(20px) translateX(0); }
+      75 % { transform: translateY(10px) translateX(- 10px);
+    }
+    100 % { transform: translateY(0) translateX(0); }
+  }
+
+  @keyframes hex - pulse {
+    0 %, 100 % { transform: scale(0.8); opacity: 0.4; }
+    50 % { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes hex - color - shift {
+    0 % { background: linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %); }
+    33 % { background: linear - gradient(135deg, rgba(0, 173, 118, 0.3) 0 %, rgba(0, 173, 118, 0.6) 100 %); }
+    66 % { background: linear - gradient(135deg, rgba(118, 0, 173, 0.3) 0 %, rgba(118, 0, 173, 0.6) 100 %); }
+    100 % { background: linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %); }
+  }
+
+  @keyframes progress - wave - animation {
+    0 % { background- position: 100 % 50 %;
+  }
+  100 % { background- position: 0 % 50 %;
+}
+                          }
+
+@keyframes progress - glow - animation {
+  0 % { left: -20 %; }
+  100 % { left: 100 %; }
+}
+
+@keyframes pulse - glow {
+  0 %, 100 % { box- shadow: 0 0 15px rgba(0, 118, 173, 0.5);
+}
+50 % { box- shadow: 0 0 30px rgba(0, 118, 173, 0.8); }
+                          }
+
+@keyframes ai - process {
+  0 %, 100 % { opacity: 0.5; }
+  50 % { opacity: 0.9; }
+}
+
+@keyframes stage - pulse {
+  0 %, 100 % { transform: scale(1); opacity: 0.5; }
+  50 % { transform: scale(1.1); opacity: 1; box- shadow: 0 0 15px rgba(0, 118, 173, 0.7);
+}
+                          }
+
+@keyframes stage - active {
+  0 % { transform: scale(0); opacity: 0; }
+  80 % { transform: scale(1.2); opacity: 1; }
+  100 % { transform: scale(1); opacity: 1; }
+}
+
+@keyframes status - blink {
+  0 %, 100 % { opacity: 0.7; }
+  50 % { opacity: 1; }
+}
+
+@keyframes status - dot - pulse {
+  0 %, 100 % { transform: scale(1); opacity: 0.7; }
+  50 % { transform: scale(1.5); opacity: 1; box- shadow: 0 0 8px #6eb6db;
+}
+                          }
+`}} />
                         </div>
-                        <button
-                          type="button"
-                          className="close-popup"
-                          onClick={() => {
-                            setShowColorPopup(false);
-                            resetCanvas();
-                          }}
-                        >
-                          ×
-                        </button>
                       </div>
+                    )}
 
-                      <div className="color-popup-content">
-                        <div className="tab-container">
+                    {/* 吹き出し表示 */}
+                    {showColorPopup && selectedColorPosition && ReactDOM.createPortal(
+                      <div
+                        className="color-popup"
+                        style={{
+                          position: 'fixed',
+                          left: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).x} px`,
+                          top: `${adjustPopupPosition(selectedColorPosition.clientX, selectedColorPosition.clientY).y} px`,
+                          zIndex: 9999
+                        }}
+                      >
+                        <div className="color-popup-header">
                           <div
-                            className={`tab ${isNewVariable ? 'active' : ''}`}
-                            onClick={() => setIsNewVariable(true)}
-                          >
-                            新規変数
+                            className="color-sample"
+                            style={{ backgroundColor: selectedColorPosition.color }}
+                          ></div>
+                          <div className="color-info">
+                            <div>{selectedColorPosition.color}</div>
+                            <div>{selectedColorPosition.rgbValue}</div>
                           </div>
-                          <div
-                            className={`tab ${!isNewVariable ? 'active' : ''}`}
-                            onClick={() => setIsNewVariable(false)}
-                          >
-                            既存変数
-                          </div>
-                        </div>
-
-                        <div className="popup-options">
-                          <div className={`option-panel ${isNewVariable ? 'active' : ''}`}>
-                            <div className="new-variable-input">
-                              <input
-                                type="text"
-                                value={newColorName}
-                                onChange={(e) => setNewColorName(e.target.value)}
-                                placeholder="変数名（例: $primary-color）"
-                              />
-                            </div>
-                          </div>
-
-                          <div className={`option-panel ${!isNewVariable ? 'active' : ''}`}>
-                            <div className="existing-variable-select">
-                              <select
-                                value={selectedExistingVariable}
-                                onChange={(e) => setSelectedExistingVariable(e.target.value)}
-                              >
-                                <option value="">-- 変数を選択 --</option>
-                                {extractedColors.map((color, index) => (
-                                  <option key={index} value={color.name}>
-                                    {color.name} ({color.color})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="popup-actions">
                           <button
                             type="button"
-                            className="add-color-btn"
-                            onClick={addExtractedColor}
-                          >
-                            保存
-                          </button>
-                          <button
-                            type="button"
-                            className="cancel-btn"
+                            className="close-popup"
                             onClick={() => {
                               setShowColorPopup(false);
                               resetCanvas();
                             }}
                           >
-                            キャンセル
+                            ×
                           </button>
                         </div>
-                      </div>
-                    </div>,
-                    document.body
-                  )}
 
-                  {isHovering && hoverColor && (
-                    <div
-                      className="color-info-tooltip"
-                      style={{
-                        left: `${mousePosition.x + 20}px`,
-                        top: `${mousePosition.y + 20}px`,
-                        borderColor: hoverColor.color
-                      }}
-                    >
-                      <div className="color-preview" style={{ backgroundColor: hoverColor.color }}></div>
-                      <div className="color-values">
-                        <div>{hoverColor.color}</div>
-                        <div>{hoverColor.rgbValue}</div>
-                        <div className="position">x: {hoverColor.position.x}, y: {hoverColor.position.y}</div>
-                      </div>
-                    </div>
-                  )}
+                        <div className="color-popup-content">
+                          <div className="tab-container">
+                            <div
+                              className={`tab ${isNewVariable ? 'active' : ''} `}
+                              onClick={() => setIsNewVariable(true)}
+                            >
+                              新規変数
+                            </div>
+                            <div
+                              className={`tab ${!isNewVariable ? 'active' : ''} `}
+                              onClick={() => setIsNewVariable(false)}
+                            >
+                              既存変数
+                            </div>
+                          </div>
 
-                  {isHovering && (
-                    <div
-                      className="magnifier-container"
-                      style={{
-                        left: mousePosition.x < 120 ? '10px' : 'auto',
-                        right: mousePosition.x >= 120 ? '10px' : 'auto',
-                        top: '10px'
-                      }}
-                    >
-                      <canvas
-                        ref={magnifierRef}
-                        width="150"
-                        height="150"
-                        className="magnifier"
-                      ></canvas>
-                      {hoverColor && (
-                        <div className="magnifier-color">{hoverColor.color}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+                          <div className="popup-options">
+                            <div className={`option - panel ${isNewVariable ? 'active' : ''} `}>
+                              <div className="new-variable-input">
+                                <input
+                                  type="text"
+                                  value={newColorName}
+                                  onChange={(e) => setNewColorName(e.target.value)}
+                                  placeholder="変数名（例: $primary-color）"
+                                />
+                              </div>
+                            </div>
 
-            {extractedColors.length > 0 && (
-              <div className="extracted-colors">
-                <h4>抽出された色 ({extractedColors.length})</h4>
-                <div className="color-chips">
-                  {extractedColors.map((color, index) => (
-                    <div
-                      key={index}
-                      className="color-chip"
-                      title="ホバーして削除ボタンを表示"
-                    >
-                      <div className="color-sample" style={{ backgroundColor: color.color }}></div>
-                      <div className="color-info">
-                        <div className="color-name">{color.name}</div>
-                        <div className="color-value">{color.color}</div>
-                        {color.description && <div className="color-description">{color.description}</div>}
-                      </div>
-                      <button
-                        type="button"
-                        className="delete-color-btn"
-                        onClick={() => removeExtractedColor(color.name)}
-                        title={`${color.name} を削除`}
+                            <div className={`option - panel ${!isNewVariable ? 'active' : ''} `}>
+                              <div className="existing-variable-select">
+                                <select
+                                  value={selectedExistingVariable}
+                                  onChange={(e) => setSelectedExistingVariable(e.target.value)}
+                                >
+                                  <option value="">-- 変数を選択 --</option>
+                                  {extractedColors.map((color, index) => (
+                                    <option key={index} value={color.name}>
+                                      {color.name} ({color.color})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="popup-actions">
+                            <button
+                              type="button"
+                              className="add-color-btn"
+                              onClick={addExtractedColor}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className="cancel-btn"
+                              onClick={() => {
+                                setShowColorPopup(false);
+                                resetCanvas();
+                              }}
+                            >
+                              キャンセル
+                            </button>
+                          </div>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+
+                    {isHovering && hoverColor && (
+                      <div
+                        className="color-info-tooltip"
+                        style={{
+                          left: `${mousePosition.x + 20} px`,
+                          top: `${mousePosition.y + 20} px`,
+                          borderColor: hoverColor.color
+                        }}
                       >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                        <div className="color-preview" style={{ backgroundColor: hoverColor.color }}></div>
+                        <div className="color-values">
+                          <div>{hoverColor.color}</div>
+                          <div>{hoverColor.rgbValue}</div>
+                          <div className="position">x: {hoverColor.position.x}, y: {hoverColor.position.y}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isHovering && (
+                      <div
+                        className="magnifier-container"
+                        style={{
+                          left: mousePosition.x < 120 ? '10px' : 'auto',
+                          right: mousePosition.x >= 120 ? '10px' : 'auto',
+                          top: '10px'
+                        }}
+                      >
+                        <canvas
+                          ref={magnifierRef}
+                          width="150"
+                          height="150"
+                          className="magnifier"
+                        ></canvas>
+                        {hoverColor && (
+                          <div className="magnifier-color">{hoverColor.color}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {extractedColors.length > 0 && (
-              <button
-                type="button"
-                className="apply-colors-button"
-                onClick={applyExtractedColors}
-              >
-                抽出した色を適用
-              </button>
-            )}
-          </div>
-        </div>
+              {extractedColors.length > 0 && (
+                <div className="extracted-colors">
+                  <h4>抽出された色 ({extractedColors.length})</h4>
+                  <div className="color-chips">
+                    {extractedColors.map((color, index) => (
+                      <div
+                        key={index}
+                        className="color-chip"
+                        title="ホバーして削除ボタンを表示"
+                      >
+                        <div className="color-sample" style={{ backgroundColor: color.color }}></div>
+                        <div className="color-info">
+                          <div className="color-name">{color.name}</div>
+                          <div className="color-value">{color.color}</div>
+                          {color.description && <div className="color-description">{color.description}</div>}
+                        </div>
+                        <button
+                          type="button"
+                          className="delete-color-btn"
+                          onClick={() => removeExtractedColor(color.name)}
+                          title={`${color.name} を削除`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-        {/* 色設定 */}
-        <div className="form-group color-settings">
-          <h3 className="group-title">色設定</h3>
-          <div className="items-container">
-            {variables.customColors.map((color, index) => (
-              <div key={index} className="item">
-                <input
-                  type="text"
-                  value={color.name}
-                  onChange={(e) => {
-                    const updatedColors = [...variables.customColors];
-                    updatedColors[index].name = e.target.value;
-                    setVariables({ ...variables, customColors: updatedColors });
-                  }}
-                  className="color-name"
-                  placeholder="変数名（例: $primary-color）"
-                />
-                <input
-                  type="text"
-                  value={color.color}
-                  onChange={(e) => handleColorChange(index, e.target.value)}
-                  className="color-name"
-                  placeholder="カラーコード"
-                />
-                <div
-                  className="color-preview"
-                  style={{ backgroundColor: color.color }}
-                ></div>
+              {extractedColors.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => removeColor(index)}
-                  className="remove-button"
+                  className="apply-colors-button"
+                  onClick={applyExtractedColors}
                 >
-                  削除
+                  抽出した色を適用
                 </button>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
-          <button type="button" onClick={addColor} className="add-button">
-            色を追加
-          </button>
-        </div>
 
-        {/* 保存ボタン */}
-        <div className="action-buttons">
-          <button type="button" onClick={handleSave} className="save-button">
-            <span>変更を保存</span>
-          </button>
-        </div>
-      </form>
+          {/* 色設定 */}
+          <div className="form-group color-settings">
+            <h3 className="group-title">色設定</h3>
+            <div className="items-container">
+              {variables.customColors.map((color, index) => (
+                <div key={index} className="item">
+                  <input
+                    type="text"
+                    value={color.name}
+                    onChange={(e) => {
+                      const updatedColors = [...variables.customColors];
+                      updatedColors[index].name = e.target.value;
+                      setVariables({ ...variables, customColors: updatedColors });
+                    }}
+                    className="color-name"
+                    placeholder="変数名（例: $primary-color）"
+                  />
+                  <input
+                    type="text"
+                    value={color.color}
+                    onChange={(e) => handleColorChange(index, e.target.value)}
+                    className="color-name"
+                    placeholder="カラーコード"
+                  />
+                  <div
+                    className="color-preview"
+                    style={{ backgroundColor: color.color }}
+                  ></div>
+                  <button
+                    type="button"
+                    onClick={() => removeColor(index)}
+                    className="remove-button"
+                  >
+                    削除
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={addColor} className="add-button">
+              色を追加
+            </button>
+          </div>
+
+          {/* 保存ボタン */}
+          <div className="action-buttons">
+            <button type="button" onClick={handleSave} className="save-button">
+              <span>変更を保存</span>
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
