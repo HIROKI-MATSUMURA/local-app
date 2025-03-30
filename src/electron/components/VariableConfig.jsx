@@ -767,10 +767,11 @@ $color-1: #FF5722; // カード背景
   const handleMouseMove = (e) => {
     if (!designImage || isProcessing) return;
 
-    setIsHovering(true);
-
     // 色選択ポップアップが表示されている場合は処理しない
     if (showColorPopup) return;
+
+    // ホバー状態をアクティブに
+    setIsHovering(true);
 
     // スロットリング（すべてのマウス移動でなく間引いて処理）
     const now = Date.now();
@@ -951,7 +952,7 @@ $color-1: #FF5722; // カード背景
     const img = imageRef.current;
 
     // 拡大率
-    const zoom = 8;
+    const zoom = 6;
 
     // 拡大鏡のサイズ
     const size = 150;
@@ -969,7 +970,7 @@ $color-1: #FF5722; // カード背景
       const sourceSize = size / zoom;
       const halfSourceSize = sourceSize / 2;
 
-      // 拡大する範囲の左上座標を計算
+      // 拡大する範囲の左上座標を計算（ポインタの位置を中心に）
       let sourceLeft = Math.max(0, sourceX - halfSourceSize);
       let sourceTop = Math.max(0, sourceY - halfSourceSize);
 
@@ -1031,16 +1032,16 @@ $color-1: #FF5722; // カード背景
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
       ctx.lineWidth = 0.5;
 
-      // 縦線
-      for (let x = 0; x <= size; x += size / 10) {
+      // 縦線（少なめに表示）
+      for (let x = 0; x <= size; x += zoom * 2) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, size);
         ctx.stroke();
       }
 
-      // 横線
-      for (let y = 0; y <= size; y += size / 10) {
+      // 横線（少なめに表示）
+      for (let y = 0; y <= size; y += zoom * 2) {
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(size, y);
@@ -1091,8 +1092,8 @@ $color-1: #FF5722; // カード背景
   // ポップアップが画面外に出ないよう位置を調整
   const adjustPopupPosition = (x, y) => {
     const popupWidth = 280;
-    const popupHeight = 350;
-    const padding = 10;
+    const popupHeight = 320; // 高さを少し小さく調整
+    const padding = 15;
 
     // ウィンドウサイズを取得
     const windowWidth = window.innerWidth;
@@ -1101,13 +1102,23 @@ $color-1: #FF5722; // カード背景
     // 右端のチェック
     let adjustedX = x;
     if (x + popupWidth + padding > windowWidth) {
-      adjustedX = windowWidth - popupWidth - padding;
+      adjustedX = x - popupWidth - padding; // 左側に表示
+
+      // 左側にも入らない場合は右端ギリギリに配置
+      if (adjustedX < padding) {
+        adjustedX = windowWidth - popupWidth - padding;
+      }
     }
 
     // 下端のチェック
     let adjustedY = y + 10; // 少し下にずらす
     if (adjustedY + popupHeight + padding > windowHeight) {
       adjustedY = y - popupHeight - 10; // ポップアップを上に表示
+
+      // 上側にも入らない場合は下端ギリギリに配置
+      if (adjustedY < padding) {
+        adjustedY = windowHeight - popupHeight - padding;
+      }
     }
 
     // マイナスにならないように調整
@@ -1267,6 +1278,56 @@ ${colorVariables}
     }
   };
 
+  // ホバー情報を表示するJSX部分
+  const renderHoverUI = () => {
+    if (!isHovering || !hoverColor || !mousePosition) return null;
+
+    // マグニファイアの位置計算
+    // マウス位置によって左右の位置を調整
+    const magnifierPosition = {
+      left: mousePosition.x < imageContainerRef.current?.clientWidth / 2 ? '10px' : 'auto',
+      right: mousePosition.x >= imageContainerRef.current?.clientWidth / 2 ? '10px' : 'auto',
+      top: '10px'
+    };
+
+    return (
+      <>
+        {/* 色情報ツールチップ */}
+        <div
+          className="color-info-tooltip"
+          style={{
+            left: `${mousePosition.x + 20}px`,
+            top: `${mousePosition.y + 20}px`,
+            borderColor: hoverColor.color
+          }}
+        >
+          <div className="color-preview" style={{ backgroundColor: hoverColor.color }}></div>
+          <div className="color-values">
+            <div>{hoverColor.color}</div>
+            <div>{hoverColor.rgbValue}</div>
+            <div className="position">x: {hoverColor.position.x}, y: {hoverColor.position.y}</div>
+          </div>
+        </div>
+
+        {/* マグニファイア（拡大鏡） */}
+        <div
+          className="magnifier-container"
+          style={magnifierPosition}
+        >
+          <canvas
+            ref={magnifierRef}
+            width="150"
+            height="150"
+            className="magnifier"
+          ></canvas>
+          {hoverColor && (
+            <div className="magnifier-color">{hoverColor.color}</div>
+          )}
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className="variable-config">
       <Header />
@@ -1364,6 +1425,7 @@ ${colorVariables}
                 </div>
               ) : (
                 <div className="upload-content">
+                  <div className="upload-icon">📤</div>
                   <h4>デザインカンプ画像をアップロード</h4>
                   <p>クリックまたはドラッグ＆ドロップ</p>
 
@@ -1375,7 +1437,6 @@ ${colorVariables}
                   </div>
 
                   <div className="extraction-tips">
-                    <h4>より正確な色抽出のためのヒント</h4>
                     <div className="tips-layout">
                       <div className="tip">
                         <span className="tip-icon">✓</span>
@@ -1916,44 +1977,7 @@ ${colorVariables}
                       document.body
                     )}
 
-                    {isHovering && hoverColor && (
-                      <div
-                        className="color-info-tooltip"
-                        style={{
-                          left: `${mousePosition.x + 20}px`,
-                          top: `${mousePosition.y + 20}px`,
-                          borderColor: hoverColor.color
-                        }}
-                      >
-                        <div className="color-preview" style={{ backgroundColor: hoverColor.color }}></div>
-                        <div className="color-values">
-                          <div>{hoverColor.color}</div>
-                          <div>{hoverColor.rgbValue}</div>
-                          <div className="position">x: {hoverColor.position.x}, y: {hoverColor.position.y}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {isHovering && (
-                      <div
-                        className="magnifier-container"
-                        style={{
-                          left: mousePosition.x < 120 ? '10px' : 'auto',
-                          right: mousePosition.x >= 120 ? '10px' : 'auto',
-                          top: '10px'
-                        }}
-                      >
-                        <canvas
-                          ref={magnifierRef}
-                          width="150"
-                          height="150"
-                          className="magnifier"
-                        ></canvas>
-                        {hoverColor && (
-                          <div className="magnifier-color">{hoverColor.color}</div>
-                        )}
-                      </div>
-                    )}
+                    {renderHoverUI()}
                   </div>
                 </div>
               </div>
