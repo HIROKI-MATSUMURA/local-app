@@ -62,6 +62,7 @@ $danger-color: $error-color;
 $font-base: "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
 $font-heading: "M PLUS Rounded 1c", "Helvetica Neue", Arial, sans-serif;
 $font-code: "Fira Code", monospace;
+$font-mono: $font-code; // $font-codeの別名として追加
 
 // フォントサイズ
 $font-size-xs: 0.75rem; // 12px

@@ -914,95 +914,154 @@
           grid-template-columns: repeat(3, 1fr);
           gap: $spacing-lg;
           margin-top: $spacing-lg;
-        }
 
-        .color-chip {
-          display: flex;
-          align-items: center;
-          background-color: white;
-          border-radius: $radius-md;
-          padding: $spacing-md;
-          box-shadow: $shadow-md;
-          transition: all 0.3s ease;
-          gap: $spacing-md;
-          border: 1px solid rgba($border-color, 0.2);
-          position: relative;
-
-          &:hover {
-            transform: translateY(-2px);
-            box-shadow: $shadow-lg;
-
-            .delete-color-btn {
-              opacity: 1;
-            }
-          }
-
-          .delete-color-btn {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background-color: $error-color;
-            color: white;
+          .color-chip {
             display: flex;
             align-items: center;
-            justify-content: center;
-            border: 1px solid white;
-            cursor: pointer;
-            font-size: 14px;
-            opacity: 0;
-            transition: all 0.2s ease;
+            background-color: white;
+            border-radius: $radius-md;
+            padding: $spacing-md;
             box-shadow: $shadow-md;
+            transition: all 0.3s ease;
+            gap: $spacing-md;
+            border: 1px solid rgba($border-color, 0.2);
+            position: relative;
 
             &:hover {
-              transform: scale(1.1);
-              background-color: darken($error-color, 10%);
+              transform: translateY(-2px);
+              box-shadow: $shadow-lg;
+
+              .delete-color-btn {
+                opacity: 1;
+              }
+            }
+
+            .delete-color-btn {
+              position: absolute;
+              top: -8px;
+              right: -8px;
+              width: 24px;
+              height: 24px;
+              border-radius: 50%;
+              background-color: $error-color;
+              color: white;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border: 1px solid white;
+              cursor: pointer;
+              font-size: 14px;
+              opacity: 0;
+              transition: all 0.2s ease;
+              box-shadow: $shadow-md;
+
+              &:hover {
+                transform: scale(1.1);
+                background-color: darken($error-color, 10%);
+              }
+            }
+
+            .color-sample {
+              width: 40px;
+              height: 40px;
+              border-radius: $radius-sm;
+              flex-shrink: 0;
+              border: 2px solid $border-color;
+            }
+
+            .color-info {
+              flex: 1;
+              min-width: 0;
+
+              .color-name {
+                font-weight: 600;
+                font-size: $font-size-md;
+                color: $text-primary;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+
+              .color-value {
+                font-family: $font-code;
+                font-size: $font-size-sm;
+                color: $text-secondary;
+                background-color: rgba($surface-color, 0.5);
+                border-radius: $radius-sm;
+                padding: 2px 4px;
+                display: inline-block;
+                margin-top: 4px;
+              }
+
+              .color-description {
+                font-size: $font-size-xs;
+                color: $text-tertiary;
+                margin-top: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-style: italic;
+              }
             }
           }
         }
+      }
 
-        .color-sample {
-          width: 40px;
-          height: 40px;
-          border-radius: $radius-sm;
-          flex-shrink: 0;
-          border: 2px solid $border-color;
+      .caution-notice {
+        margin: $spacing-lg auto;
+        background: linear-gradient(135deg, rgba(255, 247, 230, 0.95), rgba(255, 235, 210, 0.9));
+        border: 1px solid rgba(255, 208, 120, 0.7);
+        border-radius: $radius-lg;
+        padding: $spacing-lg $spacing-xl;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.07);
+        position: relative;
+        overflow: hidden;
+
+        .caution-title {
+          font-weight: 700;
+          color: #8a6d3b;
+          font-size: $font-size-lg;
+          margin-bottom: $spacing-md;
+          display: flex;
+          align-items: center;
+          position: relative;
+          z-index: 1;
+          border-bottom: 2px solid rgba(#8a6d3b, 0.2);
+          padding-bottom: $spacing-sm;
+
+          &::before {
+            content: "⚠️";
+            margin-right: $spacing-md;
+            font-size: $font-size-lg;
+          }
         }
 
-        .color-info {
-          flex: 1;
-          min-width: 0;
+        .caution-content {
+          color: #5a4826;
+          position: relative;
+          z-index: 1;
 
-          .color-name {
-            font-weight: 600;
-            font-size: $font-size-md;
-            color: $text-primary;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
+          ul {
+            margin: $spacing-xs 0;
+            padding-left: $spacing-xl;
 
-          .color-value {
-            font-family: $font-code;
-            font-size: $font-size-sm;
-            color: $text-secondary;
-            background-color: rgba($surface-color, 0.5);
-            border-radius: $radius-sm;
-            padding: 2px 4px;
-            display: inline-block;
-            margin-top: 4px;
-          }
+            li {
+              margin-bottom: $spacing-sm;
+              line-height: 1.6;
+              font-size: $font-size-md;
+              padding-left: $spacing-xs;
+              text-align: left;
 
-          .color-description {
-            font-size: $font-size-xs;
-            color: $text-tertiary;
-            margin-top: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-style: italic;
+              &::marker {
+                color: #b7934a;
+                font-weight: bold;
+              }
+
+              &:hover {
+                transform: translateX(2px);
+                transition: transform 0.2s ease;
+              }
+            }
           }
         }
       }

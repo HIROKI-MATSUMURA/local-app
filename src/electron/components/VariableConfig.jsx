@@ -1952,6 +1952,19 @@ ${colorVariables}
               )}
 
               {extractedColors.length > 0 && (
+                <div className="caution-notice">
+                  <div className="caution-title">注意事項：</div>
+                  <div className="caution-content">
+                    <ul>
+                      <li>AIで抽出した色が完璧とは限りません。</li>
+                      <li>手動で抽出した色も解像度の関係で若干ずれる可能性があります。</li>
+                      <li>曖昧な場合はデザインカンプから直接カラーコードを確認をしてください。</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {extractedColors.length > 0 && (
                 <button
                   type="button"
                   className="apply-colors-button"
