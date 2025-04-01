@@ -355,6 +355,33 @@ const VariableConfig = () => {
               // 処理終了時にスタイル要素を削除
               document.head.removeChild(styleElement);
             });
+
+          // 画像処理後、少し時間を空けてからスクロール
+          setTimeout(() => {
+            // 「デザインカンプから色を抽出」セクションまでスクロール
+            const extractSections = document.querySelectorAll('.group-title');
+            let extractSection = null;
+
+            // テキスト内容に基づいて正確な要素を探す
+            for (const section of extractSections) {
+              if (section.textContent === 'デザインカンプから色を抽出') {
+                extractSection = section;
+                break;
+              }
+            }
+
+            if (extractSection) {
+              // 要素の位置を取得
+              const rect = extractSection.getBoundingClientRect();
+              const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+              // 30pxのスペースを空けてスクロール
+              window.scrollTo({
+                top: rect.top + scrollTop - 30,
+                behavior: 'smooth'
+              });
+            }
+          }, 500);
         }, 100);
       } catch (error) {
         console.error('画像処理エラー:', error);
@@ -599,6 +626,23 @@ $color-1: #FF5722; // カード背景
             setTimeout(() => {
               setExtractedColors(uniqueColors);
               setIsProcessing(false); // 処理完了時にisProcessingをリセット
+
+              // 処理完了後、「画像上にマウスを移動して色を確認」セクションまでスクロール
+              setTimeout(() => {
+                const hoverInstruction = document.querySelector('.hover-instruction');
+                if (hoverInstruction) {
+                  // 要素の位置を取得
+                  const rect = hoverInstruction.getBoundingClientRect();
+                  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+                  // 30pxのスペースを空けてスクロール
+                  window.scrollTo({
+                    top: rect.top + scrollTop - 30,
+                    behavior: 'smooth'
+                  });
+                }
+              }, 500);
+
               // アラートで通知を削除
               resolve(uniqueColors);
             }, 1000);
@@ -656,10 +700,29 @@ $color-1: #FF5722; // カード背景
 
     // 既存の変数に新しい色を適用
     const newCustomColors = [...variables.customColors];
+
+    // 抽出した色を処理
     extractedColors.forEach(ec => {
-      const existingIndex = newCustomColors.findIndex(v => v.name === ec.name);
-      if (existingIndex !== -1) {
-        newCustomColors[existingIndex].color = ec.color;
+      // 変数に直接追加する（同名の変数があれば更新、なければ追加）
+      let found = false;
+
+      // 既存の変数を確認して同名のものを更新
+      for (let i = 0; i < newCustomColors.length; i++) {
+        if (newCustomColors[i].name === ec.name) {
+          newCustomColors[i].color = ec.color;
+          found = true;
+          console.log(`既存の変数を更新: ${ec.name} = ${ec.color}`);
+          break;
+        }
+      }
+
+      // 該当する変数がなければ新しく追加
+      if (!found) {
+        newCustomColors.push({
+          name: ec.name,
+          color: ec.color
+        });
+        console.log(`新しい変数を追加: ${ec.name} = ${ec.color}`);
       }
     });
 
@@ -1184,26 +1247,21 @@ ${colorVariables}
       const toastContainer = document.createElement('div');
       toastContainer.className = 'toast-notification-fallback';
 
-      // タイプに応じた色を設定
+      // 赤系のカラーテーマを統一
       let bgColor, iconBgColor, boxShadowColor, borderColor, iconPath;
 
+      // タイプに関わらず赤系デザインを適用
+      bgColor = 'linear-gradient(135deg, rgba(220, 53, 69, 0.97), rgba(178, 43, 56, 0.95))';
+      iconBgColor = 'rgba(220, 53, 69, 0.95)';
+      boxShadowColor = 'rgba(220, 53, 69, 0.6)';
+      borderColor = 'rgba(255, 100, 100, 0.25)';
+
+      // タイプによってアイコンのみ変更
       if (type === 'success') {
-        bgColor = 'linear-gradient(135deg, rgba(40, 167, 69, 0.97), rgba(32, 134, 55, 0.95))';
-        iconBgColor = 'rgba(25, 135, 84, 0.95)';
-        boxShadowColor = 'rgba(25, 135, 84, 0.6)';
-        borderColor = 'rgba(25, 200, 84, 0.25)';
         iconPath = '<path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="white"/>';
       } else if (type === 'warning' || type === 'error') {
-        bgColor = 'linear-gradient(135deg, rgba(220, 53, 69, 0.97), rgba(178, 43, 56, 0.95))';
-        iconBgColor = 'rgba(220, 53, 69, 0.95)';
-        boxShadowColor = 'rgba(220, 53, 69, 0.6)';
-        borderColor = 'rgba(255, 100, 100, 0.25)';
         iconPath = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="white"/>';
       } else {
-        bgColor = 'linear-gradient(135deg, rgba(13, 110, 253, 0.97), rgba(11, 94, 215, 0.95))';
-        iconBgColor = 'rgba(13, 110, 253, 0.95)';
-        boxShadowColor = 'rgba(13, 110, 253, 0.6)';
-        borderColor = 'rgba(13, 150, 253, 0.25)';
         iconPath = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="white"/>';
       }
 
