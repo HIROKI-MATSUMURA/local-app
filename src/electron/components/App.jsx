@@ -69,7 +69,7 @@ const App = () => {
     <div className="app-container">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h2>CodeUps</h2>
+          <h2>CreAIte Code</h2>
         </div>
         <nav className="sidebar-nav">
           <ul>
