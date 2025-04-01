@@ -291,32 +291,33 @@ const VariableConfig = () => {
         // 画像を表示
         setDesignImage(resizedImage);
 
-        // レンダリングが完了するまで少し待つ
-        setTimeout(() => {
-          // 「デザインカンプから色を抽出」セクションまでスクロール
-          const extractSections = document.querySelectorAll('.group-title');
-          let extractSection = null;
+        // 「デザインカンプから色を抽出」セクションまでスクロール
+        const extractSections = document.querySelectorAll('.group-title');
+        let extractSection = null;
 
-          // テキスト内容に基づいて正確な要素を探す
-          for (const section of extractSections) {
-            if (section.textContent === 'デザインカンプから色を抽出') {
-              extractSection = section;
-              break;
-            }
+        // テキスト内容に基づいて正確な要素を探す
+        for (const section of extractSections) {
+          if (section.textContent === 'デザインカンプから色を抽出') {
+            extractSection = section;
+            break;
           }
+        }
 
-          if (extractSection) {
-            // 要素の位置を取得
-            const rect = extractSection.getBoundingClientRect();
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        if (extractSection) {
+          // 要素の位置を取得
+          const rect = extractSection.getBoundingClientRect();
+          const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
 
-            // 30pxのスペースを空けてスクロール
-            window.scrollTo({
-              top: rect.top + scrollTop - 30,
-              behavior: 'smooth'
-            });
-          }
-        }, 500);
+          // 30pxのスペースを空けてスクロール
+          window.scrollTo({
+            top: rect.top + scrollTop - 30,
+            behavior: 'smooth'
+          });
+        }
+
+        // 色の抽出処理を開始
+        await extractColorsFromImage(resizedImage);
+
       } catch (error) {
         console.error('画像処理エラー:', error);
         let errorMessage = '画像の処理中にエラーが発生しました。';
@@ -431,218 +432,292 @@ const VariableConfig = () => {
 
   // 画像から色を抽出する処理
   const extractColorsFromImage = async (base64Image) => {
-    try {
-      // APIキーの取得
-      const apiData = await window.api.getApiKey();
-
-      if (!apiData) {
-        throw new Error("APIキーが設定されていません。設定画面からAPIキーを設定してください。");
-      }
-
-      // 選択されたプロバイダに基づいてAPIキーを選択
-      let apiKey;
-      if (apiData.selectedProvider === 'claude') {
-        apiKey = apiData.claudeKey;
-      } else {
-        // デフォルトはClaudeを使用するため、claudeKeyを優先
-        apiKey = apiData.claudeKey || apiData.apiKey;
-      }
-
-      if (!apiKey) {
-        throw new Error("Claude APIキーが設定されていません。API設定画面からAPIキーを設定してください。");
-      }
-
-      const prompt = `
-この画像を解析し、SCSSの変数として使用できる主要な色を抽出してください。
-
-抽出する色について:
-1. 16進数形式（#RRGGBB）で表示
-2. 変数名は以下のようなシンプルな命名規則を使用してください:
-   - $primary-color: メインの色（最も使用頻度が高く、重要な色）
-   - $secondary-color: セカンダリの色（補助的な色）
-   - $accent-color: アクセントの色（強調やアクセントに使用される色）
-   - $background-color: 背景色（メインの背景色）
-   - $text-color: テキスト色（主要なテキストの色）
-   - $border-color: ボーダー色（境界線や区切り線の色）
-   - その他は $color-1, $color-2 などの連番
-3. コメントには以下の情報を含めてください:
-   - 色の使用箇所
-   - 色の役割（例：アクセント、背景、テキストなど）
-   - 色の特徴（例：明るい、暗い、鮮やかなど）
-
-例のフォーマット:
-$primary-color: #3F51B5; // ヘッダー背景色、メインカラー、落ち着いた青
-$secondary-color: #FFC107; // アクセントボタン色、補助色、明るい黄色
-$text-color: #333333; // 本文テキスト色、読みやすい濃いグレー
-$color-1: #FF5722; // カード背景色、アクセント、鮮やかなオレンジ
-
-レスポンスは上記の形式のみで返してください。説明は不要です。
-`;
-
-      return new Promise((resolve, reject) => {
-        // ロード状態の更新
+    return new Promise((resolve, reject) => {
+      try {
+        // 処理開始時にローディング状態を設定
         setIsProcessing(true);
 
-        // プロセスステージを更新する関数
-        const updateStageUI = (stage) => {
-          const stageIcons = document.querySelectorAll('.stage-icon');
-          const stageNames = document.querySelectorAll('.stage-name');
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
 
-          if (!stageIcons || stageIcons.length < 4) return;
+          // キャンバスサイズを画像サイズに合わせる
+          canvas.width = img.width;
+          canvas.height = img.height;
 
-          // 準備・分析・抽出・完了の4ステージ
-          for (let i = 0; i < 4; i++) {
-            if (i < stage) {
-              // 完了したステージ
-              stageIcons[i].style.background = 'rgba(0, 118, 173, 1)';
-              stageIcons[i].style.boxShadow = '0 0 10px rgba(0, 118, 173, 0.7)';
-              stageIcons[i].innerHTML = '<span style="color: white; font-size: 12px">✓</span>';
-              stageNames[i].style.color = 'rgba(255, 255, 255, 0.7)';
-            } else if (i === stage) {
-              // 現在のステージ
-              stageIcons[i].style.background = 'rgba(0, 118, 173, 0.5)';
-              stageIcons[i].style.animation = 'stage-pulse 1.5s infinite';
-              stageIcons[i].innerHTML = '<div style="width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>';
-              stageNames[i].style.color = 'rgba(255, 255, 255, 0.9)';
-              stageNames[i].style.fontWeight = '600';
-            } else {
-              // これからのステージ
-              stageIcons[i].style.background = 'rgba(255, 255, 255, 0.1)';
-              stageIcons[i].style.animation = 'none';
-              stageIcons[i].style.boxShadow = 'none';
-              stageIcons[i].innerHTML = '';
-              stageIcons[i].style.border = '1px solid rgba(255, 255, 255, 0.2)';
-              stageNames[i].style.color = 'rgba(255, 255, 255, 0.4)';
-              stageNames[i].style.fontWeight = '400';
+          // 高品質な描画設定
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
+          // 画像を描画
+          ctx.drawImage(img, 0, 0);
+
+          // ピクセルデータを取得
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+          // 色の出現回数を記録
+          const colorMap = new Map();
+          const minOccurrence = (canvas.width * canvas.height) * 0.0005; // 0.05%以上の出現で有意とする
+
+          // より細かいサンプリング（1ピクセルごと）
+          for (let i = 0; i < imageData.length; i += 4) {
+            const r = imageData[i];
+            const g = imageData[i + 1];
+            const b = imageData[i + 2];
+            const a = imageData[i + 3];
+
+            // 完全な透明は無視
+            if (a === 0) continue;
+
+            // RGBを16進数に変換
+            const color = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+
+            // 出現回数をカウント
+            colorMap.set(color, (colorMap.get(color) || 0) + 1);
+          }
+
+          // 色の類似性を考慮した結合
+          const mergedColors = new Map();
+          const processedColors = new Set();
+
+          for (const [color1, count1] of colorMap.entries()) {
+            if (processedColors.has(color1)) continue;
+
+            let totalCount = count1;
+            let weightedR = parseInt(color1.slice(1, 3), 16) * count1;
+            let weightedG = parseInt(color1.slice(3, 5), 16) * count1;
+            let weightedB = parseInt(color1.slice(5, 7), 16) * count1;
+
+            // 類似色の結合
+            for (const [color2, count2] of colorMap.entries()) {
+              if (color1 === color2 || processedColors.has(color2)) continue;
+
+              const r1 = parseInt(color1.slice(1, 3), 16);
+              const g1 = parseInt(color1.slice(3, 5), 16);
+              const b1 = parseInt(color1.slice(5, 7), 16);
+              const r2 = parseInt(color2.slice(1, 3), 16);
+              const g2 = parseInt(color2.slice(3, 5), 16);
+              const b2 = parseInt(color2.slice(5, 7), 16);
+
+              // 色の距離を計算（ユークリッド距離）
+              const distance = Math.sqrt(
+                Math.pow(r1 - r2, 2) +
+                Math.pow(g1 - g2, 2) +
+                Math.pow(b1 - b2, 2)
+              );
+
+              // 近い色を結合（しきい値を調整：より厳密に）
+              if (distance < 15) {
+                totalCount += count2;
+                weightedR += r2 * count2;
+                weightedG += g2 * count2;
+                weightedB += b2 * count2;
+                processedColors.add(color2);
+              }
             }
-          }
-        };
 
-        // 進捗状況表示用の状態
-        const processingStatusEl = document.querySelector('.processing-status');
-        if (processingStatusEl) {
-          processingStatusEl.textContent = 'APIに画像を送信中...';
-        }
+            // 加重平均で新しい色を計算
+            const avgR = Math.round(weightedR / totalCount);
+            const avgG = Math.round(weightedG / totalCount);
+            const avgB = Math.round(weightedB / totalCount);
+            const mergedColor = `#${((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1).toUpperCase()}`;
 
-        // ステージ0: 準備
-        updateStageUI(0);
-        setTimeout(() => {
-          // ステージ1: 分析
-          updateStageUI(1);
-        }, 1500);
-
-        // 古いリスナーを削除する必要はありません
-        // window.api.receive メソッドは内部で古いリスナーを自動的に削除します
-
-        // 新しいレスポンスリスナーを設定
-        const responseHandler = (result) => {
-          // ステージ2: 抽出 (APIからレスポンスがあった時点)
-          updateStageUI(2);
-
-          if (processingStatusEl) {
-            processingStatusEl.textContent = 'レスポンスを処理中...';
+            mergedColors.set(mergedColor, totalCount);
+            processedColors.add(color1);
           }
 
-          if (result.error) {
-            console.error("API エラー:", result.error);
-            setIsProcessing(false); // エラー時もisProcessingをリセット
-            reject(new Error(result.error));
-            return;
-          }
+          // 出現頻度でソートし、上位の色を抽出
+          const sortedColors = Array.from(mergedColors.entries())
+            .filter(([_, count]) => count > minOccurrence)
+            .sort((a, b) => b[1] - a[1])
+            .map(([color, _]) => color);
 
-          try {
-            console.log("API レスポンス受信:", result);
+          // 重複を除去し、最大10色まで抽出
+          const uniqueColors = Array.from(new Set(sortedColors)).slice(0, 10);
 
-            // 抽出されたテキストをパースして色情報を取得
-            const extractedText = result.content;
-            const colorRegex = /\$([a-zA-Z0-9_-]+):\s*(#[a-fA-F0-9]{6});\s*(?:\/\/\s*(.+))?/g;
-            let match;
-            const colors = [];
+          // 色の役割を推測するための配列を初期化
+          const colorRoles = [];
 
-            while ((match = colorRegex.exec(extractedText)) !== null) {
-              colors.push({
-                name: `$${match[1]}`,
-                color: match[2],
-                description: match[3] || ''
+          // 色の役割を推測（明度、彩度、色相から判断）
+          uniqueColors.forEach((color, index) => {
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+
+            // HSL変換
+            const [h, s, l] = rgbToHsl(r, g, b);
+
+            // 色の特徴を分析
+            const isGray = s < 0.1;
+            const isWhite = l > 0.9;
+            const isBlack = l < 0.1;
+
+            // 色相に基づく色名の決定
+            let colorName = '';
+            if (!isGray && !isWhite && !isBlack) {
+              if (h < 0.035 || h > 0.965) colorName = 'red';
+              else if (h < 0.075) colorName = 'orange';
+              else if (h < 0.12) colorName = 'yellow';
+              else if (h < 0.35) colorName = 'green';
+              else if (h < 0.5) colorName = 'cyan';
+              else if (h < 0.65) colorName = 'blue';
+              else if (h < 0.75) colorName = 'purple';
+              else if (h < 0.97) colorName = 'pink';
+            }
+
+            // 明度による修飾子
+            const brightness = l < 0.3 ? 'dark' : l > 0.7 ? 'light' : '';
+
+            // 彩度による修飾子
+            const saturation = s > 0.8 ? 'vivid' : s < 0.3 ? 'dull' : '';
+
+            // 一般的な変数名の割り当て
+            if (index === 0) {
+              colorRoles.push({
+                name: '$primary-color',
+                color: color,
+                description: '主要な色、ブランドカラーとして使用'
               });
+              return;
+            } else if (index === 1 && l > 0.85) {
+              colorRoles.push({
+                name: '$background-color',
+                color: color,
+                description: '背景色として使用'
+              });
+              return;
+            } else if (s > 0.7 && index <= 2) {
+              colorRoles.push({
+                name: '$accent-color',
+                color: color,
+                description: 'アクセント、強調として使用'
+              });
+              return;
+            } else if (l < 0.3 && index <= 2) {
+              colorRoles.push({
+                name: '$text-color',
+                color: color,
+                description: 'テキストや重要な要素に使用'
+              });
+              return;
             }
 
-            // 重複を除去
-            const uniqueColors = Array.from(new Set(colors.map(c => c.color)))
-              .map(color => colors.find(c => c.color === color));
+            // その他の色は特徴に基づいて命名
+            let name = '';
+            if (isGray) {
+              name = `$gray-${l < 0.5 ? 'dark' : 'light'}`;
+            } else if (isWhite) {
+              name = '$white';
+            } else if (isBlack) {
+              name = '$black';
+            } else {
+              // 色名に明度と彩度の修飾子を追加
+              const modifiers = [brightness, saturation].filter(m => m).join('-');
+              name = `$${modifiers ? `${modifiers}-` : ''}${colorName}`;
+            }
 
-            console.log("抽出された色:", uniqueColors);
+            // 同じ名前の変数が既に存在する場合は連番を付加
+            const existingNames = colorRoles.map(c => c.name);
+            if (existingNames.includes(name)) {
+              let counter = 2;
+              while (existingNames.includes(`${name}-${counter}`)) {
+                counter++;
+              }
+              name = `${name}-${counter}`;
+            }
 
-            // ステージ3: 完了
-            updateStageUI(3);
+            // 色の役割や特徴を説明に追加
+            let description = '';
+            if (isGray) {
+              description = `グレースケール、${l < 0.5 ? '暗め' : '明るめ'}の色調`;
+            } else if (isWhite) {
+              description = '白色、背景やハイライトに使用';
+            } else if (isBlack) {
+              description = '黒色、テキストや強調に使用';
+            } else {
+              const traits = [];
+              if (brightness) traits.push(brightness === 'dark' ? '暗め' : '明るめ');
+              if (saturation) traits.push(saturation === 'vivid' ? '鮮やか' : '落ち着いた');
+              traits.push(colorName === 'red' ? '赤' :
+                colorName === 'orange' ? 'オレンジ' :
+                  colorName === 'yellow' ? '黄' :
+                    colorName === 'green' ? '緑' :
+                      colorName === 'cyan' ? '水色' :
+                        colorName === 'blue' ? '青' :
+                          colorName === 'purple' ? '紫' :
+                            colorName === 'pink' ? 'ピンク' : '');
+              description = `${traits.join('、')}の色調`;
+            }
 
-            // データ表示前に少し遅延を入れて完了ステージを見せる
+            colorRoles.push({
+              name,
+              color,
+              description
+            });
+          });
+
+          // データ表示前に少し遅延を入れて完了ステージを見せる
+          setTimeout(() => {
+            setExtractedColors(colorRoles);
+            setIsProcessing(false); // 処理完了時にローディングを解除
+
+            // 処理完了後のスクロール処理
             setTimeout(() => {
-              setExtractedColors(uniqueColors);
-              setIsProcessing(false); // 処理完了時にisProcessingをリセット
+              const hoverInstruction = document.querySelector('.hover-instruction');
+              if (hoverInstruction) {
+                const rect = hoverInstruction.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                window.scrollTo({
+                  top: rect.top + scrollTop - 30,
+                  behavior: 'smooth'
+                });
+              }
+            }, 500);
 
-              // 処理完了後、「画像上にマウスを移動して色を確認」セクションまでスクロール
-              setTimeout(() => {
-                const hoverInstruction = document.querySelector('.hover-instruction');
-                if (hoverInstruction) {
-                  // 要素の位置を取得
-                  const rect = hoverInstruction.getBoundingClientRect();
-                  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-
-                  // 30pxのスペースを空けてスクロール
-                  window.scrollTo({
-                    top: rect.top + scrollTop - 30,
-                    behavior: 'smooth'
-                  });
-                }
-              }, 500);
-
-              // アラートで通知を削除
-              resolve(uniqueColors);
-            }, 1000);
-          } catch (err) {
-            console.error("色情報の解析エラー:", err);
-            setIsProcessing(false); // エラー時もisProcessingをリセット
-            reject(err);
-          }
+            resolve(colorRoles);
+          }, 1000);
         };
 
-        // レスポンスを受け取るリスナーを設定
-        window.api.receive('extract-colors-response', responseHandler);
+        img.onerror = () => {
+          setIsProcessing(false); // エラー時にもローディングを解除
+          reject(new Error('画像の読み込みに失敗しました'));
+        };
 
-        // APIリクエスト送信前にステータス更新
-        if (processingStatusEl) {
-          processingStatusEl.textContent = 'APIリクエストを準備中...';
+        img.src = base64Image;
+      } catch (error) {
+        setIsProcessing(false); // エラー時にもローディングを解除
+        reject(error);
+      }
+    });
+  };
 
-          // 非同期でステータスを更新（UIをブロックしないため）
-          setTimeout(() => {
-            if (processingStatusEl && isProcessing) {
-              processingStatusEl.textContent = 'APIに画像を送信中...';
-            }
-          }, 500);
-        }
+  // RGB to HSL変換ヘルパー関数
+  const rgbToHsl = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
 
-        // データを送信
-        window.api.send('extract-colors-from-image', {
-          apiKey,
-          prompt,
-          imageData: base64Image
-        });
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
 
-        // 送信後ステータス更新
-        setTimeout(() => {
-          if (processingStatusEl && isProcessing) {
-            processingStatusEl.textContent = 'AIによる画像解析中...';
-          }
-        }, 2000);
-      });
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
 
-    } catch (error) {
-      console.error('色抽出エラー:', error);
-      alert('色の抽出に失敗しました: ' + error.message);
-      setIsProcessing(false); // エラー時にも確実にisProcessingをリセット
-      throw error; // 上位でハンドリングできるようにエラーを再スロー
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+
+      h /= 6;
     }
+
+    return [h, s, l];
   };
 
   // 抽出した色を変数に適用
