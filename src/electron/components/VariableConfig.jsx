@@ -266,127 +266,75 @@ const VariableConfig = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // ファイルサイズのチェック（4MB）
+    const maxSize = 4 * 1024 * 1024; // 4MB in bytes
+    if (file.size > maxSize) {
+      alert(`画像サイズが大きすぎます（${(file.size / (1024 * 1024)).toFixed(2)}MB）。4MB以下の画像を選択してください。`);
+      return;
+    }
+
+    // ファイル形式のチェック
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      alert('JPG、PNG、またはWEBP形式の画像ファイルを選択してください。');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const image = event.target.result;
 
         // 画像をリサイズして処理を軽くする（この処理中はローディングを表示しない）
-        const resizedImage = await resizeImage(image, 1200);
+        const resizedImage = await resizeImage(image, 1920);
 
         // 画像を表示
         setDesignImage(resizedImage);
 
         // レンダリングが完了するまで少し待つ
         setTimeout(() => {
-          // ここでAI処理のためのローディングを開始
-          setIsProcessing(true);
+          // 「デザインカンプから色を抽出」セクションまでスクロール
+          const extractSections = document.querySelectorAll('.group-title');
+          let extractSection = null;
 
-          // CSS Animationが動作しない場合に備えて明示的にアニメーションスタイルをDOMに適用
-          const styleElement = document.createElement('style');
-          styleElement.textContent = `
-            @keyframes spinner-rotation {
-              to { transform: rotate(360deg); }
+          // テキスト内容に基づいて正確な要素を探す
+          for (const section of extractSections) {
+            if (section.textContent === 'デザインカンプから色を抽出') {
+              extractSection = section;
+              break;
             }
-            @keyframes loading-bar-progress {
-              0% { background-position: 0 0; }
-              100% { background-position: 48px 0; }
-            }
-            @keyframes text-blink {
-              0%, 100% { opacity: 0.6; }
-              50% { opacity: 1; }
-            }
-            @keyframes particle-float {
-              0% { transform: translateY(0) translateX(0); }
-              25% { transform: translateY(10px) translateX(10px); }
-              50% { transform: translateY(20px) translateX(0); }
-              75% { transform: translateY(10px) translateX(-10px); }
-              100% { transform: translateY(0) translateX(0); }
-            }
-            @keyframes hex-pulse {
-              0%, 100% { transform: scale(0.8); opacity: 0.4; }
-              50% { transform: scale(1); opacity: 1; }
-            }
-            @keyframes hex-color-shift {
-              0% { background: linear-gradient(135deg, rgba(0, 118, 173, 0.3) 0%, rgba(0, 118, 173, 0.6) 100%); }
-              33% { background: linear-gradient(135deg, rgba(0, 173, 118, 0.3) 0%, rgba(0, 173, 118, 0.6) 100%); }
-              66% { background: linear-gradient(135deg, rgba(118, 0, 173, 0.3) 0%, rgba(118, 0, 173, 0.6) 100%); }
-              100% { background: linear-gradient(135deg, rgba(0, 118, 173, 0.3) 0%, rgba(0, 118, 173, 0.6) 100%); }
-            }
-            @keyframes progress-wave-animation {
-              0% { background-position: 100% 50%; }
-              100% { background-position: 0% 50%; }
-            }
-            @keyframes progress-glow-animation {
-              0% { left: -20%; }
-              100% { left: 100%; }
-            }
-            @keyframes pulse-glow {
-              0%, 100% { box-shadow: 0 0 15px rgba(0, 118, 173, 0.5); }
-              50% { box-shadow: 0 0 30px rgba(0, 118, 173, 0.8); }
-            }
-            @keyframes ai-process {
-              0%, 100% { opacity: 0.5; }
-              50% { opacity: 0.9; }
-            }
-            @keyframes stage-pulse {
-              0%, 100% { transform: scale(1); opacity: 0.5; }
-              50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 15px rgba(0, 118, 173, 0.7); }
-            }
-            @keyframes stage-active {
-              0% { transform: scale(0); opacity: 0; }
-              80% { transform: scale(1.2); opacity: 1; }
-              100% { transform: scale(1); opacity: 1; }
-            }
-            @keyframes status-blink {
-              0%, 100% { opacity: 0.7; }
-              50% { opacity: 1; }
-            }
-            @keyframes status-dot-pulse {
-              0%, 100% { transform: scale(1); opacity: 0.7; }
-              50% { transform: scale(1.5); opacity: 1; box-shadow: 0 0 8px #6eb6db; }
-            }
-          `;
-          document.head.appendChild(styleElement);
+          }
 
-          // 色を抽出（この処理中にローディングアニメーションを表示）
-          extractColorsFromImage(resizedImage)
-            .finally(() => {
-              // 処理終了時にスタイル要素を削除
-              document.head.removeChild(styleElement);
+          if (extractSection) {
+            // 要素の位置を取得
+            const rect = extractSection.getBoundingClientRect();
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+            // 30pxのスペースを空けてスクロール
+            window.scrollTo({
+              top: rect.top + scrollTop - 30,
+              behavior: 'smooth'
             });
-
-          // 画像処理後、少し時間を空けてからスクロール
-          setTimeout(() => {
-            // 「デザインカンプから色を抽出」セクションまでスクロール
-            const extractSections = document.querySelectorAll('.group-title');
-            let extractSection = null;
-
-            // テキスト内容に基づいて正確な要素を探す
-            for (const section of extractSections) {
-              if (section.textContent === 'デザインカンプから色を抽出') {
-                extractSection = section;
-                break;
-              }
-            }
-
-            if (extractSection) {
-              // 要素の位置を取得
-              const rect = extractSection.getBoundingClientRect();
-              const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-
-              // 30pxのスペースを空けてスクロール
-              window.scrollTo({
-                top: rect.top + scrollTop - 30,
-                behavior: 'smooth'
-              });
-            }
-          }, 500);
-        }, 100);
+          }
+        }, 500);
       } catch (error) {
         console.error('画像処理エラー:', error);
-        alert('画像の処理中にエラーが発生しました。');
+        let errorMessage = '画像の処理中にエラーが発生しました。';
+
+        if (error.message.includes('サイズが大きすぎます')) {
+          errorMessage = '画像サイズが制限を超えています。6MB以下の画像を選択してください。';
+        } else if (error.message.includes('形式が不正です')) {
+          errorMessage = 'サポートされていない画像形式です。JPG、PNG、またはWEBP形式の画像を選択してください。';
+        } else if (error.message.includes('読み込みエラー')) {
+          errorMessage = '画像の読み込みに失敗しました。画像が破損している可能性があります。';
+        }
+
+        alert(errorMessage);
       }
+    };
+
+    reader.onerror = () => {
+      alert('画像の読み込みに失敗しました。もう一度お試しください。');
     };
 
     reader.readAsDataURL(file);
@@ -437,11 +385,11 @@ const VariableConfig = () => {
             ctx.clearRect(0, 0, newWidth, newHeight);
           }
 
-          // 画像を描画
+          // 画像を描画（高品質設定）
           ctx.drawImage(img, 0, 0, newWidth, newHeight);
 
           // 画質の調整と最適化のループ
-          let quality = 0.92;
+          let quality = 0.95; // 画質を0.92から0.95に向上
           let attempts = 0;
           let resultBase64;
 
@@ -459,8 +407,8 @@ const VariableConfig = () => {
               break;
             }
 
-            // 品質を下げて再試行
-            quality -= 0.1;
+            // 品質を下げて再試行（より緩やかに）
+            quality -= 0.05; // 0.1から0.05に変更してより緩やかに
             attempts++;
           } while (true);
 
@@ -510,17 +458,23 @@ const VariableConfig = () => {
 抽出する色について:
 1. 16進数形式（#RRGGBB）で表示
 2. 変数名は以下のようなシンプルな命名規則を使用してください:
-   - $primary-color: メインの色
-   - $secondary-color: セカンダリの色
-   - $accent-color: アクセントの色
-   - $background-color: 背景色
+   - $primary-color: メインの色（最も使用頻度が高く、重要な色）
+   - $secondary-color: セカンダリの色（補助的な色）
+   - $accent-color: アクセントの色（強調やアクセントに使用される色）
+   - $background-color: 背景色（メインの背景色）
+   - $text-color: テキスト色（主要なテキストの色）
+   - $border-color: ボーダー色（境界線や区切り線の色）
    - その他は $color-1, $color-2 などの連番
-3. コメントにはどこで使用されているか簡潔に記述
+3. コメントには以下の情報を含めてください:
+   - 色の使用箇所
+   - 色の役割（例：アクセント、背景、テキストなど）
+   - 色の特徴（例：明るい、暗い、鮮やかなど）
 
 例のフォーマット:
-$primary-color: #3F51B5; // ヘッダー背景色
-$secondary-color: #FFC107; // アクセントボタン色
-$color-1: #FF5722; // カード背景
+$primary-color: #3F51B5; // ヘッダー背景色、メインカラー、落ち着いた青
+$secondary-color: #FFC107; // アクセントボタン色、補助色、明るい黄色
+$text-color: #333333; // 本文テキスト色、読みやすい濃いグレー
+$color-1: #FF5722; // カード背景色、アクセント、鮮やかなオレンジ
 
 レスポンスは上記の形式のみで返してください。説明は不要です。
 `;
