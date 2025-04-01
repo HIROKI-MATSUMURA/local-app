@@ -730,61 +730,29 @@ const VariableConfig = () => {
     // 既存の変数に新しい色を適用
     const newCustomColors = [...variables.customColors];
 
-    // 重複カラーを追跡する変数
-    let duplicateCount = 0;
-    let addedCount = 0;
-    let updatedCount = 0;
-
-    // 既に処理した色を記録するセット
-    const processedColors = new Set();
-
     // 抽出した色を処理
     extractedColors.forEach(ec => {
-      // 同名の変数が存在するかチェック
-      const existingIndex = newCustomColors.findIndex(c => c.name === ec.name);
-      const hasSameNameVariable = existingIndex !== -1;
+      // 変数に直接追加する（同名の変数があれば更新、なければ追加）
+      let found = false;
 
-      // 同名の変数が存在し、値が変更された場合は更新
-      if (hasSameNameVariable) {
-        const existingColor = newCustomColors[existingIndex].color.toLowerCase();
-        const newColor = ec.color.toLowerCase();
-
-        // 色が変わる場合のみ更新としてカウント
-        if (existingColor !== newColor) {
-          newCustomColors[existingIndex].color = ec.color;
-          updatedCount++;
+      // 既存の変数を確認して同名のものを更新
+      for (let i = 0; i < newCustomColors.length; i++) {
+        if (newCustomColors[i].name === ec.name) {
+          newCustomColors[i].color = ec.color;
+          found = true;
           console.log(`既存の変数を更新: ${ec.name} = ${ec.color}`);
-        } else {
-          console.log(`既存の変数と同じ色のため更新せず: ${ec.name} = ${ec.color}`);
+          break;
         }
-
-        // 処理済みとしてマーク
-        processedColors.add(ec.color.toLowerCase());
-        return; // 同名の変数が見つかった場合は次の処理へ
       }
 
-      // 同じカラーコード（大文字小文字区別なし）が存在するかチェック
-      const hasSameColorCode = newCustomColors.some(c =>
-        c.color.toLowerCase() === ec.color.toLowerCase() &&
-        !processedColors.has(ec.color.toLowerCase())
-      );
-
-      if (hasSameColorCode) {
-        // 重複としてカウント
-        duplicateCount++;
-        console.log(`重複する色を検出: ${ec.color}`);
-      } else {
-        // 新規追加
+      // 該当する変数がなければ新しく追加
+      if (!found) {
         newCustomColors.push({
           name: ec.name,
           color: ec.color
         });
-        addedCount++;
         console.log(`新しい変数を追加: ${ec.name} = ${ec.color}`);
       }
-
-      // 処理済みとしてマーク
-      processedColors.add(ec.color.toLowerCase());
     });
 
     // 変数を更新
@@ -795,33 +763,8 @@ const VariableConfig = () => {
 
     console.log('新しいカスタムカラー:', newCustomColors);
 
-    // 結果に基づいてメッセージを生成
-    let message = '';
-    if (addedCount > 0 && updatedCount > 0 && duplicateCount > 0) {
-      message = `${addedCount}色を追加、${updatedCount}色を更新しました。${duplicateCount}色は重複のため追加されませんでした。`;
-    } else if (addedCount > 0 && updatedCount > 0) {
-      message = `${addedCount}色を追加、${updatedCount}色を更新しました。`;
-    } else if (addedCount > 0 && duplicateCount > 0) {
-      message = `${addedCount}色を追加しました。${duplicateCount}色は重複のため追加されませんでした。`;
-    } else if (updatedCount > 0 && duplicateCount > 0) {
-      message = `${updatedCount}色を更新しました。${duplicateCount}色は重複のため追加されませんでした。`;
-    } else if (addedCount > 0) {
-      message = `${addedCount}色を追加しました。`;
-    } else if (updatedCount > 0) {
-      message = `${updatedCount}色を更新しました。`;
-    } else if (duplicateCount > 0) {
-      message = `${duplicateCount}色は重複のため追加されませんでした。`;
-    } else {
-      message = '変更はありませんでした。';
-    }
-
-    // 何も変更がない場合のメッセージ
-    if (addedCount === 0 && updatedCount === 0 && duplicateCount === 0) {
-      message = '色の変更はありませんでした。';
-    }
-
     // トースト通知を表示
-    showToast(`${message}「変更を保存」で確定してください。`, 'success');
+    showToast('抽出した色を変数に適用しました。「変更を保存」で確定してください。', 'success');
     console.log('トースト通知を表示しました');
   };
 
@@ -1472,49 +1415,6 @@ ${colorVariables}
     );
   };
 
-  // 画像関連状態のリセット関数
-  const resetImageUpload = () => {
-    setDesignImage(null);
-    setIsProcessing(false);
-    setExtractedColors([]);
-    setHoverColor(null);
-    setIsHovering(false);
-    setShowColorPopup(false);
-    setSelectedColorPosition(null);
-
-    // キャンバスもクリア
-    if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    // ファイル入力もリセット
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-
-    // トースト通知を表示
-    showToast('画像と抽出した色をリセットしました', 'info');
-  };
-
-  // 色を全て削除する関数
-  const removeAllColors = () => {
-    // 確認ダイアログ
-    if (variables.customColors.length === 0) {
-      showToast('削除する色がありません', 'info');
-      return;
-    }
-
-    if (window.confirm('全ての色設定を削除してもよろしいですか？この操作は元に戻せません。')) {
-      setVariables({
-        ...variables,
-        customColors: []
-      });
-      showToast('全ての色設定を削除しました', 'info');
-    }
-  };
-
   return (
     <div className="variable-config">
       <Header />
@@ -1626,17 +1526,10 @@ ${colorVariables}
                   <div className="extraction-tips">
                     <div className="tips-layout">
                       <div className="tip">
-                        <span className="tip-icon">✓</span>
+                        <span className="tip-icon">⚠️</span>
                         <div className="tip-content">
                           <strong>高解像度で鮮明な画像を使用する</strong>
                           <p>解像度が高く、鮮明な画像ほど正確な色を抽出できます</p>
-                        </div>
-                      </div>
-                      <div className="tip">
-                        <span className="tip-icon">✓</span>
-                        <div className="tip-content">
-                          <strong>画面全体のデザインを含む画像を選ぶ</strong>
-                          <p>ページ全体が映った画像から、より網羅的な色パレットを抽出できます</p>
                         </div>
                       </div>
                       <div className="tip">
@@ -1644,6 +1537,13 @@ ${colorVariables}
                         <div className="tip-content">
                           <strong>低解像度の画像は避ける</strong>
                           <p>画質の低い画像は色のブレンドが発生し、誤った色が抽出される場合があります</p>
+                        </div>
+                      </div>
+                      <div className="tip">
+                        <span className="tip-icon">⚠️</span>
+                        <div className="tip-content">
+                          <strong>img画像は「絶対」含めない</strong>
+                          <p>img画像の色も取得してしまうため、色を抽出したい画像には含めないでください</p>
                         </div>
                       </div>
                     </div>
@@ -2213,157 +2113,21 @@ ${colorVariables}
               </div>
             )}
 
-            {/* 画像があり、かつプロセス中でない場合に表示するリセットボタン */}
-            {designImage && !isProcessing && extractedColors.length > 0 && (
-              <div className="buttons-container">
-                <button
-                  type="button"
-                  onClick={resetImageUpload}
-                  className="action-button reset-button"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C15.3019 3 18.1885 4.77814 19.7545 7.42909" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M21 3V9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  新しい画像をアップロード
-                </button>
-
-                <button
-                  type="button"
-                  className="action-button apply-button"
-                  onClick={applyExtractedColors}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  抽出した色を適用
-                </button>
-              </div>
-            )}
-
-            {/* 画像があり、色が抽出されていない場合のリセットボタン */}
-            {designImage && !isProcessing && extractedColors.length === 0 && (
+            {extractedColors.length > 0 && (
               <button
                 type="button"
-                onClick={resetImageUpload}
-                className="action-button reset-button full-width"
+                className="apply-colors-button"
+                onClick={applyExtractedColors}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C15.3019 3 18.1885 4.77814 19.7545 7.42909" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  <path d="M21 3V9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                新しい画像をアップロード
+                <span className="button-glow"></span>
+                抽出した色を適用
               </button>
             )}
-
-            {/* リセットボタンを設置するスタイル */}
-            <style dangerouslySetInnerHTML={{
-              __html: `
-                .buttons-container {
-                  display: flex;
-                  gap: 15px;
-                  margin: 20px 0;
-                  width: 100%;
-                }
-
-                .action-button {
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  gap: 10px;
-                  border: none;
-                  border-radius: 8px;
-                  padding: 12px 24px;
-                  font-size: 16px;
-                  font-weight: 600;
-                  cursor: pointer;
-                  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-                  position: relative;
-                  overflow: hidden;
-                  flex: 1;
-                  margin: 20px auto;
-                }
-
-                .action-button::before {
-                  content: "";
-                  position: absolute;
-                  top: 0;
-                  left: -100%;
-                  width: 100%;
-                  height: 100%;
-                  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-                  transition: 0.5s;
-                  z-index: 1;
-                }
-
-                .action-button:hover {
-                  transform: translateY(-2px);
-                }
-
-                .action-button:hover::before {
-                  left: 100%;
-                }
-
-                .action-button svg {
-                  transition: transform 0.5s ease;
-                }
-
-                .reset-button {
-                  background: linear-gradient(135deg, #f05d5e, #e63946);
-                  color: white;
-                  box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
-                }
-
-                .reset-button:hover {
-                  box-shadow: 0 6px 16px rgba(230, 57, 70, 0.4);
-                }
-
-                .reset-button:hover svg {
-                  transform: rotate(180deg);
-                }
-
-                .apply-button {
-                  background: linear-gradient(135deg, #2cc46b, #20a15b);
-                  color: white;
-                  box-shadow: 0 4px 12px rgba(32, 161, 91, 0.3);
-                }
-
-                .apply-button:hover {
-                  box-shadow: 0 6px 16px rgba(32, 161, 91, 0.4);
-                }
-
-                .apply-button:hover svg {
-                  transform: scale(1.2);
-                }
-
-                .full-width {
-                  width: 100%;
-                  max-width: 100%;
-                }
-
-                /* 既存のapply-colors-buttonスタイルを無効化 */
-                .apply-colors-button {
-                  display: none;
-                }
-              `
-            }} />
           </div>
 
           {/* 色設定 */}
           <div className="form-group color-settings">
             <h3 className="group-title">色設定</h3>
-            <div className="color-settings-header">
-              <span className="color-count">登録色: {variables.customColors.length}色</span>
-              <button type="button" onClick={removeAllColors} className="delete-all-button">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 6H5H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M10 11V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M14 11V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                全ての色を削除
-              </button>
-            </div>
             <div className="items-container">
               {variables.customColors.map((color, index) => (
                 <div key={index} className="item">
@@ -2402,55 +2166,6 @@ ${colorVariables}
             <button type="button" onClick={addColor} className="add-button">
               色を追加
             </button>
-
-            {/* スタイルを追加 */}
-            <style dangerouslySetInnerHTML={{
-              __html: `
-                .color-settings-header {
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  margin-bottom: 15px;
-                }
-
-                .color-count {
-                  font-size: 14px;
-                  color: #666;
-                  font-weight: 500;
-                }
-
-                .delete-all-button {
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-                  background-color: #f8d7da;
-                  color: #721c24;
-                  border: 1px solid #f5c6cb;
-                  border-radius: 6px;
-                  padding: 6px 12px;
-                  font-size: 14px;
-                  font-weight: 500;
-                  cursor: pointer;
-                  transition: all 0.2s ease;
-                }
-
-                .delete-all-button:hover {
-                  background-color: #f5c6cb;
-                  transform: translateY(-1px);
-                  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-                }
-
-                .delete-all-button svg {
-                  width: 16px;
-                  height: 16px;
-                  transition: transform 0.3s ease;
-                }
-
-                .delete-all-button:hover svg {
-                  transform: scale(1.1);
-                }
-              `
-            }} />
           </div>
 
           {/* 保存ボタン */}
