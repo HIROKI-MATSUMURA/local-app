@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import ChangeLog from "./ChangeLog";
 import ResetCSS from "./ResetCSS";
 import ResponsiveConfig from "./ResponsiveConfig";
@@ -12,6 +12,8 @@ import "../styles/css/components.css";
 
 const App = () => {
   const [activeTab, setActiveTab] = useState("generate-html");
+  // VariableConfigの参照を保持
+  const variableConfigRef = useRef(null);
 
   const menuItems = [
     { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
@@ -24,6 +26,22 @@ const App = () => {
     { id: "api-settings", label: "API設定", icon: "🔑" },
   ];
 
+  // タブ切り替え前に未保存の変更をチェック
+  const handleTabChange = (newTabId) => {
+    // 現在が変数設定タブで、かつ未保存の変更がある場合
+    if (activeTab === "variable-config" &&
+      variableConfigRef.current &&
+      variableConfigRef.current.hasUnsavedChanges()) {
+      // 確認ダイアログを表示
+      const confirmed = window.confirm('変更が保存されていません。このページを離れますか？');
+      if (!confirmed) {
+        return; // キャンセルされた場合は何もしない
+      }
+    }
+    // 問題なければタブを切り替え
+    setActiveTab(newTabId);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case "changelog":
@@ -33,7 +51,7 @@ const App = () => {
       case "responsive-config":
         return <ResponsiveConfig />;
       case "variable-config":
-        return <VariableConfig />;
+        return <VariableConfig ref={variableConfigRef} />;
       case "generate-html":
         return <GenerateHTML />;
       case "ai-code-generator":
@@ -59,7 +77,7 @@ const App = () => {
               <li
                 key={item.id}
                 className={`nav-item ${activeTab === item.id ? "active" : ""}`}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => handleTabChange(item.id)}
               >
                 <span className="nav-icon">{item.icon}</span>
                 <span className="nav-label">{item.label}</span>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import ReactDOM from 'react-dom';
 import '../styles/VariableConfig.scss';
 import Header from './Header';
 
-const VariableConfig = () => {
+const VariableConfig = forwardRef((props, ref) => {
   // 初期状態をローカルストレージから取得
   const [variables, setVariables] = useState(() => {
     const savedVariables = localStorage.getItem('variables');
@@ -38,16 +38,55 @@ const VariableConfig = () => {
   // トースト通知の状態
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
+  // 未保存の変更を追跡する状態
+  const [hasChanges, setHasChanges] = useState(false);
+  // 初回レンダリングを追跡するための参照
+  const initialRender = useRef(true);
+
   const fileInputRef = useRef(null);
   const imageRef = useRef(null);
   const canvasRef = useRef(null);
   const magnifierRef = useRef(null);
   const imageContainerRef = useRef(null);
 
+  // 外部からアクセスできるメソッドを公開
+  useImperativeHandle(ref, () => ({
+    // 未保存の変更があるかどうかを返すメソッド
+    hasUnsavedChanges: () => hasChanges
+  }));
+
   // 変数変更時にローカルストレージに保存
   useEffect(() => {
     localStorage.setItem('variables', JSON.stringify(variables));
   }, [variables]);
+
+  // 変更があったことを記録
+  useEffect(() => {
+    // 初回レンダリング時は変更として記録しない
+    if (initialRender.current) {
+      initialRender.current = false;
+      return;
+    }
+
+    setHasChanges(true);
+  }, [variables, extractedColors]);
+
+  // 別のタブに移動する前に未保存の変更があれば警告
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasChanges) {
+        const message = '変更が保存されていません。このページを離れますか？';
+        e.returnValue = message;
+        return message;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasChanges]);
 
   // 画像がロードされたときにキャンバスを初期化
   useEffect(() => {
@@ -1311,6 +1350,9 @@ ${colorVariables}
 
     console.log('Variables saved:', scssContent);
 
+    // 変更フラグをリセット
+    setHasChanges(false);
+
     // トースト通知を表示
     showToast('変更を保存しました', 'success');
   };
@@ -2463,6 +2505,6 @@ ${colorVariables}
       </div>
     </div>
   );
-};
+});
 
 export default VariableConfig;
