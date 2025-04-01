@@ -1415,6 +1415,32 @@ ${colorVariables}
     );
   };
 
+  // 画像関連状態のリセット関数
+  const resetImageUpload = () => {
+    setDesignImage(null);
+    setIsProcessing(false);
+    setExtractedColors([]);
+    setHoverColor(null);
+    setIsHovering(false);
+    setShowColorPopup(false);
+    setSelectedColorPosition(null);
+
+    // キャンバスもクリア
+    if (canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // ファイル入力もリセット
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    // トースト通知を表示
+    showToast('画像と抽出した色をリセットしました', 'info');
+  };
+
   return (
     <div className="variable-config">
       <Header />
@@ -2113,16 +2139,140 @@ ${colorVariables}
               </div>
             )}
 
-            {extractedColors.length > 0 && (
+            {/* 画像があり、かつプロセス中でない場合に表示するリセットボタン */}
+            {designImage && !isProcessing && extractedColors.length > 0 && (
+              <div className="buttons-container">
+                <button
+                  type="button"
+                  onClick={resetImageUpload}
+                  className="action-button reset-button"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C15.3019 3 18.1885 4.77814 19.7545 7.42909" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M21 3V9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  新しい画像をアップロード
+                </button>
+
+                <button
+                  type="button"
+                  className="action-button apply-button"
+                  onClick={applyExtractedColors}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  抽出した色を適用
+                </button>
+              </div>
+            )}
+
+            {/* 画像があり、色が抽出されていない場合のリセットボタン */}
+            {designImage && !isProcessing && extractedColors.length === 0 && (
               <button
                 type="button"
-                className="apply-colors-button"
-                onClick={applyExtractedColors}
+                onClick={resetImageUpload}
+                className="action-button reset-button full-width"
               >
-                <span className="button-glow"></span>
-                抽出した色を適用
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C15.3019 3 18.1885 4.77814 19.7545 7.42909" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M21 3V9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                新しい画像をアップロード
               </button>
             )}
+
+            {/* リセットボタンを設置するスタイル */}
+            <style dangerouslySetInnerHTML={{
+              __html: `
+                .buttons-container {
+                  display: flex;
+                  gap: 15px;
+                  margin: 20px 0;
+                  width: 100%;
+                }
+
+                .action-button {
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 10px;
+                  border: none;
+                  border-radius: 8px;
+                  padding: 12px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+                  position: relative;
+                  overflow: hidden;
+                  flex: 1;
+                  margin: 20px auto;
+                }
+
+                .action-button::before {
+                  content: "";
+                  position: absolute;
+                  top: 0;
+                  left: -100%;
+                  width: 100%;
+                  height: 100%;
+                  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+                  transition: 0.5s;
+                  z-index: 1;
+                }
+
+                .action-button:hover {
+                  transform: translateY(-2px);
+                }
+
+                .action-button:hover::before {
+                  left: 100%;
+                }
+
+                .action-button svg {
+                  transition: transform 0.5s ease;
+                }
+
+                .reset-button {
+                  background: linear-gradient(135deg, #f05d5e, #e63946);
+                  color: white;
+                  box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
+                }
+
+                .reset-button:hover {
+                  box-shadow: 0 6px 16px rgba(230, 57, 70, 0.4);
+                }
+
+                .reset-button:hover svg {
+                  transform: rotate(180deg);
+                }
+
+                .apply-button {
+                  background: linear-gradient(135deg, #2cc46b, #20a15b);
+                  color: white;
+                  box-shadow: 0 4px 12px rgba(32, 161, 91, 0.3);
+                }
+
+                .apply-button:hover {
+                  box-shadow: 0 6px 16px rgba(32, 161, 91, 0.4);
+                }
+
+                .apply-button:hover svg {
+                  transform: scale(1.2);
+                }
+
+                .full-width {
+                  width: 100%;
+                  max-width: 100%;
+                }
+
+                /* 既存のapply-colors-buttonスタイルを無効化 */
+                .apply-colors-button {
+                  display: none;
+                }
+              `
+            }} />
           </div>
 
           {/* 色設定 */}
