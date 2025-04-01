@@ -1517,7 +1517,7 @@ ${colorVariables}
 
   return (
     <div className="variable-config">
-      <Header />
+      <Header title="カラー・レイアウト設定" description="ウェブサイトのカラー設定と基本レイアウトを管理します" />
 
       <div className="content">
         <form className="variable-form">
