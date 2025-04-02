@@ -1082,7 +1082,7 @@ Always use flat SCSS structure without nesting.
       // 生成されたコードをステートに設定
       setGeneratedCode(generatedCode);
       setGeneratedHTML(htmlMatch ? htmlMatch[0] : editingHTML);
-      setGeneratedCSS(cssMatch ? convertPxToRem(flattenSCSS(cssMatch[0].includes("<style>") ? cssMatch[0].replace(/<\/?style>/g, "") : cssMatch[0])) : editingCSS);
+      setGeneratedCSS(cssMatch ? cssMatch[0] : editingCSS);
       setShowGeneratedCode(true);
 
       // 画面を生成されたコードセクションまでスクロール
@@ -1135,7 +1135,7 @@ Always use flat SCSS structure without nesting.
           responsiveMode,
           aiBreakpoints,
           pcImageBase64,
-          spImageBase64,
+          spImageBase4,
         });
         console.log("プロンプト生成成功");
       } catch (promptError) {
@@ -1450,6 +1450,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             style={{ display: 'none' }}
           />
         </div>
+      </div>
+
+      <div className="upload-info">
+        <p>※ 画像の最大サイズ: 4MB</p>
+        <p>※ 対応フォーマット: JPG, PNG, WEBP</p>
+        <p>※ 4MB以上の画像は自動的にリサイズされます（最大幅1920px）</p>
       </div>
 
       <div className="settings-section">

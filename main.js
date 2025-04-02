@@ -413,19 +413,19 @@ $mediaquerys: (
       }
 
       // 画像処理
-      let base64Image = imageData;
+      let base64Image = null;
       let media_type = 'image/jpeg'; // デフォルト
       let base64Data = '';
 
       // データURLの形式を確認してメディアタイプを適切に設定
-      const dataUrlMatch = base64Image.match(/^data:([^;]+);base64,(.+)$/);
+      const dataUrlMatch = imageData.match(/^data:([^;]+);base64,(.+)$/);
       if (dataUrlMatch) {
         media_type = dataUrlMatch[1]; // 実際のMIMEタイプ
         base64Data = dataUrlMatch[2]; // base64データ部分
         console.log(`データURLから検出されたメディアタイプ: ${media_type}`);
       } else {
         // データURLでない場合はそのまま使用
-        base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+        base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
         console.log(`標準的なデータURL形式ではありません。メディアタイプ: ${media_type} を使用します`);
       }
 
@@ -567,14 +567,107 @@ $mediaquerys: (
       let imageMediaType = 'image/jpeg'; // デフォルト
 
       if (uploadedImage && uploadedImage.data) {
-        // アップロードされた画像のメディアタイプを取得（デフォルトはJPEG）
-        imageMediaType = uploadedImage.mimeType || 'image/jpeg';
-        console.log(`アップロード画像のメディアタイプ: ${imageMediaType}`);
+        try {
+          // アップロードされた画像のメディアタイプを取得（デフォルトはJPEG）
+          imageMediaType = uploadedImage.mimeType || 'image/jpeg';
+          console.log(`アップロード画像のメディアタイプ: ${imageMediaType}`);
 
-        // base64データからプレフィックスを削除（必要に応じて）
-        base64Image = uploadedImage.data.includes('base64,')
-          ? uploadedImage.data
-          : `data:${imageMediaType};base64,${uploadedImage.data}`;
+          // 画像形式のチェック
+          if (!["image/jpeg", "image/png", "image/webp"].includes(imageMediaType)) {
+            throw new Error('サポートされていない画像形式です。JPG、PNG、またはWEBP形式の画像を選択してください。');
+          }
+
+          // base64データの処理を改善
+          let imageData = uploadedImage.data;
+
+          // データが既にbase64プレフィックスを含んでいる場合は削除
+          if (imageData.includes('base64,')) {
+            imageData = imageData.split('base64,')[1];
+          }
+
+          // base64データが有効かチェック
+          if (!/^[A-Za-z0-9+/=]+$/.test(imageData)) {
+            throw new Error('無効なbase64データです。画像データが正しくエンコードされていません。');
+          }
+
+          // 画像サイズの確認
+          const imageSizeInMB = (imageData.length * 3 / 4) / (1024 * 1024);
+          console.log(`画像データサイズ: 約${imageSizeInMB.toFixed(2)}MB`);
+
+          // 4MB未満の画像は圧縮なしで処理
+          if (imageSizeInMB < 4) {
+            console.log(`画像サイズは${imageSizeInMB.toFixed(2)}MBです。圧縮せずに処理します。`);
+            base64Image = `data:${imageMediaType};base64,${imageData}`;
+          } else {
+            console.log(`画像サイズは${imageSizeInMB.toFixed(2)}MBです。リサイズして最適化します。`);
+
+            // 画像をリサイズ（最大幅1920px）
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+
+              // 画像のアスペクト比を維持したまま、指定した幅に合わせる
+              const aspectRatio = img.width / img.height;
+              const newWidth = Math.min(img.width, 1920);
+              const newHeight = newWidth / aspectRatio;
+
+              canvas.width = newWidth;
+              canvas.height = newHeight;
+
+              // 高品質な描画設定
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+
+              // 透過背景を維持
+              if (imageMediaType === 'image/png' || imageMediaType === 'image/webp') {
+                ctx.clearRect(0, 0, newWidth, newHeight);
+              }
+
+              // 画像を描画（高品質設定）
+              ctx.drawImage(img, 0, 0, newWidth, newHeight);
+
+              // 画質の調整と最適化のループ
+              let quality = 0.95; // 高品質設定
+              let attempts = 0;
+              let resultBase64;
+
+              // 最大3回まで画質を調整
+              do {
+                resultBase64 = canvas.toDataURL(imageMediaType, quality);
+                const resultData = resultBase64.split(',')[1];
+                const resultBytes = (resultData.length * 3) / 4;
+                const resultSizeMB = resultBytes / (1024 * 1024);
+
+                console.log(`リサイズ試行 #${attempts + 1}: ${newWidth}x${newHeight}px, 品質: ${quality}, サイズ: ${resultSizeMB.toFixed(2)}MB`);
+
+                // 4MB以下になったら終了
+                if (resultSizeMB <= 4 || attempts >= 2) {
+                  break;
+                }
+
+                // 品質を下げて再試行（より緩やかに）
+                quality -= 0.05;
+                attempts++;
+              } while (true);
+
+              console.log(`画像を最適化しました: ${newWidth}x${newHeight}px, 形式: ${imageMediaType}`);
+              base64Image = resultBase64;
+            };
+
+            img.onerror = (err) => {
+              console.error('画像の読み込みエラー:', err);
+              throw new Error('画像の読み込みに失敗しました。');
+            };
+
+            img.src = `data:${imageMediaType};base64,${imageData}`;
+          }
+
+          console.log('画像データの処理が完了しました');
+        } catch (imgError) {
+          console.error("画像データの処理中にエラーが発生しました:", imgError);
+          throw new Error(`画像データの処理に失敗しました: ${imgError.message}`);
+        }
       }
 
       // OpenAI APIを呼び出す場合
