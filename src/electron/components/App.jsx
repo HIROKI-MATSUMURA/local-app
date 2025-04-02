@@ -5,6 +5,7 @@ import ResponsiveConfig from "./ResponsiveConfig";
 import VariableConfig from "./VariableConfig";
 import GenerateHTML from "./GenerateHTML";
 import AICodeGenerator from "./AICodeGenerator";
+import HeaderGenerator from "./HeaderGenerator";
 import APISettings from "./APISettings";
 import StyleXConverter from "./StyleXConverter";
 import "../styles/css/main.css";
@@ -22,6 +23,7 @@ const App = () => {
     { id: "responsive-config", label: "レスポンシブ関連", icon: "📱" },
     { id: "variable-config", label: "変数設定", icon: "⚙️" },
     { id: "ai-code-generator", label: "AIコード生成", icon: "🤖" },
+    { id: "header-generator", label: "ヘッダー生成", icon: "🔝" },
     { id: "stylex-converter", label: "StyleXコンバーター", icon: "🔄" },
     { id: "api-settings", label: "API設定", icon: "🔑" },
   ];
@@ -56,6 +58,8 @@ const App = () => {
         return <GenerateHTML />;
       case "ai-code-generator":
         return <AICodeGenerator />;
+      case "header-generator":
+        return <HeaderGenerator />;
       case "stylex-converter":
         return <StyleXConverter />;
       case "api-settings":
