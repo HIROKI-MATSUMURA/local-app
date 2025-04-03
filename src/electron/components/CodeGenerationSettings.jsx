@@ -22,19 +22,19 @@ const CodeGenerationSettings = ({ responsiveMode, breakpoints, aiBreakpoints = [
         <label>アクティブなブレークポイント:</label>
         {aiBreakpoints && aiBreakpoints.length > 0 ? (
           aiBreakpoints.map((bp, index) => (
-            <div key={index} className="breakpoint-item">
-              <span>{bp.name}: {bp.value}px</span>
+          <div key={index} className="breakpoint-item">
+            <span>{bp.name}: {bp.value}px</span>
               {setAiBreakpoints && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={bp.aiActive}
-                    onChange={() => toggleAiBreakpoint(index)}
-                  />
-                  AIに指示
-                </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={bp.aiActive}
+                onChange={() => toggleAiBreakpoint(index)}
+              />
+              AIに指示
+            </label>
               )}
-            </div>
+          </div>
           ))
         ) : (
           <p>ブレークポイントが設定されていません</p>

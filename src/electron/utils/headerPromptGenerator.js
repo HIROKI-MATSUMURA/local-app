@@ -276,11 +276,38 @@ ${settings.responsiveSettings}
 - Include a mobile hamburger menu for small screens
 - Ensure accessibility with proper ARIA attributes
 
+### CSS Variables Requirements:
+${settings.cssVariables
+        ? (() => {
+          // cssVariablesから変数名を抽出
+          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+          let matches;
+          let varList = '';
+          let varNames = [];
+
+          // 全ての変数を抽出
+          while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
+            const [_, varName, varValue] = matches;
+            varList += `- $${varName}: ${varValue.trim()}\n`;
+            varNames.push(varName);
+          }
+
+          const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+
+          return `IMPORTANT: Use ONLY the CSS variables defined in your project settings.
+Specifically, use ONLY these variables:
+${varList}
+For colors not covered by these variables, use direct HEX values instead.
+DO NOT create custom variables.`;
+        })()
+        : `IMPORTANT: Use direct HEX values for all colors.
+DO NOT create custom variables like $accent-color or $secondary-color.`}
+
 ### HTML Guidelines:
-- Create semantic, accessible HTML for the header
-- Add class names using FLOCSS methodology
-- Use the following structure:
-  \`\`\`html
+  - Create semantic, accessible HTML for the header
+    - Add class names using FLOCSS methodology
+  - Use the following structure:
+\`\`\`html
   <div class="p-header">
     <div class="p-header__inner">
       <h1 class="p-header__logo">
@@ -449,7 +476,27 @@ You are a professional front-end developer specializing in SCSS and HTML.
         : "Desktop-first approach using max-width queries - base styles for desktop, media queries for smaller screens"}
 - **ABSOLUTELY FORBIDDEN: &__element notation in SCSS** - this is WRONG and MUST NEVER be used
 
-- **Use the CSS color variables provided instead of hardcoded hex values** - Match similar colors to the variables provided
+- ${settings.cssVariables ?
+        (() => {
+          // cssVariablesから変数名を抽出
+          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+          let matches;
+          let varNames = [];
+
+          // 全ての変数を抽出
+          while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
+            const [_, varName] = matches;
+            varNames.push(varName);
+          }
+
+          const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+
+          return `**Use ONLY the CSS variables defined in the project settings**
+- **SPECIFICALLY, use ONLY ${varNamesStr}**
+- **DO NOT USE any other variables not defined in the project settings**`;
+        })() :
+        `**DO NOT use any CSS variables - none are defined in this project**
+- **Use direct HEX values for all colors**`}
 - Ensure compatibility with the provided Reset CSS
 - **For images**: use aspect-ratio property to maintain proportions (e.g., \`aspect-ratio: 16 / 9;\`)
 - **For width**: use percentages or relative units (e.g., \`width: 100%;\`, \`max-width: 100%;\`)
@@ -498,6 +545,9 @@ I will immediately reject your solution if it contains any nested SCSS using the
 
 // エラー時のバックアッププロンプト
 const getEmergencyPrompt = () => {
+  // ローカルストレージから設定を取得
+  const settings = getSettingsFromLocalStorage();
+
   return `
 # Header Component Generation
 
@@ -509,6 +559,31 @@ const getEmergencyPrompt = () => {
 - Ensure accessibility with proper semantic HTML and ARIA attributes
 - DO NOT use nested SCSS with & operator
 - Write all selectors separately in flat structure
+
+## CSS Variables Requirements
+${settings.cssVariables ? (() => {
+      // cssVariablesから変数名を抽出
+      const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+      let matches;
+      let varList = '';
+      let varNames = [];
+
+      // 全ての変数を抽出
+      while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
+        const [_, varName, varValue] = matches;
+        varList += `- $${varName}: ${varValue.trim()}\n`;
+        varNames.push(varName);
+      }
+
+      const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+
+      return `IMPORTANT: Use ONLY the CSS variables defined in your project settings.
+Specifically, use ONLY these variables:
+${varList}
+For colors not covered by these variables, use direct HEX values instead.
+DO NOT create custom variables.`;
+    })() : `IMPORTANT: Use direct HEX values for all colors.
+DO NOT create custom variables like $accent-color or $secondary-color.`}
 
 ## Output Format
 - Provide HTML and CSS code only

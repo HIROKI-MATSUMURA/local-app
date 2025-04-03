@@ -171,6 +171,172 @@ const convertPxToRem = (scss) => {
   return result.join('\n');
 };
 
+// 2つのHEX色の類似度を計算する関数
+const getColorSimilarity = (hex1, hex2) => {
+  // HEX値からRGB値に変換
+  const getRGB = (hex) => {
+    hex = hex.replace('#', '');
+
+    // 3桁のHEX値を6桁に変換
+    if (hex.length === 3) {
+      hex = hex.split('').map(h => h + h).join('');
+    }
+
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return [r, g, b];
+  };
+
+  // 両方のHEX値からRGB値を取得
+  const [r1, g1, b1] = getRGB(hex1);
+  const [r2, g2, b2] = getRGB(hex2);
+
+  // ユークリッド距離を計算（色の近さを表す）
+  const distance = Math.sqrt(
+    Math.pow(r1 - r2, 2) +
+    Math.pow(g1 - g2, 2) +
+    Math.pow(b1 - b2, 2)
+  );
+
+  return distance;
+};
+
+// RGB値やHEX値を変数に変換する
+const convertColorValuesToVariables = (cssCode, colorValues) => {
+  if (!cssCode) return cssCode;
+
+  console.log("色値を変数に変換処理を開始");
+  let modifiedCss = cssCode;
+
+  // 変数とHEX値のマッピングを生成（逆方向のマッピング）
+  const hexToVarMap = new Map();
+  Object.entries(colorValues).forEach(([varName, hexValue]) => {
+    // 大文字に統一して保存
+    if (hexValue.startsWith('#')) {
+      hexToVarMap.set(hexValue.toUpperCase(), varName);
+
+      // HEX値をRGB値に変換し、それも登録
+      if (hexValue.length === 7) {
+        const r = parseInt(hexValue.substring(1, 3), 16);
+        const g = parseInt(hexValue.substring(3, 5), 16);
+        const b = parseInt(hexValue.substring(5, 7), 16);
+        const rgbValue = `rgb(${r}, ${g}, ${b})`;
+        hexToVarMap.set(rgbValue, varName);
+        console.log(`変換マッピング追加: ${hexValue.toUpperCase()} / ${rgbValue} → ${varName}`);
+      }
+    }
+  });
+
+  // 色プロパティを持つCSSルールを検出して変換
+  // カラーに関連するCSSプロパティのリスト
+  const colorProperties = [
+    'color',
+    'background-color',
+    'border-color',
+    'box-shadow',
+    'text-shadow',
+    'outline-color',
+    'fill',
+    'stroke'
+  ];
+
+  // CSSルールを解析して、色プロパティの値のみを置換
+  const cssRules = modifiedCss.split(/}\s*(?=[\w\.\#])/);
+  const processedRules = cssRules.map(rule => {
+    // セレクタと宣言ブロックを分離
+    const parts = rule.split('{');
+    if (parts.length < 2) return rule;
+
+    const selector = parts[0].trim();
+    const declarations = parts[1];
+
+    // 宣言を一行ずつ処理
+    const processedDeclarations = declarations.split(';').map(declaration => {
+      const colonPos = declaration.indexOf(':');
+      if (colonPos === -1) return declaration;
+
+      const property = declaration.substring(0, colonPos).trim();
+      const value = declaration.substring(colonPos + 1).trim();
+
+      // 色関連のプロパティの場合のみ値を変換
+      if (colorProperties.some(prop => property.includes(prop))) {
+        // HEX値のパターンを検出
+        const hexMatch = value.match(/#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])/);
+        if (hexMatch) {
+          const hexValue = hexMatch[0];
+          const normalizedHex = hexValue.toUpperCase();
+
+          if (hexToVarMap.has(normalizedHex)) {
+            const varName = hexToVarMap.get(normalizedHex);
+            console.log(`HEX値を変数に変換: ${hexValue} → ${varName} (${selector} の ${property})`);
+            return `${property}: ${varName}`;
+          }
+
+          // 類似色の検索
+          let closestVar = null;
+          let minDistance = 20; // 類似と判断する最大距離
+
+          for (const [hex, varName] of hexToVarMap.entries()) {
+            if (hex.startsWith('#')) {
+              const distance = getColorSimilarity(normalizedHex, hex);
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestVar = varName;
+              }
+            }
+          }
+
+          if (closestVar) {
+            console.log(`類似HEX値を変数に変換: ${hexValue} → ${closestVar} (類似度: ${minDistance}, ${selector} の ${property})`);
+            return `${property}: ${closestVar}`;
+          }
+        }
+
+        // RGB値のパターンを検出
+        const rgbMatch = value.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+        if (rgbMatch) {
+          const rgbValue = rgbMatch[0];
+
+          if (hexToVarMap.has(rgbValue)) {
+            const varName = hexToVarMap.get(rgbValue);
+            console.log(`RGB値を変数に変換: ${rgbValue} → ${varName} (${selector} の ${property})`);
+            return `${property}: ${varName}`;
+          }
+        }
+      }
+
+      return declaration;
+    }).join(';');
+
+    return `${selector} {${processedDeclarations}`;
+  });
+
+  modifiedCss = processedRules.join('}\n\n') + '}';
+
+  // 重複するセレクタを削除
+  // 例: .c-button が2回定義されている場合、後の定義を優先
+  const cleanDuplicateSelectors = (css) => {
+    const cssBlocks = css.split(/}\s*(?=[\w\.\#])/);
+    const selectors = new Map();
+
+    // 後の定義ほど優先される（上書きされる）
+    cssBlocks.forEach(block => {
+      const selectorMatch = block.match(/^([^{]+)\s*{/);
+      if (selectorMatch) {
+        const selector = selectorMatch[1].trim();
+        selectors.set(selector, block);
+      }
+    });
+
+    return Array.from(selectors.values()).join('}\n\n') + '}';
+  };
+
+  modifiedCss = cleanDuplicateSelectors(modifiedCss);
+
+  return modifiedCss;
+};
+
 const HeaderGenerator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [generatedHTML, setGeneratedHTML] = useState("");
@@ -302,6 +468,329 @@ const HeaderGenerator = () => {
 
       const updateContent = () => {
         try {
+          // CSSを処理する（色変数を実際の色に置換、メディアクエリ変換など）
+          let processedCSS = editingCSS || '';
+
+          // 色変数の処理
+          // cssVariablesからSCSS変数を抽出
+          const cssVariables = localStorage.getItem('cssVariables') || '';
+          const defaultColors = {};
+
+          // 変数の抽出
+          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+          let match;
+          while ((match = varRegex.exec(cssVariables)) !== null) {
+            const [_, varName, varValue] = match;
+            defaultColors[`$${varName}`] = varValue.trim();
+          }
+
+          // _setting.scssに変数がない場合のフォールバック
+          if (Object.keys(defaultColors).length === 0) {
+            defaultColors['$primary-color'] = '#DDF0F1';
+            defaultColors['$blue'] = '#408F95';
+          }
+
+          // ローカルストレージから保存されている色を読み込み
+          const colorValues = { ...defaultColors };
+
+          // デバッグのためにローカルストレージのすべての値を表示
+          console.log("ローカルストレージの値:", Object.fromEntries(
+            Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])
+          ));
+
+          // これらの色変数をプレビュー時に使用
+          console.log("プレビューに使用する色変数:", colorValues);
+
+          // SCSS変数を実際の色値に置換
+          Object.entries(colorValues).forEach(([variable, value]) => {
+            const regex = new RegExp(variable.replace('$', '\\$'), 'g');
+            processedCSS = processedCSS.replace(regex, value);
+          });
+
+          // SCSS関数の処理（darken, lightenなど）
+          // darken($secondary-color, 10%)のようなパターンを処理
+          const processDarkenFunction = (css) => {
+            const darkenPattern = /darken\(([^,]+),\s*(\d+(?:\.\d+)?)%\)/g;
+            return css.replace(darkenPattern, (match, colorVar, percent) => {
+              // 色変数または色値を取得
+              let baseColor = colorVar.trim();
+              // 変数の場合は実際の色に置換
+              if (baseColor.startsWith('$')) {
+                const varName = baseColor;
+                baseColor = colorValues[varName] || baseColor;
+              }
+
+              // 色がHEX形式の場合のみ処理
+              if (baseColor.startsWith('#')) {
+                try {
+                  // HEXからRGBに変換
+                  const r = parseInt(baseColor.substring(1, 3), 16);
+                  const g = parseInt(baseColor.substring(3, 5), 16);
+                  const b = parseInt(baseColor.substring(5, 7), 16);
+
+                  // 暗くする量（パーセント）
+                  const amount = parseFloat(percent) / 100;
+
+                  // RGB値を暗くする（シンプルな実装）
+                  const newR = Math.max(0, Math.floor(r * (1 - amount)));
+                  const newG = Math.max(0, Math.floor(g * (1 - amount)));
+                  const newB = Math.max(0, Math.floor(b * (1 - amount)));
+
+                  // 新しいHEX値を生成
+                  const newHex = `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+                  return newHex;
+                } catch (e) {
+                  console.error('色変換エラー:', e);
+                  return baseColor; // エラー時は元の色を返す
+                }
+              }
+              return match; // 処理できない場合は元のテキストを返す
+            });
+          };
+
+          // lightenも同様に処理
+          const processLightenFunction = (css) => {
+            const lightenPattern = /lighten\(([^,]+),\s*(\d+(?:\.\d+)?)%\)/g;
+            return css.replace(lightenPattern, (match, colorVar, percent) => {
+              // 色変数または色値を取得
+              let baseColor = colorVar.trim();
+              // 変数の場合は実際の色に置換
+              if (baseColor.startsWith('$')) {
+                const varName = baseColor;
+                baseColor = colorValues[varName] || baseColor;
+              }
+
+              // 色がHEX形式の場合のみ処理
+              if (baseColor.startsWith('#')) {
+                try {
+                  // HEXからRGBに変換
+                  const r = parseInt(baseColor.substring(1, 3), 16);
+                  const g = parseInt(baseColor.substring(3, 5), 16);
+                  const b = parseInt(baseColor.substring(5, 7), 16);
+
+                  // 明るくする量（パーセント）
+                  const amount = parseFloat(percent) / 100;
+
+                  // RGB値を明るくする
+                  const newR = Math.min(255, Math.floor(r + (255 - r) * amount));
+                  const newG = Math.min(255, Math.floor(g + (255 - g) * amount));
+                  const newB = Math.min(255, Math.floor(b + (255 - b) * amount));
+
+                  // 新しいHEX値を生成
+                  const newHex = `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+                  return newHex;
+                } catch (e) {
+                  console.error('色変換エラー:', e);
+                  return baseColor; // エラー時は元の色を返す
+                }
+              }
+              return match; // 処理できない場合は元のテキストを返す
+            });
+          };
+
+          // SCSS関数を処理
+          processedCSS = processDarkenFunction(processedCSS);
+          processedCSS = processLightenFunction(processedCSS);
+
+          // 通常のプレビューでは、HEX値を変数に変換する処理はスキップする
+          // プレビューでは変数を実際の色値に変換する処理だけが必要
+          // processedCSS = convertColorValuesToVariables(processedCSS, colorValues);
+
+          // 色値の確認 - デバッグログ
+          console.log("実際に使用する色値:", {
+            primary: colorValues['$primary-color'],
+            blue: colorValues['$blue']
+          });
+
+          // RGB値からHEX値へのマッピングを生成
+          // 定義されている色変数からRGB値とHEX値のマッピングを動的に作成
+          const RGB_TO_HEX = {};
+
+          // よく使われるRGB値の対応を動的に生成
+          const commonRgbValues = {};
+
+          // 現在の色変数から動的にRGB値の対応表を生成
+          Object.entries(colorValues).forEach(([varName, hexValue]) => {
+            if (hexValue.startsWith('#') && hexValue.length === 7) {
+              const r = parseInt(hexValue.substring(1, 3), 16);
+              const g = parseInt(hexValue.substring(3, 5), 16);
+              const b = parseInt(hexValue.substring(5, 7), 16);
+
+              // その変数用のRGB値配列を初期化（存在しなければ）
+              if (!commonRgbValues[varName]) {
+                commonRgbValues[varName] = [];
+              }
+
+              // 計算したRGB値を追加
+              commonRgbValues[varName].push({ r, g, b });
+
+              // ログに出力
+              console.log(`${varName}のRGB値を計算: rgb(${r}, ${g}, ${b}) <- ${hexValue}`);
+            }
+          });
+
+          // 各変数に対応するRGB値を登録
+          Object.entries(colorValues).forEach(([varName, hexValue]) => {
+            if (commonRgbValues[varName]) {
+              commonRgbValues[varName].forEach(rgb => {
+                // スペースありバージョン
+                RGB_TO_HEX[`rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`] = hexValue;
+                // スペースなしバージョン
+                RGB_TO_HEX[`rgb(${rgb.r},${rgb.g},${rgb.b})`] = hexValue;
+              });
+            }
+
+            // hexValueからRGB値を計算して追加
+            if (hexValue.startsWith('#') && hexValue.length === 7) {
+              const r = parseInt(hexValue.substring(1, 3), 16);
+              const g = parseInt(hexValue.substring(3, 5), 16);
+              const b = parseInt(hexValue.substring(5, 7), 16);
+
+              // 計算したRGB値でもマッピングを登録
+              RGB_TO_HEX[`rgb(${r}, ${g}, ${b})`] = hexValue;
+              RGB_TO_HEX[`rgb(${r},${g},${b})`] = hexValue;
+            }
+          });
+
+          // デバッグ用：置換前のCSS内の全RGB値を確認
+          const allRgbBefore = (processedCSS.match(/rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/g) || []);
+          console.log("置換前の全RGB値:", allRgbBefore);
+
+          // CSS内の全RGB値を強制的に処理する別のアプローチ
+          allRgbBefore.forEach(rgbStr => {
+            // RGB値からRGB数値を抽出
+            const rgbNums = rgbStr.match(/\d+/g);
+            if (rgbNums && rgbNums.length === 3) {
+              const [r, g, b] = rgbNums.map(Number);
+
+              // RGB値に基づいて適切なカラー変数を選択
+              let hexColor;
+              let minDistance = Infinity;
+              let closestVar = null;
+
+              // 各色変数とのユークリッド距離を計算し、最も近い色を選択
+              Object.entries(colorValues).forEach(([varName, hexVal]) => {
+                if (hexVal.startsWith('#') && hexVal.length === 7) {
+                  const hr = parseInt(hexVal.substring(1, 3), 16);
+                  const hg = parseInt(hexVal.substring(3, 5), 16);
+                  const hb = parseInt(hexVal.substring(5, 7), 16);
+
+                  const distance = Math.sqrt(
+                    Math.pow(r - hr, 2) +
+                    Math.pow(g - hg, 2) +
+                    Math.pow(b - hb, 2)
+                  );
+
+                  if (distance < minDistance) {
+                    minDistance = distance;
+                    closestVar = varName;
+                  }
+                }
+              });
+
+              // 閾値以内ならその変数の値を使う、そうでなければ直接HEX値に変換
+              if (minDistance < 50 && closestVar) {
+                hexColor = colorValues[closestVar];
+              } else {
+                // RGB値からHEX値に直接変換
+                hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+              }
+
+              // hexColorがRGB形式の場合はHEX形式に変換
+              if (hexColor.startsWith('rgb')) {
+                const hexRgbNums = hexColor.match(/\d+/g).map(Number);
+                if (hexRgbNums && hexRgbNums.length === 3) {
+                  const [hr, hg, hb] = hexRgbNums;
+                  hexColor = `#${hr.toString(16).padStart(2, '0')}${hg.toString(16).padStart(2, '0')}${hb.toString(16).padStart(2, '0')}`;
+                }
+              }
+
+              // CSS内のRGB値をHEX値で置換
+              const escapedRgb = rgbStr.replace(/[()]/g, '\\$&').replace(/\s*,\s*/g, '\\s*,\\s*');
+              const rgbRegex = new RegExp(escapedRgb, 'g');
+              processedCSS = processedCSS.replace(rgbRegex, hexColor);
+
+              console.log(`強制RGB→HEX変換: ${rgbStr} → ${hexColor}`);
+            }
+          });
+
+          // 残りのRGB値の全体的なチェック
+          const remainingRgbMatches = (processedCSS.match(/rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/g) || []);
+          if (remainingRgbMatches.length > 0) {
+            console.log("変換されなかったRGB値:", remainingRgbMatches);
+
+            // 残った全てのRGB値を強制的にHEX値に変換
+            remainingRgbMatches.forEach(rgbStr => {
+              const rgbNums = rgbStr.match(/\d+/g);
+              if (rgbNums && rgbNums.length === 3) {
+                const [r, g, b] = rgbNums.map(Number);
+                const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+
+                // 置換
+                processedCSS = processedCSS.replace(rgbStr, hexColor);
+                console.log(`最終RGB→HEX変換: ${rgbStr} → ${hexColor}`);
+              }
+            });
+          }
+
+          // ブレークポイントを確認
+          console.log("設定済みブレークポイント:", breakpoints);
+
+          // 最終的なCSSをデバッグ出力
+          console.log("最終的なCSS（先頭300文字）:", processedCSS.substring(0, 300));
+
+          // メディアクエリの変換処理
+          if (breakpoints && breakpoints.length > 0) {
+            // アクティブなブレークポイントのマップを作成
+            const bpMap = {};
+            breakpoints.forEach(bp => {
+              if (bp.active) {
+                bpMap[bp.name] = bp.value;
+                console.log(`ブレークポイント "${bp.name}" (${bp.value}px) を使用します`);
+              }
+            });
+
+            // メディアクエリのパターンを修正
+            const processMediaQueries = (css) => {
+              // セレクタとその中身を含むパターン
+              const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]+)}/g;
+              let processedCss = css;
+              let match;
+
+              while ((match = mqBlockPattern.exec(css)) !== null) {
+                const [fullMatch, bpName, content] = match;
+                // 設定されているブレークポイントのみを処理
+                if (bpMap[bpName]) {
+                  const mediaQueryStart = responsiveMode === "sp"
+                    ? `@media (min-width: ${bpMap[bpName]}px)`
+                    : `@media (max-width: ${bpMap[bpName]}px)`;
+
+                  // セレクタと中身を抽出
+                  const contentLines = content.trim().split('\n');
+                  const processedContent = contentLines
+                    .map(line => line.trim())
+                    .filter(line => line)
+                    .join('\n  ');
+
+                  const replacement = `${mediaQueryStart} {\n  ${processedContent}\n}`;
+                  processedCss = processedCss.replace(fullMatch, replacement);
+
+                  console.log(`メディアクエリを変換: ${bpName} → ${mediaQueryStart}`);
+                } else {
+                  // 未設定のブレークポイントは削除
+                  processedCss = processedCss.replace(fullMatch, '');
+                  console.warn(`未設定のブレークポイント "${bpName}" をスキップします`);
+                }
+              }
+
+              return processedCss;
+            };
+
+            // メディアクエリの変換を適用
+            processedCSS = processMediaQueries(processedCSS);
+            console.log("メディアクエリの変換が完了しました");
+          }
+
           // より確実なレンダリングのためのベースCSSを追加
           let baseCSS = `
             body {
@@ -319,7 +808,7 @@ const HeaderGenerator = () => {
               object-fit: cover;
             }
             /* 横幅100%のコンポーネントがiframeの外にはみ出さないようにするため */
-            .c-information {
+            .c-information, .p-information {
               box-sizing: border-box;
               max-width: 100%;
             }
@@ -330,7 +819,6 @@ const HeaderGenerator = () => {
           doc.open();
 
           // テンプレートリテラル内のスクリプトでの変数名の衝突を避けるため
-          const cssContent = editingCSS || '';
           const htmlContent = editingHTML || '';
 
           doc.write(`
@@ -341,39 +829,78 @@ const HeaderGenerator = () => {
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <style>
                 ${baseCSS}
-                ${cssContent}
+                ${processedCSS}
+                /* レスポンシブ表示のためのコンテナスタイル */
+                .preview-container {
+                  width: 100%;
+                  max-width: ${previewWidth}px;
+                  margin: 0 auto;
+                  box-sizing: border-box;
+                }
+                /* すべての画像にブロック表示を適用 */
+                img {
+                  display: block;
+                  max-width: 100%;
+                }
               </style>
               <script>
-                // iframeの高さを親ウィンドウに通知する関数
-                function notifyHeight() {
-                  const height = Math.max(
-                    document.body.scrollHeight,
-                    document.body.offsetHeight,
-                    document.documentElement.clientHeight,
-                    document.documentElement.scrollHeight,
-                    document.documentElement.offsetHeight
-                  );
-                  window.parent.postMessage({ type: 'resize', height: height }, '*');
+                // 親ウィンドウに高さを通知するシンプルなスクリプト
+                function updateHeight() {
+                  // コンテンツの高さを計算
+                  const previewContainer = document.querySelector('.preview-container');
+
+                  let contentHeight;
+                  if (previewContainer) {
+                    contentHeight = previewContainer.getBoundingClientRect().height;
+                  } else {
+                    contentHeight = Math.max(
+                      document.body.scrollHeight,
+                      document.documentElement.scrollHeight,
+                      document.body.offsetHeight,
+                      document.documentElement.offsetHeight
+                    );
+                  }
+
+                  // 余裕を持たせる
+                  const heightWithMargin = Math.ceil(contentHeight) + 20;
+
+                  // 親ウィンドウに通知
+                  if (window.parent) {
+                    window.parent.postMessage({
+                      type: 'resize',
+                      height: heightWithMargin
+                    }, '*');
+                  }
                 }
 
-                // DOMContentLoadedとload両方でサイズ通知
-                document.addEventListener('DOMContentLoaded', function() {
-                  notifyHeight();
-                  // 画像などの読み込み完了後にも通知
-                  window.addEventListener('load', notifyHeight);
+                // 画像の読み込み完了時に高さを更新
+                window.addEventListener('load', function() {
+                  // 初期実行
+                  updateHeight();
 
-                  // Mutation Observerでコンテンツ変更時にも通知
-                  const observer = new MutationObserver(notifyHeight);
-                  observer.observe(document.body, {
-                    childList: true,
-                    subtree: true,
-                    attributes: true,
-                    characterData: true
+                  // 少し遅延して再実行（CSS適用後）
+                  setTimeout(updateHeight, 300);
+
+                  // 画像の読み込み完了時にも高さを更新
+                  document.querySelectorAll('img').forEach(img => {
+                    if (!img.complete) {
+                      img.addEventListener('load', updateHeight);
+                    }
                   });
+                });
+
+                // リサイズ時に高さを更新
+                window.addEventListener('resize', function() {
+                  clearTimeout(window.resizeTimer);
+                  window.resizeTimer = setTimeout(updateHeight, 100);
                 });
               </script>
             </head>
-            <body>${htmlContent}</body>
+            <body>
+              <div class="preview-container">
+                ${htmlContent}
+              </div>
+            </body>
             </html>
           `);
           doc.close();
@@ -1042,10 +1569,23 @@ const HeaderGenerator = () => {
     calculateScale();
   }, [previewWidth]);
 
+  // プレビュー幅が変更された時に自動的にプレビューを更新
+  useEffect(() => {
+    if (previewRef.current && editingHTML && editingCSS) {
+      setTimeout(() => {
+        updatePreview();
+      }, 100);
+    }
+  }, [previewWidth]);
+
   // プレビューサイズのリセット
   const resetPreviewSize = (size) => {
     setPreviewWidth(size);
     setShowCustomSizeInput(false);
+    // サイズ変更後にプレビューを更新
+    setTimeout(() => {
+      updatePreview();
+    }, 100);
   };
 
   // カスタムサイズの適用
@@ -1054,6 +1594,10 @@ const HeaderGenerator = () => {
     if (!isNaN(size) && size >= 320 && size <= 2560) {
       setPreviewWidth(size);
       setShowCustomSizeInput(false);
+      // サイズ変更後にプレビューを更新
+      setTimeout(() => {
+        updatePreview();
+      }, 100);
     } else {
       alert("320px〜2560pxの間で入力してください。");
     }
@@ -1063,6 +1607,410 @@ const HeaderGenerator = () => {
   const showCustomSizeForm = () => {
     setShowCustomSizeInput(true);
     setCustomSizeInput(previewWidth.toString());
+  };
+
+  // HEX値を変数に変換するマップを作成する関数
+  const getHexToVariableMap = () => {
+    const colorVariables = getDefinedColorVariables();
+    const hexToVarMap = new Map();
+
+    console.group('🔍 定義済み色変数マップ');
+    console.log('定義されている変数リスト:', Array.from(colorVariables.entries()));
+
+    // 変数のマッピングを反転（HEX値 → 変数名）
+    colorVariables.forEach((value, name) => {
+      // 値が直接HEX値の場合
+      if (value.startsWith('#')) {
+        // 大文字に統一して保存（比較用）
+        hexToVarMap.set(value.toUpperCase(), name);
+        console.log(`マッピング追加: ${value.toUpperCase()} → ${name}`);
+      }
+      // RGB値の場合は近似のHEX値に変換
+      else if (value.includes('rgb') || value.includes('hsl')) {
+        try {
+          // RGB/HSL値からHEX値への変換（簡易的な実装）
+          const hexValue = rgbOrHslToHex(value);
+          if (hexValue) {
+            hexToVarMap.set(hexValue.toUpperCase(), name);
+            console.log(`RGB変換マッピング追加: ${value} → ${hexValue.toUpperCase()} → ${name}`);
+          }
+        } catch (e) {
+          console.error('RGB/HSL変換エラー:', e);
+        }
+      }
+    });
+
+    console.log('完成したHEX→変数マッピング:', Object.fromEntries(hexToVarMap));
+    console.groupEnd();
+
+    return hexToVarMap;
+  };
+
+  // AIが生成したHEX値を変数に置き換える関数
+  const replaceHexWithVariables = (cssCode) => {
+    if (!cssCode) return { modifiedCode: cssCode, replacedCount: 0 };
+
+    // マッピング情報を取得
+    const hexToVarMap = getHexToVariableMap();
+    console.group('🔄 HEX値を変数に置換');
+
+    if (hexToVarMap.size === 0) {
+      console.log("変数マッピングがありません。直接HEX値を使用します。");
+      console.groupEnd();
+      return { modifiedCode: cssCode, replacedCount: 0 };
+    }
+
+    // HEX値を検出して変数に変換
+    let modifiedCode = cssCode;
+    let replacedCount = 0;
+    const replacedItems = [];
+
+    // 正規表現でHEX値を検出（#後に3桁または6桁の16進数）
+    const hexRegex = /#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])/g;
+    const replacedHexValues = new Map(); // 置換済みHEX値を記録
+
+    // CSSコード内のすべてのHEX値を検出して表示
+    const allHexMatches = cssCode.match(hexRegex) || [];
+    console.log(`検出されたHEX値: ${allHexMatches.length}個`, allHexMatches);
+
+    modifiedCode = modifiedCode.replace(hexRegex, (match) => {
+      // 大文字に統一して比較
+      const normalizedHex = match.toUpperCase();
+
+      // 既に置換済みのHEX値はキャッシュから取得
+      if (replacedHexValues.has(normalizedHex)) {
+        return replacedHexValues.get(normalizedHex);
+      }
+
+      // 完全一致の変数を探す
+      if (hexToVarMap.has(normalizedHex)) {
+        const varName = hexToVarMap.get(normalizedHex);
+        replacedHexValues.set(normalizedHex, varName);
+        replacedCount++;
+        replacedItems.push({ hex: normalizedHex, var: varName, type: '完全一致' });
+        return varName;
+      }
+
+      // 完全一致がない場合、類似色を探す
+      let closestVar = null;
+      let minDistance = 20; // 類似と判断する最大距離（調整可能、小さいほど厳密）
+
+      for (const [hex, varName] of hexToVarMap.entries()) {
+        const distance = getColorSimilarity(normalizedHex, hex);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestVar = varName;
+        }
+      }
+
+      if (closestVar) {
+        replacedHexValues.set(normalizedHex, closestVar);
+        replacedCount++;
+        replacedItems.push({ hex: normalizedHex, var: closestVar, type: '類似一致', distance: minDistance });
+        return closestVar;
+      }
+
+      // 変換できない場合はそのまま
+      return match;
+    });
+
+    console.table(replacedItems);
+    console.log(`合計: ${replacedCount}個のHEX値を変数に変換しました`);
+
+    // 変換前と変換後のコードの違いを表示（概要）
+    if (replacedCount > 0) {
+      console.log('変換前（最初の200文字）:', cssCode.substring(0, 200));
+      console.log('変換後（最初の200文字）:', modifiedCode.substring(0, 200));
+    }
+
+    console.groupEnd();
+    return { modifiedCode, replacedCount };
+  };
+
+  // 未定義カラー変数を検出する関数
+  const detectUndefinedColorVariables = (scssCode) => {
+    const definedVariables = getDefinedColorVariables();
+    const varRegex = /\$([\w-]+)/g;
+    const undefinedVars = new Set();
+
+    console.group('🔍 未定義変数を検出');
+    console.log('定義済み変数リスト:', Array.from(definedVariables.keys()));
+
+    let match;
+    while ((match = varRegex.exec(scssCode)) !== null) {
+      const varName = match[0];
+      // @includeや制御構造は除外
+      if (!varName.includes('@include') &&
+        !varName.includes('mq(') &&
+        !definedVariables.has(varName)) {
+        undefinedVars.add(varName);
+        console.log(`未定義変数を検出: ${varName}`);
+      }
+    }
+
+    console.log(`検出された未定義変数: ${undefinedVars.size}個`, Array.from(undefinedVars));
+    console.groupEnd();
+
+    return Array.from(undefinedVars);
+  };
+
+  // 未定義カラー変数をHEX値に置換する関数
+  const replaceUndefinedColorVariables = (scssCode) => {
+    const definedVariables = getDefinedColorVariables();
+
+    console.group('🔄 未定義変数をHEX値に置換');
+
+    // 一般的なデフォルト値のマッピング
+    const defaultColors = {
+      '$primary-color': '#DDF0F1', // 既存のデフォルト値
+      '$blue': '#408F95',         // 既存のデフォルト値
+      '$accent-color': '#FF5500',  // 一般的なアクセントカラー
+      '$secondary-color': '#0066CC', // 一般的なセカンダリカラー
+      '$text-color': '#333333',    // 一般的なテキストカラー
+      '$background-color': '#FFFFFF', // 一般的な背景色
+      '$border-color': '#DDDDDD',  // 一般的なボーダーカラー
+      '$link-color': '#0000EE'     // 一般的なリンクカラー
+    };
+
+    console.log('デフォルトカラーマッピング:', defaultColors);
+
+    // 未定義変数を検出して置換
+    const undefinedVars = detectUndefinedColorVariables(scssCode);
+    let modifiedCode = scssCode;
+    const replacedItems = [];
+
+    undefinedVars.forEach(varName => {
+      // デフォルト値または汎用的な値を取得
+      const replacementColor = defaultColors[varName] || '#999999';
+
+      // 正規表現でその変数の出現箇所をすべて置換
+      const regex = new RegExp(varName.replace('$', '\\$'), 'g');
+      modifiedCode = modifiedCode.replace(regex, replacementColor);
+
+      replacedItems.push({
+        variable: varName,
+        replacement: replacementColor,
+        source: defaultColors[varName] ? 'デフォルトマッピング' : 'フォールバック値'
+      });
+    });
+
+    if (replacedItems.length > 0) {
+      console.table(replacedItems);
+      console.log('変換前（最初の200文字）:', scssCode.substring(0, 200));
+      console.log('変換後（最初の200文字）:', modifiedCode.substring(0, 200));
+    } else {
+      console.log('未定義変数は検出されませんでした');
+    }
+
+    console.groupEnd();
+
+    return {
+      modifiedCode,
+      replacedVars: undefinedVars
+    };
+  };
+
+  // HEX値と変数の処理をテストする関数
+  const runVariableProcessingTest = () => {
+    console.group('🧪 色変数処理テスト開始');
+
+    // 現在のローカルストレージの状態を表示
+    console.log('現在のローカルストレージ内容:', localStorage.getItem('cssVariables'));
+
+    // テスト用のデータをセットするオプションを提供
+    const useTestData = confirm('テスト用のカラー変数データをセットしますか？\n「OK」：テスト用データを使用\n「キャンセル」：現在の設定を使用');
+
+    if (useTestData) {
+      // テスト用データをセット
+      const testData = `$primary-color: #DDF0F1;
+$blue: #408F95;
+$accent-color: #FF5500;
+$secondary-color: #0066CC;`;
+
+      localStorage.setItem('cssVariables', testData);
+      console.log('テスト用データをセットしました:', testData);
+    }
+
+    // テスト用サンプルCSS
+    const sampleCss = `
+.p-information {
+  width: 100%;
+  background-color: #DDF0F1;
+  padding: 2rem 1rem;
+}
+
+.p-information__title {
+  font-size: 1.75rem;
+  color: #FF5500;
+  margin-bottom: 0.5rem;
+}
+
+.p-information__subtitle {
+  font-size: 1rem;
+  color: #408F95;
+  margin-bottom: 1rem;
+}
+
+.p-information__description {
+  color: $accent-color;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.c-button {
+  display: inline-block;
+  background-color: $secondary-color;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  text-decoration: none;
+  border-radius: 0.25rem;
+  transition: background-color 0.3s ease;
+}
+
+.c-button:hover {
+  background-color: darken($secondary-color, 10%);
+}
+`;
+
+    console.log('■ テスト用サンプルCSS:', sampleCss);
+
+    // 1. 定義済み色変数の取得テスト
+    console.log('■ 定義済み色変数の取得テスト:');
+    const definedColorVariables = getDefinedColorVariables();
+
+    // 2. HEX → 変数マッピングのテスト
+    console.log('■ HEX → 変数マッピングのテスト:');
+    const hexToVarMap = getHexToVariableMap();
+
+    // 3. HEX値を変数に置換するテスト
+    console.log('■ HEX値を変数に置換するテスト:');
+    const { modifiedCode: convertedCss, replacedCount } = replaceHexWithVariables(sampleCss);
+    console.log('変換結果:', convertedCss);
+    console.log(`${replacedCount}個のHEX値を変数に変換しました`);
+
+    // 4. 未定義変数の検出テスト
+    console.log('■ 未定義変数の検出テスト:');
+    const undefinedVars = detectUndefinedColorVariables(convertedCss);
+    console.log('検出された未定義変数:', undefinedVars);
+
+    // 5. 未定義変数の置換テスト
+    console.log('■ 未定義変数の置換テスト:');
+    const { modifiedCode: finalCss, replacedVars } = replaceUndefinedColorVariables(convertedCss);
+    console.log('最終変換結果:', finalCss);
+    console.log(`${replacedVars.length}個の未定義変数を置換しました`);
+
+    // テスト後に元の設定に戻すかの確認
+    if (useTestData) {
+      const resetData = confirm('テスト用データをリセットしますか？\n「OK」：元の設定に戻す\n「キャンセル」：テスト用データを維持');
+      if (resetData) {
+        // テスト前の状態を保存していれば復元する処理をここに
+        localStorage.removeItem('cssVariables');
+        console.log('ローカルストレージをリセットしました');
+      }
+    }
+
+    console.groupEnd();
+
+    alert('テスト完了！コンソールに結果が表示されています。');
+  };
+
+  // 定義済みの色変数を取得する関数
+  const getDefinedColorVariables = () => {
+    // ローカルストレージから変数設定を取得
+    const cssVariables = localStorage.getItem('cssVariables') || '';
+    const definedVars = new Map();
+
+    console.group('🔎 ローカルストレージから色変数を取得');
+    console.log('ローカルストレージの生の内容:', cssVariables);
+
+    if (!cssVariables || cssVariables.trim() === '') {
+      console.log('ローカルストレージに色変数が定義されていません。デフォルト値を使用します。');
+      // 何も設定されていない場合はsetting.scssのデフォルト値を使用
+      definedVars.set('$primary-color', '#DDF0F1');
+      definedVars.set('$blue', '#408F95');
+      console.table(Object.fromEntries(definedVars));
+      console.groupEnd();
+      return definedVars;
+    }
+
+    // 変数の抽出
+    const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+    let match;
+    let count = 0;
+
+    console.log('変数抽出を開始...');
+
+    while ((match = varRegex.exec(cssVariables)) !== null) {
+      const [fullMatch, varName, varValue] = match;
+      const variableWithDollar = `$${varName}`;
+      definedVars.set(variableWithDollar, varValue.trim());
+      console.log(`抽出: ${fullMatch} → 変数名: ${variableWithDollar}, 値: ${varValue.trim()}`);
+      count++;
+    }
+
+    console.log(`合計 ${count} 個の変数を抽出しました`);
+
+    // 抽出結果の確認
+    if (definedVars.size === 0) {
+      console.warn('正規表現で変数を抽出できませんでした。フォーマットが正しいか確認してください。');
+      console.log('変数フォーマット例: $primary-color: #DDF0F1;');
+
+      // フォールバックとして手動でパース試行
+      try {
+        const lines = cssVariables.split('\n');
+        console.log('手動パース試行:', lines);
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine && trimmedLine.includes(':')) {
+            const parts = trimmedLine.split(':');
+            if (parts.length >= 2) {
+              const varName = parts[0].trim();
+              let varValue = parts[1].trim();
+
+              // 終端のセミコロンを削除
+              if (varValue.endsWith(';')) {
+                varValue = varValue.slice(0, -1);
+              }
+
+              if (varName.startsWith('$')) {
+                definedVars.set(varName, varValue);
+                console.log(`手動抽出: ${varName} = ${varValue}`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('手動パース中にエラーが発生しました:', e);
+      }
+    }
+
+    // 依然として変数が取得できない場合はデフォルト値を使用
+    if (definedVars.size === 0) {
+      console.warn('いずれの方法でも変数を抽出できませんでした。デフォルト値を使用します。');
+      definedVars.set('$primary-color', '#DDF0F1');
+      definedVars.set('$blue', '#408F95');
+    }
+
+    console.log('最終的な定義済み変数リスト:');
+    console.table(Object.fromEntries(definedVars));
+    console.groupEnd();
+
+    return definedVars;
+  };
+
+  // RGB値をHEX値に変換する関数
+  const rgbOrHslToHex = (colorStr) => {
+    // RGB値の場合
+    const rgbMatch = colorStr.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+    if (rgbMatch) {
+      const [_, r, g, b] = rgbMatch.map(Number);
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+    }
+
+    // HSL値の場合（簡易的な実装）
+    // 完全な変換はもっと複雑ですが、この例では省略
+    return null;
   };
 
   return (
@@ -1332,6 +2280,10 @@ const HeaderGenerator = () => {
 
               <button className="update-button" onClick={handleUpdateCode}>
                 変更を適用
+              </button>
+
+              <button className="test-button" onClick={runVariableProcessingTest}>
+                変数処理テスト
               </button>
             </div>
           ) : (

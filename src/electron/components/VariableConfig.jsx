@@ -1343,12 +1343,23 @@ $padding-sp: ${variablesInRem.paddingSp};
 ${colorVariables}
 `;
 
+    // 従来の方法でJSON形式のデータを保存
+    localStorage.setItem('variables', JSON.stringify(variables));
+
+    // ヘッダー生成用にテキスト形式のCSS変数を保存
+    // これにより、ヘッダー生成側がcssVariablesキーから正しく変数を取得できる
+    localStorage.setItem('cssVariables', colorVariables);
+
+    console.log('Variables saved to localStorage:');
+    console.log('- variables key (JSON):', JSON.stringify(variables));
+    console.log('- cssVariables key (Text):', colorVariables);
+
     window.api.send('save-scss-file', {
       filePath: 'src/scss/global/_setting.scss',
       content: scssContent,
     });
 
-    console.log('Variables saved:', scssContent);
+    console.log('Variables saved to file:', scssContent);
 
     // 変更フラグをリセット
     setHasChanges(false);
