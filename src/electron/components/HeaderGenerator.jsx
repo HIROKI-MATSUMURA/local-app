@@ -1810,110 +1810,6 @@ const HeaderGenerator = () => {
     };
   };
 
-  // HEX値と変数の処理をテストする関数
-  const runVariableProcessingTest = () => {
-    console.group('🧪 色変数処理テスト開始');
-
-    // 現在のローカルストレージの状態を表示
-    console.log('現在のローカルストレージ内容:', localStorage.getItem('cssVariables'));
-
-    // テスト用のデータをセットするオプションを提供
-    const useTestData = confirm('テスト用のカラー変数データをセットしますか？\n「OK」：テスト用データを使用\n「キャンセル」：現在の設定を使用');
-
-    if (useTestData) {
-      // テスト用データをセット
-      const testData = `$primary-color: #DDF0F1;
-$blue: #408F95;
-$accent-color: #FF5500;
-$secondary-color: #0066CC;`;
-
-      localStorage.setItem('cssVariables', testData);
-      console.log('テスト用データをセットしました:', testData);
-    }
-
-    // テスト用サンプルCSS
-    const sampleCss = `
-.p-information {
-  width: 100%;
-  background-color: #DDF0F1;
-  padding: 2rem 1rem;
-}
-
-.p-information__title {
-  font-size: 1.75rem;
-  color: #FF5500;
-  margin-bottom: 0.5rem;
-}
-
-.p-information__subtitle {
-  font-size: 1rem;
-  color: #408F95;
-  margin-bottom: 1rem;
-}
-
-.p-information__description {
-  color: $accent-color;
-  margin-bottom: 1.5rem;
-  line-height: 1.6;
-}
-
-.c-button {
-  display: inline-block;
-  background-color: $secondary-color;
-  color: white;
-  padding: 0.75rem 1.5rem;
-  text-decoration: none;
-  border-radius: 0.25rem;
-  transition: background-color 0.3s ease;
-}
-
-.c-button:hover {
-  background-color: darken($secondary-color, 10%);
-}
-`;
-
-    console.log('■ テスト用サンプルCSS:', sampleCss);
-
-    // 1. 定義済み色変数の取得テスト
-    console.log('■ 定義済み色変数の取得テスト:');
-    const definedColorVariables = getDefinedColorVariables();
-
-    // 2. HEX → 変数マッピングのテスト
-    console.log('■ HEX → 変数マッピングのテスト:');
-    const hexToVarMap = getHexToVariableMap();
-
-    // 3. HEX値を変数に置換するテスト
-    console.log('■ HEX値を変数に置換するテスト:');
-    const { modifiedCode: convertedCss, replacedCount } = replaceHexWithVariables(sampleCss);
-    console.log('変換結果:', convertedCss);
-    console.log(`${replacedCount}個のHEX値を変数に変換しました`);
-
-    // 4. 未定義変数の検出テスト
-    console.log('■ 未定義変数の検出テスト:');
-    const undefinedVars = detectUndefinedColorVariables(convertedCss);
-    console.log('検出された未定義変数:', undefinedVars);
-
-    // 5. 未定義変数の置換テスト
-    console.log('■ 未定義変数の置換テスト:');
-    const { modifiedCode: finalCss, replacedVars } = replaceUndefinedColorVariables(convertedCss);
-    console.log('最終変換結果:', finalCss);
-    console.log(`${replacedVars.length}個の未定義変数を置換しました`);
-
-    // テスト後に元の設定に戻すかの確認
-    if (useTestData) {
-      const resetData = confirm('テスト用データをリセットしますか？\n「OK」：元の設定に戻す\n「キャンセル」：テスト用データを維持');
-      if (resetData) {
-        // テスト前の状態を保存していれば復元する処理をここに
-        localStorage.removeItem('cssVariables');
-        console.log('ローカルストレージをリセットしました');
-      }
-    }
-
-    console.groupEnd();
-
-    alert('テスト完了！コンソールに結果が表示されています。');
-  };
-
   // 定義済みの色変数を取得する関数
   const getDefinedColorVariables = () => {
     // ローカルストレージから変数設定を取得
@@ -2280,10 +2176,6 @@ $secondary-color: #0066CC;`;
 
               <button className="update-button" onClick={handleUpdateCode}>
                 変更を適用
-              </button>
-
-              <button className="test-button" onClick={runVariableProcessingTest}>
-                変数処理テスト
               </button>
             </div>
           ) : (
