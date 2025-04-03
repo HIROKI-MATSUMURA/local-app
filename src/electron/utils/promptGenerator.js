@@ -280,7 +280,9 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - Child elements should use element notation
 - Use proper naming conventions for FLOCSS
 - **START HEADING TAGS FROM h2** - do not use h1 tags in components
-- **ALWAYS WRAP <a> TAGS WITH DIV TAGS** - never use anchor tags without div wrapper
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
+- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
+- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
 - **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
 - Analyze the design and assign **specific, descriptive class names** that reflect design features
 
@@ -294,7 +296,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
   gap: 2rem;
   align-items: center;
 
-  @include mq(sp) {
+  @include mq(md) {
     grid-template-columns: 1fr;
   }
 }
@@ -308,7 +310,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
   align-items: center;
 }
 
-@include mq(sp) {
+@include mq(md) {
   .p-information__content {
     grid-template-columns: 1fr;
   }
@@ -360,7 +362,7 @@ I will immediately reject your solution if it contains any nested SCSS using the
   gap: 2rem;
   align-items: center;
 
-  @include mq(sp) {
+  @include mq(md) {
     grid-template-columns: 1fr;
   }
 }
@@ -389,13 +391,15 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`scss
 .element {
   property: value;
-  @include mq(sp) {
+  @include mq(md) {
     property: other-value;
   }
 }
 \`\`\`
 - **START HEADING TAGS FROM h2** - do not use h1 tags in components
-- **ALWAYS WRAP <a> TAGS WITH DIV TAGS** - never use anchor tags without div wrapper
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
+- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
+- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
 - DO NOT use <header> or <main> tags
 - Use specific, descriptive class names reflecting design features
 - Maintain aspect ratios for all images using aspect-ratio property
@@ -410,7 +414,7 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`scss
 .element {
   property: value;
-  @include mq(sp) {
+  @include mq(md) {
     property: other-value;
   }
 }

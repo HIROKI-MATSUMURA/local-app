@@ -614,6 +614,11 @@ const AICodeGenerator = () => {
                   margin: 0 auto;
                   box-sizing: border-box;
                 }
+                *,
+                *::before,
+                *::after {
+                  box-sizing: border-box;
+                }
                 /* すべての画像にブロック表示を適用 */
                 img {
                   display: block;
