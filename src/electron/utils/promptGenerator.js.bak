@@ -422,10 +422,9 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`
 
 \`\`\`scss
-// SCSS code here (flat structure, except for media queries which should be nested)
+// SCSS code here (flat structure, no nesting)
 \`\`\`
-`;
-  }
-};
+
+\`\`\`scss
 
 export { generatePrompt };
