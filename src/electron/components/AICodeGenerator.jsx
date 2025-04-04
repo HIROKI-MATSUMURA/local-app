@@ -2263,8 +2263,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 width: `${previewWidth}px`,
                 transform: previewWidth > 1000 ? `scale(calc(1022/${previewWidth}))` : 'none', // 1000px以下ではスケールを適用しない
                 transformOrigin: 'top left',
-                height: `${iframeHeight}px`,
-                minHeight: `${Math.max(400, iframeHeight) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px` // 1000px以下では通常の高さを使用
+                height: `${Number(iframeHeight) + 20}px`,
+                minHeight: `${(Math.max(400, iframeHeight) + 20) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px` // 1000px以下では通常の高さを使用
               }}
             >
               <iframe

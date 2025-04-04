@@ -421,6 +421,43 @@ const HeaderGenerator = () => {
     }
   }, []);
 
+  // iframeのDOM変更を監視して高さを自動調整する
+  useEffect(() => {
+    // すでにプレビューが表示されていて、かつiframeが存在する場合のみ実行
+    if (showGeneratedCode && previewRef.current) {
+      try {
+        const iframe = previewRef.current;
+        const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
+
+        // MutationObserverを作成
+        const observer = new MutationObserver(() => {
+          console.log('iframeのDOM変更を検出しました');
+          // DOM変更時に高さを調整
+          adjustIframeHeight();
+        });
+
+        // ドキュメント全体の変更を監視
+        observer.observe(iframeDocument.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true
+        });
+
+        // 初期表示時に高さを調整
+        adjustIframeHeight();
+
+        // クリーンアップ関数
+        return () => {
+          // コンポーネントのアンマウント時にObserverを停止
+          observer.disconnect();
+        };
+      } catch (error) {
+        console.error('MutationObserver設定エラー:', error);
+      }
+    }
+  }, [showGeneratedCode, generatedHTML, generatedCSS]);
+
   // iframeのコンテンツの高さに基づいてiframeの高さを調整する関数
   const adjustIframeHeight = () => {
     try {
@@ -431,16 +468,26 @@ const HeaderGenerator = () => {
       const body = doc.body;
       const html = doc.documentElement;
 
-      // 高さを計算（最大値を取得）
-      const height = Math.max(
+      // 高さを計算（最大値を取得）- AICodeGeneratorと同様の計算方法に変更
+      const contentHeight = Math.max(
         body.scrollHeight, body.offsetHeight,
         html.clientHeight, html.scrollHeight, html.offsetHeight
       );
 
-      // 最小高さを400pxにする
-      const newHeight = Math.max(height, 400);
-      if (newHeight !== iframeHeight) {
+      // 高さの変化が一定値（5px）以上の場合のみ更新する
+      // 以前は30pxだったが、より細かな変更も検知するため5pxに変更
+      const heightWithMargin = Math.ceil(contentHeight);
+
+      // 現在の高さと比較
+      if (Math.abs(heightWithMargin - iframeHeight) > 5) {
+        // 最小高さを400pxにする
+        const newHeight = Math.max(400, heightWithMargin);
+
+        // 高さを更新
         setIframeHeight(newHeight);
+
+        // 高さ変更のデバッグ情報
+        console.log(`iframe高さを更新: ${iframeHeight}px → ${newHeight}px (コンテンツ高さ: ${contentHeight}px)`);
       }
     } catch (error) {
       console.error('iframe高さ調整エラー:', error);
@@ -456,14 +503,16 @@ const HeaderGenerator = () => {
 
     try {
       const adjustHeightWithDelay = () => {
-        setTimeout(() => {
-          adjustIframeHeight();
+        // 即時に高さを調整
+        adjustIframeHeight();
 
-          // スタイルの適用が完了するまで複数回高さを調整する
-          setTimeout(adjustIframeHeight, 300);
-          setTimeout(adjustIframeHeight, 600);
-          setTimeout(adjustIframeHeight, 1000);
-        }, 100);
+        // スタイルの適用が完了するまで複数回高さを調整する
+        // より細かなタイムポイントで調整を実行し、変化を見逃さないようにする
+        setTimeout(adjustIframeHeight, 100);
+        setTimeout(adjustIframeHeight, 300);
+        setTimeout(adjustIframeHeight, 600);
+        setTimeout(adjustIframeHeight, 1000);
+        setTimeout(adjustIframeHeight, 1500);
       };
 
       const updateContent = () => {
@@ -796,7 +845,7 @@ const HeaderGenerator = () => {
             body {
               margin: 0;
               padding: 0;
-              font-family: "Noto Sans JP", sans-serif;
+              font-family: "Noto Sans JP", Arial, sans-serif;
               width: 100%;
               min-height: 100vh;
               overflow-x: hidden;
@@ -815,27 +864,29 @@ const HeaderGenerator = () => {
           `;
 
           // より確実なレンダリングのため、DOCTYPE宣言を追加
-          const doc = previewRef.current.contentDocument;
+          const iframe = previewRef.current;
+          const doc = iframe.contentWindow.document;
           doc.open();
-
-          // テンプレートリテラル内のスクリプトでの変数名の衝突を避けるため
-          const htmlContent = editingHTML || '';
-
           doc.write(`
             <!DOCTYPE html>
-            <html lang="ja">
+            <html>
             <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <style>
-                ${baseCSS}
-                ${processedCSS}
-                /* レスポンシブ表示のためのコンテナスタイル */
+                body {
+                  margin: 0;
+                  padding: 0;
+                  font-family: "Noto Sans JP", Arial, sans-serif;
+                }
                 .preview-container {
                   width: 100%;
                   max-width: ${previewWidth}px;
                   margin: 0 auto;
                   box-sizing: border-box;
+                  min-height: 100%; /* 余白を削除 */
+                  display: block;
+                  position: relative;
                 }
                 *,
                 *::before,
@@ -847,6 +898,13 @@ const HeaderGenerator = () => {
                   display: block;
                   max-width: 100%;
                 }
+                /* 特に大きなプレビューサイズでの表示を改善 */
+                @media (min-width: 1440px) {
+                  .preview-container {
+                    min-height: 100%;
+                  }
+                }
+                ${processedCSS || ''}
               </style>
               <script>
                 // 親ウィンドウに高さを通知するシンプルなスクリプト
@@ -867,7 +925,7 @@ const HeaderGenerator = () => {
                   }
 
                   // 余裕を持たせる
-                  const heightWithMargin = Math.ceil(contentHeight) + 20;
+                  const heightWithMargin = Math.ceil(contentHeight);
 
                   // 親ウィンドウに通知
                   if (window.parent) {
@@ -903,7 +961,7 @@ const HeaderGenerator = () => {
             </head>
             <body>
               <div class="preview-container">
-                ${htmlContent}
+                ${generatedHTML || editingHTML || ''}
               </div>
             </body>
             </html>
@@ -1120,6 +1178,30 @@ const HeaderGenerator = () => {
       console.error('画像アップロードエラー:', error);
       alert('画像のアップロード処理中にエラーが発生しました。');
     }
+  };
+
+  // 画像削除の処理
+  const handleRemovePcImage = () => {
+    setPcImage(null);
+    setPcImageBase64("");
+    setPcColors([]);
+    setPcText("");
+
+    // 画像入力をリセット
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    console.log("PC画像を削除しました");
+  };
+
+  const handleRemoveSpImage = () => {
+    setSpImage(null);
+    setSpImageBase64("");
+    setSpColors([]);
+    setSpText("");
+
+    console.log("SP画像を削除しました");
   };
 
   // ドラッグ＆ドロップ関連の処理
@@ -1546,12 +1628,14 @@ const HeaderGenerator = () => {
 
   // スケールの計算
   const calculateScale = () => {
-    if (previewContainerRef.current && previewWidth > 1000) {
-      // パディングとボーダーを考慮して、より正確な幅を計算
-      const containerWidth = previewContainerRef.current.clientWidth - 40; // パディングとマージンを考慮
-      const scale = Math.min(1, containerWidth / previewWidth);
+    // 大きいプレビューサイズの場合のみスケール計算
+    if (previewWidth > 1000) {
+      // 固定コンテナ幅1022pxに対する縮小率を計算
+      const scale = 1022 / previewWidth;
+      console.log(`スケール計算: 1022px / ${previewWidth}px = ${scale.toFixed(6)}`);
       setScaleRatio(scale);
     } else {
+      // 1000px以下ではスケールしない
       setScaleRatio(1);
     }
   };
@@ -1574,6 +1658,39 @@ const HeaderGenerator = () => {
     calculateScale();
   }, [previewWidth]);
 
+  // iframeの高さが変わったときにプレビューコンテナの高さも更新
+  useEffect(() => {
+    if (previewWidth > 1000 && previewContainerRef.current) {
+      // スケール率を計算
+      const scale = 1022 / previewWidth;
+
+      // iframeの元の高さを取得
+      const originalHeight = iframeHeight;
+
+      // プレビューヘッダーの高さを考慮（およそ100px）
+      const headerHeight = 100;
+
+      // プレビューコンテナの上下パディングを考慮（およそ50px）
+      const paddingHeight = 50;
+
+      // スケールされた高さ + ヘッダー + パディング
+      const scaledTotalHeight = (originalHeight * scale) + headerHeight + paddingHeight;
+
+      // 最小高さを確保
+      const finalHeight = Math.max(500, scaledTotalHeight);
+
+      console.log(`プレビューコンテナの高さを調整: 元の高さ=${originalHeight}px, スケール=${scale}, 計算後の高さ=${finalHeight}px`);
+
+      // 高さを設定
+      previewContainerRef.current.style.height = `${finalHeight}px`;
+      previewContainerRef.current.style.minHeight = `${finalHeight}px`;
+    } else if (previewContainerRef.current) {
+      // 小さいサイズの場合はautoに戻す
+      previewContainerRef.current.style.height = 'auto';
+      previewContainerRef.current.style.minHeight = '500px';
+    }
+  }, [iframeHeight, previewWidth]);
+
   // プレビュー幅が変更された時に自動的にプレビューを更新
   useEffect(() => {
     if (previewRef.current && editingHTML && editingCSS) {
@@ -1587,8 +1704,9 @@ const HeaderGenerator = () => {
   const resetPreviewSize = (size) => {
     setPreviewWidth(size);
     setShowCustomSizeInput(false);
-    // サイズ変更後にプレビューを更新
+    // サイズ変更後にスケール計算と高さ調整を実行
     setTimeout(() => {
+      calculateScale();
       updatePreview();
     }, 100);
   };
@@ -1599,8 +1717,9 @@ const HeaderGenerator = () => {
     if (!isNaN(size) && size >= 320 && size <= 2560) {
       setPreviewWidth(size);
       setShowCustomSizeInput(false);
-      // サイズ変更後にプレビューを更新
+      // サイズ変更後にスケール計算と高さ調整を実行
       setTimeout(() => {
+        calculateScale();
         updatePreview();
       }, 100);
     } else {
@@ -1943,10 +2062,7 @@ const HeaderGenerator = () => {
                 className="remove-image-button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPcImage(null);
-                  setPcImageBase64(null);
-                  setPcColors([]);
-                  setPcText("");
+                  handleRemovePcImage();
                 }}
               >
                 <span>×</span>
@@ -1989,10 +2105,7 @@ const HeaderGenerator = () => {
                 className="remove-image-button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSpImage(null);
-                  setSpImageBase64(null);
-                  setSpColors([]);
-                  setSpText("");
+                  handleRemoveSpImage();
                 }}
               >
                 <span>×</span>
@@ -2251,16 +2364,37 @@ const HeaderGenerator = () => {
               className="preview-iframe-container"
               style={{
                 width: `${previewWidth}px`,
-                transform: `scale(${scaleRatio})`,
+                transform: previewWidth > 1000 ? `scale(calc(1022/${previewWidth}))` : 'none',
                 transformOrigin: 'top left',
-                minHeight: `${iframeHeight * scaleRatio}px`
+                height: `${Number(iframeHeight) + 20}px`,
+                minHeight: `${(Math.max(400, iframeHeight) + 20) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px`
               }}
             >
               <iframe
                 ref={previewRef}
-                title="Generated code preview"
                 className="preview-iframe"
-                style={{ width: `${previewWidth}px`, height: `${iframeHeight}px` }}
+                srcDoc={`
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>プレビュー</title>
+                    <style>
+                      body {
+                        margin: 0;
+                        padding: 0;
+                        font-family: Arial, sans-serif;
+                      }
+                      ${generatedCSS || editingCSS || ''}
+                    </style>
+                  </head>
+                  <body>
+                    ${generatedHTML || editingHTML || ''}
+                  </body>
+                  </html>
+                `}
+                style={{ width: `${previewWidth}px`, height: `${iframeHeight}px`, overflow: 'auto' }}
                 scrolling="auto"
                 onLoad={updatePreview}
               ></iframe>

@@ -656,6 +656,8 @@
   position: relative;
   transition: all 0.3s ease;
   margin: 0 auto;
+  overflow: visible !important;
+  transform-origin: top left !important;
 }
 
 .preview-iframe {
@@ -665,4 +667,5 @@
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
   border: none;
   background-color: white;
+  width: 100%;
 }

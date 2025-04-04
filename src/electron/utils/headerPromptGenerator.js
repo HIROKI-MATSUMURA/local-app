@@ -276,6 +276,21 @@ ${settings.responsiveSettings}
 - Include a mobile hamburger menu for small screens
 - Ensure accessibility with proper ARIA attributes
 
+### Responsive Design Implementation:
+${responsiveMode === "sp" ?
+        `- Mobile-First approach: Start with mobile design, then enhance for larger screens
+- Base styles are for mobile (SP) design
+- Use min-width media queries (@include mq(md)) for tablet and desktop enhancements
+- For mobile, implement a hamburger menu that expands on click
+- Ensure touch targets are at least 44px in size for all interactive elements
+- Consider mobile performance and minimize JS where possible` :
+        `- Desktop-First approach: Start with desktop design, then adapt for smaller screens
+- Base styles are for desktop (PC) design
+- Use max-width media queries (@include mq(md)) to simplify layout for tablet and mobile
+- For mobile, transition the desktop navigation to a hamburger menu
+- Ensure proper scaling of fonts and spacing for smaller screens
+- Pay attention to header height on mobile to maximize content area`}
+
 ### CSS Variables Requirements:
 ${settings.cssVariables
         ? (() => {
