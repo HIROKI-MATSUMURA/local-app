@@ -280,9 +280,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - Child elements should use element notation
 - Use proper naming conventions for FLOCSS
 - **START HEADING TAGS FROM h2** - do not use h1 tags in components
-- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
-- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
-- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
+- **ALWAYS WRAP <a> TAGS WITH DIV TAGS** - never use anchor tags without div wrapper
 - **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
 - Analyze the design and assign **specific, descriptive class names** that reflect design features
 
@@ -296,7 +294,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
   gap: 2rem;
   align-items: center;
 
-  @include mq(md) {
+  @include mq(sp) {
     grid-template-columns: 1fr;
   }
 }
@@ -310,7 +308,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
   align-items: center;
 }
 
-@include mq(md) {
+@include mq(sp) {
   .p-information__content {
     grid-template-columns: 1fr;
   }
@@ -332,44 +330,6 @@ You are a professional front-end developer specializing in SCSS and HTML.
 \`\`\`
 
 Analyze the image structure and layout in detail to create accurate HTML and SCSS that precisely reflect ONLY what is visible in the image.
-
-## Responsive Design Implementation Guidelines
-
-### For Output Type: SP (Mobile)
-Use a Mobile-first approach. Base styles should be for mobile devices, and use @include mq(md) media queries for larger screens.
-
-Example:
-\`\`\`scss
-.p-section__content {
-  display: grid;
-  grid-template-columns: 1fr; // Single column for SP
-  gap: 1rem;
-
-  @include mq(md) {
-    grid-template-columns: 1fr 1fr; // Multiple columns for PC according to design
-    gap: 2rem;
-  }
-}
-\`\`\`
-
-### For Output Type: PC (Desktop)
-Use a Desktop-first approach. Base styles should be for desktop devices, and use @include mq(md) media queries for smaller screens.
-
-Example:
-\`\`\`scss
-.p-section__content {
-  display: grid;
-  grid-template-columns: 1fr 1fr; // Multiple columns for PC according to design
-  gap: 2rem;
-
-  @include mq(md) {
-    grid-template-columns: 1fr; // Single column for SP
-    gap: 1rem;
-  }
-}
-\`\`\`
-
-In both cases, ensure that mobile displays have a single-column layout, while desktop displays follow the multi-column structure as shown in the design comp. The media query function @include mq(md) should be used consistently for both approaches.
 `;
 
     // AIの出力にネスト構造が含まれないように強い警告を追加
@@ -400,7 +360,7 @@ I will immediately reject your solution if it contains any nested SCSS using the
   gap: 2rem;
   align-items: center;
 
-  @include mq(md) {
+  @include mq(sp) {
     grid-template-columns: 1fr;
   }
 }
@@ -429,15 +389,13 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`scss
 .element {
   property: value;
-  @include mq(md) {
+  @include mq(sp) {
     property: other-value;
   }
 }
 \`\`\`
 - **START HEADING TAGS FROM h2** - do not use h1 tags in components
-- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
-- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
-- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
+- **ALWAYS WRAP <a> TAGS WITH DIV TAGS** - never use anchor tags without div wrapper
 - DO NOT use <header> or <main> tags
 - Use specific, descriptive class names reflecting design features
 - Maintain aspect ratios for all images using aspect-ratio property
@@ -452,7 +410,7 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`scss
 .element {
   property: value;
-  @include mq(md) {
+  @include mq(sp) {
     property: other-value;
   }
 }
@@ -464,10 +422,9 @@ Accurately reproduce the layout, elements, text, and colors in the image.
 \`\`\`
 
 \`\`\`scss
-// SCSS code here (flat structure, except for media queries which should be nested)
+// SCSS code here (flat structure, no nesting)
 \`\`\`
-`;
-  }
-};
+
+\`\`\`scss
 
 export { generatePrompt };
