@@ -168,12 +168,6 @@
   gap: 0.5rem;
 }
 
-.upload-info p:before {
-  content: "•";
-  color: #007bff;
-  font-weight: bold;
-}
-
 .generation-settings {
   background: linear-gradient(145deg, #ffffff, #f8f9fc);
   border-radius: 12px;

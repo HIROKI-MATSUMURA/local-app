@@ -948,54 +948,74 @@ const AICodeGenerator = () => {
     console.log(`画像アップロード開始: ${file.name}, タイプ: ${type}, サイズ: ${Math.round(file.size / 1024)}KB`);
 
     try {
-      // FileReaderを使用してデータURLを作成
+      // ファイルサイズを確認 (4MB制限)
+      const maxSize = 4 * 1024 * 1024; // 4MB
+      if (file.size > maxSize) {
+        console.log(`ファイルサイズが大きすぎます（${Math.round(file.size / 1024)}KB）。自動的にリサイズします。`);
+      }
+
+      // FileReaderを使用してファイルを読み込む
       const reader = new FileReader();
 
-      reader.onload = async (event) => {
-        const dataUrl = event.target.result;
-        console.log(`画像をデータURLに変換しました: ${dataUrl.substring(0, 50)}...`);
-
-        // プレビュー用の状態を更新
-        if (type === "pc") {
-          console.log("PC画像プレビューを設定中...");
-          setPcImage({
-            fileName: file.name,
-            preview: dataUrl,
-            mimeType: file.type
-          });
-        } else {
-          console.log("SP画像プレビューを設定中...");
-          setSpImage({
-            fileName: file.name,
-            preview: dataUrl,
-            mimeType: file.type
-          });
-        }
-
+      reader.onload = async (loadEvent) => {
         try {
-          // 画像を処理
-          const processedImage = await processImage(dataUrl);
-          console.log(`画像処理が完了しました: メディアタイプ=${processedImage.mediaType}`);
+          const base64Data = loadEvent.target.result;
+          console.log(`画像の読み込みが完了しました: ${Math.round(base64Data.length / 1024)}KB`);
 
-          if (type === "pc") {
-            setPcImageBase64(processedImage.base64);
-            console.log("PC画像のBase64データを設定しました");
+          // リサイズが必要な場合は実行
+          const resizedBase64 = file.size > maxSize
+            ? await resizeImage(base64Data, 1920) // 最大幅1920pxにリサイズ
+            : base64Data;
 
-            // 色抽出処理
+          // 画像形式を最適化
+          const { base64: processedBase64 } = await processImage(resizedBase64);
+          console.log(`画像の最適化が完了しました: ${Math.round(processedBase64.length / 1024)}KB`);
+
+          // プレビュー用のURLを生成 - Blob URLの代わりにData URLを直接使用
+          // const imagePreview = URL.createObjectURL(file);
+
+          // タイプに応じて適切なステートを更新
+          if (type === 'pc') {
+            setPcImage({
+              file,
+              preview: processedBase64 // Data URLを直接使用
+            });
+            setPcImageBase64(processedBase64);
+
+            // 必要に応じて追加の解析を実行
             try {
-              const colors = await extractColorsFromImage(processedImage.base64);
+              const text = await extractTextFromImage(processedBase64);
+              setPcText(text);
+              console.log(`PC画像からテキストを抽出しました`);
+            } catch (error) {
+              console.error("PC画像のテキスト抽出エラー:", error);
+            }
+
+            try {
+              const colors = await extractColorsFromImage(processedBase64);
               setPcColors(colors);
               console.log(`PC画像の色を抽出しました: ${colors.length}色`);
             } catch (error) {
               console.error("PC画像の色抽出エラー:", error);
             }
-          } else {
-            setSpImageBase64(processedImage.base64);
-            console.log("SP画像のBase64データを設定しました");
+          } else if (type === 'sp') {
+            setSpImage({
+              file,
+              preview: processedBase64 // Data URLを直接使用
+            });
+            setSpImageBase64(processedBase64);
 
-            // 色抽出処理
+            // 必要に応じて追加の解析を実行
             try {
-              const colors = await extractColorsFromImage(processedImage.base64);
+              const text = await extractTextFromImage(processedBase64);
+              setSpText(text);
+              console.log(`SP画像からテキストを抽出しました`);
+            } catch (error) {
+              console.error("SP画像のテキスト抽出エラー:", error);
+            }
+
+            try {
+              const colors = await extractColorsFromImage(processedBase64);
               setSpColors(colors);
               console.log(`SP画像の色を抽出しました: ${colors.length}色`);
             } catch (error) {
@@ -1021,6 +1041,24 @@ const AICodeGenerator = () => {
       console.error("画像処理中にエラーが発生しました:", error);
       alert(`画像の処理中にエラーが発生しました: ${error.message}`);
     }
+  };
+
+  // PC画像を削除する処理
+  const handleRemovePcImage = (e) => {
+    e.stopPropagation();
+    setPcImage(null);
+    setPcImageBase64(null);
+    setPcColors([]);
+    setPcText("");
+  };
+
+  // SP画像を削除する処理
+  const handleRemoveSpImage = (e) => {
+    e.stopPropagation();
+    setSpImage(null);
+    setSpImageBase64(null);
+    setSpColors([]);
+    setSpText("");
   };
 
   // 編集したコードを反映
@@ -1922,6 +1960,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   e.target.style.display = 'none';
                 }}
               />
+              <button
+                className="remove-image-button"
+                onClick={(e) => handleRemovePcImage(e)}
+              >
+                <span>×</span>
+              </button>
             </div>
           ) : (
             <>
@@ -1954,6 +1998,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   e.target.style.display = 'none';
                 }}
               />
+              <button
+                className="remove-image-button"
+                onClick={(e) => handleRemoveSpImage(e)}
+              >
+                <span>×</span>
+              </button>
             </div>
           ) : (
             <>
