@@ -451,11 +451,11 @@
 .js-editor {
   background: #fff;
   border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid #e0e0e0;
-  margin-bottom: 1.5rem;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-  transition: box-shadow 0.3s ease;
+  padding: 1.5rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(224, 224, 224, 0.6);
+  position: relative;
+  transition: all 0.3s ease;
 }
 
 .html-editor:hover,
@@ -470,10 +470,8 @@
   font-size: 1rem;
   font-weight: 600;
   color: #333333;
-  margin: 0;
-  padding: 0.75rem 1.5rem;
-  background: #f8f9fa;
   border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 0.5rem;
   position: relative;
   display: flex;
   align-items: center;
@@ -501,38 +499,9 @@
   position: absolute;
   bottom: -1px;
   left: 0;
-  width: 50px;
-  height: 2px;
-}
-
-.html-editor h3::after {
-  background: linear-gradient(90deg, #4895ef, #4cc9f0);
-}
-
-.css-editor h3::after {
-  background: linear-gradient(90deg, #f72585, #ff4d8f);
-}
-
-.js-editor h3::after {
-  background: linear-gradient(90deg, #3a0ca3, #4361ee);
-}
-
-@media (min-width: 1200px) {
-  .code-editor-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-  }
-
-  .html-editor,
-  .js-editor {
-    grid-column: 1 / 2;
-  }
-
-  .css-editor {
-    grid-column: 2 / 3;
-    grid-row: 1 / 3;
-  }
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, #f72585, transparent);
 }
 
 .code-editor-wrapper {
@@ -913,4 +882,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.ai-code-generator .generated-code-container .code-editor-container .html-editor .code-editor-wrapper .CodeMirror,
+.ai-code-generator .generated-code-container .code-editor-container .css-editor .code-editor-wrapper .CodeMirror,
+.ai-code-generator .generated-code-container .code-editor-container .js-editor .code-editor-wrapper .CodeMirror {
+  height: 100%;
+  font-family: "Fira Code", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  background-color: #263238;
+  border-radius: 8px;
 }

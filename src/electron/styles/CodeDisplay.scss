@@ -45,12 +45,7 @@ $code-value: #e36209;
   // JavaScript用のコードボックスが表示されている場合のグリッドレイアウト
   &:has(.js-code-box) {
     @media (min-width: 1200px) {
-      grid-template-columns: 1fr;
-
-      .code-box {
-        // PCサイズでは3つのコードボックスを縦に並べる
-        grid-column: span 1;
-      }
+      grid-template-columns: 1fr 1fr;
     }
   }
 }
