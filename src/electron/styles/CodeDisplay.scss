@@ -41,6 +41,18 @@ $code-value: #e36209;
   @media (min-width: 1200px) {
     grid-template-columns: 1fr 1fr;
   }
+
+  // JavaScript用のコードボックスが表示されている場合のグリッドレイアウト
+  &:has(.js-code-box) {
+    @media (min-width: 1200px) {
+      grid-template-columns: 1fr;
+
+      .code-box {
+        // PCサイズでは3つのコードボックスを縦に並べる
+        grid-column: span 1;
+      }
+    }
+  }
 }
 
 .code-box {
@@ -186,4 +198,52 @@ $code-value: #e36209;
 
 .scss .hljs-comment {
   color: $code-comment !important;
+}
+
+/* JavaScript用のカスタムスタイル */
+.javascript .hljs-keyword {
+  color: $code-keyword !important;
+}
+
+.javascript .hljs-title,
+.javascript .hljs-title.function_ {
+  color: $code-variable !important;
+}
+
+.javascript .hljs-built_in {
+  color: $code-attr !important;
+}
+
+.javascript .hljs-string {
+  color: $code-string !important;
+}
+
+.javascript .hljs-number {
+  color: $code-value !important;
+}
+
+.javascript .hljs-comment {
+  color: $code-comment !important;
+}
+
+.javascript .hljs-literal {
+  color: $code-keyword !important;
+}
+
+.javascript .hljs-params {
+  color: $code-text !important;
+}
+
+/* JavaScript用のコードボックスのスタイル調整 */
+.js-code-box {
+  grid-column: 1 / -1; // 横幅いっぱいに表示
+
+  @media (min-width: 1200px) {
+    // PC表示時にも横幅いっぱいに表示
+    grid-column: 1 / -1;
+  }
+
+  .code-header {
+    background: linear-gradient(to right, #3a0ca3, #4361ee);
+  }
 }

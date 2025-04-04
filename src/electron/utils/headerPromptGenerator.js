@@ -27,7 +27,7 @@ const getSettingsFromLocalStorage = () => {
 const getCommonPromptInstructions = (responsiveMode, aiBreakpoints) => {
   return `
 ### Output Format Guidelines:
-- Provide ONLY the HTML and CSS without any explanation
+- Provide the HTML, CSS, AND JAVASCRIPT without any explanation
 - Format your response with Markdown code blocks:
   \`\`\`html
   <!-- Your HTML code here -->
@@ -36,8 +36,12 @@ const getCommonPromptInstructions = (responsiveMode, aiBreakpoints) => {
   \`\`\`css
   /* Your CSS code here */
   \`\`\`
+
+  \`\`\`javascript
+  // Your JavaScript code here
+  \`\`\`
 - Do not include any explanations before or after the code blocks
-- Respond with ONLY these two code blocks
+- Respond with ONLY these three code blocks
 
 ## Responsive Guidelines:
 ${responsiveMode === "sp" ?
@@ -75,6 +79,14 @@ Media query syntax example:
 - Optimize for performance and readability
 - No CSS reset or normalize code
 
+## JavaScript Requirements:
+- Include JavaScript for interactive elements like drawer menu
+- Use vanilla JavaScript without any libraries or frameworks
+- Implement smooth open/close transitions for the drawer menu
+- Ensure the code is cross-browser compatible
+- Add proper event handling for touch and click events
+- Include proper accessibility features in your JavaScript
+
 ## Best Practices to Follow:
 - Ensure all interactive elements are accessible
 - Use semantic HTML elements appropriately
@@ -91,8 +103,15 @@ export const generateHeaderPrompt = async ({
   aiBreakpoints,
   pcImageBase64,
   spImageBase64,
+  drawerImageBase64,
   pcImageText,
-  pcColors
+  pcColors,
+  spColors,
+  drawerColors,
+  spImageText,
+  drawerImageText,
+  drawerLayout,
+  drawerDirection
 }) => {
   try {
     console.log("ヘッダープロンプト生成処理を開始");
@@ -103,13 +122,17 @@ export const generateHeaderPrompt = async ({
 
     // 画像から色を取得（エラーハンドリング付き）
     let pcColorsList = pcColors || [];
-    let spColorsList = [];
+    let spColorsList = spColors || [];
+    let drawerColorsList = drawerColors || [];
     let pcTextData = pcImageText || '';
-    let spTextData = '';
+    let spTextData = spImageText || '';
+    let drawerTextData = drawerImageText || '';
     let pcSections = [];
     let spSections = [];
+    let drawerSections = [];
     let pcElements = [];
     let spElements = [];
+    let drawerElements = [];
 
     // より詳細な画像分析を実行
     if (pcImageBase64 && !pcColors) {
@@ -180,6 +203,39 @@ export const generateHeaderPrompt = async ({
       }
     }
 
+    if (drawerImageBase64) {
+      try {
+        drawerColorsList = await extractColorsFromImage(drawerImageBase64);
+        console.log("ドロワー画像から色を抽出しました:", drawerColorsList.length, "色");
+      } catch (error) {
+        console.error("ドロワー画像の色抽出エラー:", error);
+      }
+
+      try {
+        drawerTextData = await extractTextFromImage(drawerImageBase64);
+        console.log("ドロワー画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("ドロワー画像のテキスト抽出エラー:", error);
+        drawerTextData = '';
+      }
+
+      try {
+        drawerSections = await analyzeImageSections(drawerImageBase64);
+        console.log("ドロワー画像のセクション分析が完了しました:", drawerSections.length, "セクション");
+      } catch (error) {
+        console.error("ドロワー画像のセクション分析エラー:", error);
+        drawerSections = [];
+      }
+
+      try {
+        drawerElements = await detectFeatureElements(drawerImageBase64);
+        console.log("ドロワー画像の要素検出が完了しました:", drawerElements ? drawerElements.elements?.length || 0 : 0, "要素");
+      } catch (error) {
+        console.error("ドロワー画像の要素検出エラー:", error);
+        drawerElements = { elements: [] };
+      }
+    }
+
     // ローカルストレージから設定を取得
     const settings = getSettingsFromLocalStorage();
 
@@ -190,7 +246,7 @@ export const generateHeaderPrompt = async ({
 # Header Component Generation from Design Comp
 
 ## Basic Information
-- Component Type: Header/Navigation
+- Component Type: Header/Navigation with Drawer Menu
 - Output Type: ${responsiveMode === "both" ? "Responsive Design (PC/SP)" : `${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"}`}
 - Responsive Mode: ${responsiveMode === "sp" ? "Mobile-first (min-width)" : "Desktop-first (max-width)"}
 ${aiBreakpoints && aiBreakpoints.length > 0 ?
@@ -204,27 +260,32 @@ ${aiBreakpoints && aiBreakpoints.length > 0 ?
 `;
 
     // 抽出されたテキスト情報を追加
-    if (pcTextData || spTextData) {
+    if (pcTextData || spTextData || drawerTextData) {
       prompt += `
 ### Detected Text:
-${pcTextData ? `#### PC Image Text:
+${pcTextData ? `#### PC Header Image Text:
 \`\`\`
 ${pcTextData}
 \`\`\`` : ""}
-${spTextData ? `#### SP Image Text:
+${spTextData ? `#### SP Header Image Text:
 \`\`\`
 ${spTextData}
+\`\`\`` : ""}
+${drawerTextData ? `#### Drawer Menu Image Text:
+\`\`\`
+${drawerTextData}
 \`\`\`` : ""}
 
 `;
     }
 
     // 色情報を追加
-    if (pcColorsList.length > 0 || spColorsList.length > 0) {
+    if (pcColorsList.length > 0 || spColorsList.length > 0 || drawerColorsList.length > 0) {
       prompt += `
 ### Detected Colors:
-${pcColorsList.length > 0 ? `- PC Image Main Colors: ${pcColorsList.join(", ")}` : ""}
-${spColorsList.length > 0 ? `- SP Image Main Colors: ${spColorsList.join(", ")}` : ""}
+${pcColorsList.length > 0 ? `- PC Header Image Colors: ${pcColorsList.join(", ")}` : ""}
+${spColorsList.length > 0 ? `- SP Header Image Colors: ${spColorsList.join(", ")}` : ""}
+${drawerColorsList.length > 0 ? `- Drawer Menu Colors: ${drawerColorsList.join(", ")}` : ""}
 
 `;
     }
@@ -268,13 +329,42 @@ ${settings.responsiveSettings}
 ## Header Component Requirements:
 
 ### Core Requirements:
-- Create a modern, professional header component based on the uploaded image
+- Create a PIXEL-PERFECT header component that EXACTLY matches the uploaded image(s)
+- Pay extreme attention to colors, spacing, font sizes, and element positioning
 - Implement a responsive design that works well on all devices
 - Include navigation menu with clean transitions
 - Ensure the header is sticky/fixed at the top of the viewport
 - Add appropriate hover effects for interactive elements
-- Include a mobile hamburger menu for small screens
+- Include a mobile hamburger menu for small screens that opens a drawer menu
 - Ensure accessibility with proper ARIA attributes
+- Follow the drawer menu design if provided in the uploaded image
+- DO NOT add any elements that aren't visible in the reference images
+
+### Drawer Menu Requirements:
+${drawerImageBase64 ? `- Implement the drawer menu that EXACTLY matches the uploaded drawer image
+- Match EVERY DETAIL of the drawer menu styling, layout, and content from the image
+- Include all menu items and icons visible in the reference image (including asterisk (*) symbols)
+- Ensure the background color, text color, and spacing match precisely` :
+        `- Create a standard drawer menu that matches the header design
+- Include same navigation items as in the header
+- Add proper styling that complements the header design`}
+- Drawer should be implemented for ${drawerLayout === "sp-only" ? "mobile devices only" : "both mobile and desktop devices"}
+- Drawer should open from the ${drawerDirection === "fade" ? "center with fade-in effect" : `${drawerDirection} side of the screen`}
+- Ensure smooth open/close transitions
+- Add proper focus management for keyboard navigation
+- Include close button and/or click-outside functionality
+
+### JavaScript Requirements:
+- Implement the drawer menu toggle functionality with vanilla JavaScript
+- Add smooth animation for opening/closing the drawer menu
+- Include event listeners for the hamburger menu button
+- Implement click/tap outside to close functionality
+- Add keyboard support (Escape key to close drawer)
+- Make sure the drawer works properly on both touch and mouse devices
+- Add proper ARIA attributes that change dynamically with drawer state
+- Prevent body scrolling when drawer is open
+- Add event listeners to handle window resize events if needed
+- Ensure all interactive elements have proper cursor styling
 
 ### Responsive Design Implementation:
 ${responsiveMode === "sp" ?
@@ -315,7 +405,8 @@ ${varList}
 For colors not covered by these variables, use direct HEX values instead.
 DO NOT create custom variables.`;
         })()
-        : `IMPORTANT: Use direct HEX values for all colors.
+        : `IMPORTANT: Use direct HEX values for all colors extracted from the image analysis.
+Match the colors from the "Detected Colors" section in your output.
 DO NOT create custom variables like $accent-color or $secondary-color.`}
 
 ### HTML Guidelines:
@@ -326,15 +417,18 @@ DO NOT create custom variables like $accent-color or $secondary-color.`}
   <div class="p-header">
     <div class="p-header__inner">
       <h1 class="p-header__logo">
-        <!-- Logo content -->
+        <!-- Logo content - match exactly what's in the image -->
       </h1>
       <nav class="p-header__nav">
-        <!-- Navigation links -->
+        <!-- Navigation links - match exactly what's in the image -->
       </nav>
-      <div class="p-header__buttons">
-        <!-- CTA buttons or other interactive elements -->
-      </div>
+      <button class="p-header__drawer-button" aria-label="Menu" aria-expanded="false">
+        <!-- Hamburger button -->
+      </button>
     </div>
+  </div>
+  <div class="p-drawer" aria-hidden="true">
+    <!-- Drawer menu content - match exactly what's in the image -->
   </div>
   \`\`\`
 - Add appropriate attributes for accessibility
@@ -350,11 +444,11 @@ DO NOT create custom variables like $accent-color or $secondary-color.`}
 
 ## Coding Guidelines
 
-You are a professional front-end developer specializing in SCSS and HTML.
+You are a professional front-end developer specializing in SCSS, HTML, and JavaScript.
 
 ### Core Requirements:
 - **ONLY code elements visible in the image** - no assumed or extra elements
-- **Be faithful to the design** - accurate colors, spacing, and layout
+- **Be faithful to the design** - PIXEL-PERFECT match to colors, spacing, and layout
 - Use **FLOCSS methodology** instead of BEM
 - **ALWAYS USE CSS GRID LAYOUT** instead of Flexbox - Grid should be your first choice for layouts
 - Do not create container elements (don't fix width of outer elements)
@@ -376,6 +470,18 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - **Each element should use only ONE prefix type** - choose the most appropriate one based on its role
 - **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
 - Analyze the design and assign **specific, descriptive class names** that reflect design features
+
+### JavaScript Guidelines:
+- Write clean, well-structured vanilla JavaScript
+- Use modern JavaScript features (ES6+)
+- Add event listeners for interactive elements
+- Implement smooth animations and transitions
+- Ensure proper state management for UI elements
+- Use proper namespacing to avoid global scope pollution
+- Add proper error handling
+- Ensure cross-browser compatibility
+- Follow accessibility best practices (ARIA attributes, keyboard navigation)
+- Structure your code with appropriate comments (minimal but helpful)
 
 ### SCSS Guidelines:
 - Follow the ${responsiveMode === "both" ? "responsive approach" : `${responsiveMode === "sp" ? "Mobile-first" : "Desktop-first"} approach`}
@@ -509,9 +615,10 @@ You are a professional front-end developer specializing in SCSS and HTML.
           return `**Use ONLY the CSS variables defined in the project settings**
 - **SPECIFICALLY, use ONLY ${varNamesStr}**
 - **DO NOT USE any other variables not defined in the project settings**`;
-        })() :
-        `**DO NOT use any CSS variables - none are defined in this project**
-- **Use direct HEX values for all colors**`}
+        })()
+        : `**Use the exact colors from the image analysis results**
+- **Match the colors extracted from the uploaded images as closely as possible**
+- **DO NOT use any CSS variables - use the extracted HEX colors from the image analysis instead**`}
 - Ensure compatibility with the provided Reset CSS
 - **For images**: use aspect-ratio property to maintain proportions (e.g., \`aspect-ratio: 16 / 9;\`)
 - **For width**: use percentages or relative units (e.g., \`width: 100%;\`, \`max-width: 100%;\`)
@@ -524,7 +631,7 @@ You are a professional front-end developer specializing in SCSS and HTML.
 
     // AIの出力にネスト構造が含まれないように強い警告を追加
     prompt += `
-## FINAL CRUCIAL INSTRUCTIONS - SCSS STRUCTURE
+## FINAL CRUCIAL INSTRUCTIONS - CODE STRUCTURE
 - **NEVER UNDER ANY CIRCUMSTANCES OUTPUT NESTED SCSS USING & OPERATOR**
 - **ANY CODE WITH &__element or &:hover NOTATION IS STRICTLY PROHIBITED**
 - **YOU MUST ALWAYS WRITE FLAT SELECTORS** such as .p-hero__title or .c-card__title (not .p-hero { &__title } or .c-card { &__title })
@@ -539,9 +646,19 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it all with flat selectors
 - **THIS IS A ZERO TOLERANCE REQUIREMENT:** nested SCSS code will be rejected automatically
 
+## JavaScript Output Requirements
+- **YOU MUST INCLUDE JAVASCRIPT CODE IN YOUR RESPONSE**
+- Provide JavaScript for drawer menu functionality
+- Include event listeners for opening/closing the drawer menu
+- Add smooth animations for the drawer transitions
+- Implement accessibility features (keyboard navigation, ARIA attributes)
+- Ensure cross-browser compatibility
+- The JavaScript should be clear, well-structured, and commented appropriately
+- DO NOT USE ANY EXTERNAL LIBRARIES OR FRAMEWORKS - vanilla JavaScript only
+
 Remember: The ONLY nesting allowed is for @include mq() media queries - nothing else.
 
-I will immediately reject your solution if it contains any nested SCSS using the & operator.
+I will immediately reject your solution if it contains any nested SCSS using the & operator or if JavaScript for the drawer menu functionality is missing.
 `;
 
     // エラー時のバックアッププロンプト
@@ -567,13 +684,21 @@ const getEmergencyPrompt = () => {
 # Header Component Generation
 
 ## Requirements
-- Create a modern, professional header component
+- Create a modern, professional header component with drawer menu
 - Implement responsive design (mobile-first approach)
-- Include logo, navigation menu, and CTA button
-- Add a hamburger menu for mobile views
+- Include logo, navigation menu, and hamburger button
+- Add a drawer menu for mobile views with JavaScript functionality
 - Ensure accessibility with proper semantic HTML and ARIA attributes
 - DO NOT use nested SCSS with & operator
 - Write all selectors separately in flat structure
+- Include JavaScript for drawer functionality
+
+## JavaScript Requirements
+- Implement drawer menu toggle functionality with vanilla JavaScript
+- Add smooth animations for opening/closing the drawer
+- Add proper event listeners and keyboard support
+- Ensure accessibility with appropriate ARIA attributes
+- DO NOT use any external libraries or frameworks
 
 ## CSS Variables Requirements
 ${settings.cssVariables ? (() => {
@@ -597,15 +722,16 @@ Specifically, use ONLY these variables:
 ${varList}
 For colors not covered by these variables, use direct HEX values instead.
 DO NOT create custom variables.`;
-    })() : `IMPORTANT: Use direct HEX values for all colors.
+    })() : `IMPORTANT: Use direct HEX values for all colors extracted from the image analysis.
+Match the colors from the "Detected Colors" section in your output.
 DO NOT create custom variables like $accent-color or $secondary-color.`}
 
 ## Output Format
-- Provide HTML and CSS code only
+- Provide HTML, CSS, AND JavaScript code
 - Use modern CSS features like flexbox and CSS variables
-- Format with markdown code blocks
+- Format with markdown code blocks for each language
 
-Please generate a clean, responsive header component based on these requirements.
+Please generate a clean, responsive header component with drawer menu based on these requirements.
 `;
 };
 
