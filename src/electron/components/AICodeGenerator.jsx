@@ -257,16 +257,44 @@ const AICodeGenerator = () => {
 
         // プレビューコンテナがある場合はその高さを優先、なければbodyの高さを使用
         const contentHeight = previewContainer
-          ? previewContainer.offsetHeight + 40 // 余白分を追加
+          ? previewContainer.offsetHeight // 余白分を追加しない
           : bodyHeight;
 
-        // 高さに最小値を設定（400px以下にはならない）
-        const newHeight = Math.max(contentHeight, 400);
+        // プレビューコンテナ内の全要素も確認して、最も下に位置する要素の位置も考慮する
+        if (previewContainer) {
+          const children = previewContainer.querySelectorAll('*');
+          let maxBottom = 0;
 
-        // 現在の高さと比較して異なる場合のみ更新（閾値：50px）
-        if (Math.abs(newHeight - iframeHeight) > 50) {
-          console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px）`);
-          setIframeHeight(newHeight);
+          children.forEach(child => {
+            const rect = child.getBoundingClientRect();
+            const bottom = rect.bottom;
+            if (bottom > maxBottom) {
+              maxBottom = bottom;
+            }
+          });
+
+          // コンテナの上端からの相対位置を計算する必要がある
+          const containerRect = previewContainer.getBoundingClientRect();
+          const relativeBottom = maxBottom - containerRect.top; // 余白分追加しない
+
+          // 最も下の要素に基づく高さと、offsetHeightを比較して大きい方を使用
+          const heightBasedOnElements = Math.max(relativeBottom, contentHeight);
+
+          // 高さに最小値を設定（400px以下にはならない）
+          const newHeight = Math.max(heightBasedOnElements, 400);
+
+          // 現在の高さとの差が大きい場合、または大きなプレビューサイズ時は常に更新
+          if (Math.abs(newHeight - iframeHeight) > 5 || previewWidth >= 1440) {
+            console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px, 要素に基づく高さ: ${heightBasedOnElements}px）`);
+            setIframeHeight(newHeight);
+          }
+        } else {
+          // コンテナがない場合は通常の計算
+          const newHeight = Math.max(contentHeight, 400);
+          if (Math.abs(newHeight - iframeHeight) > 30) {
+            console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px）`);
+            setIframeHeight(newHeight);
+          }
         }
       }
     } catch (error) {
@@ -564,7 +592,7 @@ const AICodeGenerator = () => {
             }
 
             // 余裕を持たせる
-            const heightWithMargin = Math.ceil(contentHeight) + 20;
+            const heightWithMargin = Math.ceil(contentHeight); // 余白を0に
 
             // 親ウィンドウに通知
             if (window.parent) {
@@ -613,6 +641,9 @@ const AICodeGenerator = () => {
                   max-width: ${previewWidth}px;
                   margin: 0 auto;
                   box-sizing: border-box;
+                  min-height: 100%; /* 余白を削除 */
+                  display: block;
+                  position: relative;
                 }
                 *,
                 *::before,
@@ -623,6 +654,12 @@ const AICodeGenerator = () => {
                 img {
                   display: block;
                   max-width: 100%;
+                }
+                /* 特に大きなプレビューサイズでの表示を改善 */
+                @media (min-width: 1440px) {
+                  .preview-container {
+                    min-height: 100%;
+                  }
                 }
               </style>
               <script>
@@ -646,9 +683,19 @@ const AICodeGenerator = () => {
   // スケールの計算
   const calculateScale = () => {
     if (previewContainerRef.current && previewWidth > 1000) {
-      // パディングとボーダーを考慮して、より正確な幅を計算
-      const containerWidth = previewContainerRef.current.clientWidth - 40; // パディングとマージンを考慮
-      const scale = Math.min(1, containerWidth / previewWidth);
+      // プレビューコンテナの実際の幅を取得
+      const containerRect = previewContainerRef.current.getBoundingClientRect();
+
+      // パディングとボーダーなどを考慮して、利用可能な実際の幅を計算
+      // getPaddingの代わりにdirectに数値を指定（両側合わせて40px）
+      const availableWidth = containerRect.width - 40;
+
+      // より正確なスケール計算
+      // 小数点第6位まで計算して、より正確なスケール値を得る
+      const scale = Math.min(1, parseFloat((availableWidth / previewWidth).toFixed(6)));
+
+      console.log(`プレビューコンテナ幅: ${containerRect.width}px、利用可能幅: ${availableWidth}px、プレビュー幅: ${previewWidth}px、計算されたスケール: ${scale}`);
+
       setScaleRatio(scale);
     } else {
       setScaleRatio(1);
@@ -672,6 +719,50 @@ const AICodeGenerator = () => {
   useEffect(() => {
     calculateScale();
   }, [previewWidth]);
+
+  // プレビュー幅が変わった時に確実にスケールを更新
+  useEffect(() => {
+    // スケールの計算を少し遅らせることで、DOM更新後の正確な値を取得
+    setTimeout(() => {
+      calculateScale();
+
+      // 複数回呼び出すことで、レンダリング完了後の正確な値を取得
+      setTimeout(calculateScale, 100);
+    }, 50);
+  }, [previewWidth]);
+
+  // iframeの高さが変わったときにプレビューコンテナの高さも更新
+  useEffect(() => {
+    if (previewWidth > 1000 && previewContainerRef.current) {
+      // スケール率を計算
+      const scale = 1022 / previewWidth;
+
+      // iframeの元の高さを取得
+      const originalHeight = iframeHeight;
+
+      // プレビューヘッダーの高さを考慮（およそ100px）
+      const headerHeight = 100;
+
+      // プレビューコンテナの上下パディングを考慮（およそ50px）
+      const paddingHeight = 50;
+
+      // スケールされた高さ + ヘッダー + パディング
+      const scaledTotalHeight = (originalHeight * scale) + headerHeight + paddingHeight;
+
+      // 最小高さを確保
+      const finalHeight = Math.max(500, scaledTotalHeight);
+
+      console.log(`プレビューコンテナの高さを調整: 元の高さ=${originalHeight}px, スケール=${scale}, 計算後の高さ=${finalHeight}px`);
+
+      // 高さを設定
+      previewContainerRef.current.style.height = `${finalHeight}px`;
+      previewContainerRef.current.style.minHeight = `${finalHeight}px`;
+    } else if (previewContainerRef.current) {
+      // 小さいサイズの場合はautoに戻す
+      previewContainerRef.current.style.height = 'auto';
+      previewContainerRef.current.style.minHeight = '500px';
+    }
+  }, [iframeHeight, previewWidth]);
 
   // ドラッグ処理の開始
   const handleDragStart = (e) => {
@@ -2053,7 +2144,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             <CodeDisplay htmlCode={generatedHTML} cssCode={generatedCSS} />
           )}
 
-          <div className="preview-container" ref={previewContainerRef}>
+          <div
+            className="preview-container"
+            ref={previewContainerRef}
+          >
             <div className="preview-header">
               <div className="preview-title">
                 <h3>コードプレビュー {previewWidth}px</h3>
@@ -2117,16 +2211,21 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               className="preview-iframe-container"
               style={{
                 width: `${previewWidth}px`,
-                transform: `scale(${scaleRatio})`,
+                transform: previewWidth > 1000 ? `scale(calc(1022/${previewWidth}))` : 'none', // 1000px以下ではスケールを適用しない
                 transformOrigin: 'top left',
-                minHeight: `${iframeHeight * scaleRatio}px` // コンテナの高さもiframeの高さに合わせて調整
+                height: `${iframeHeight}px`,
+                minHeight: `${Math.max(400, iframeHeight) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px` // 1000px以下では通常の高さを使用
               }}
             >
               <iframe
                 ref={previewRef}
                 title="Preview"
                 className="preview-iframe"
-                style={{ width: `${previewWidth}px`, height: `${iframeHeight}px` }}
+                style={{
+                  width: `${previewWidth}px`,
+                  height: `${iframeHeight}px`,
+                  overflow: 'auto'
+                }}
                 scrolling="auto"
               ></iframe>
             </div>
