@@ -1147,6 +1147,7 @@ const HeaderGenerator = () => {
         setEditingCSS(remCSS);
         setEditingJS(js);
         setShowGeneratedCode(true);
+        setIsEditing(false);
 
         // 画面を生成されたコードセクションまでスクロール
         setTimeout(() => {
@@ -1324,6 +1325,7 @@ const HeaderGenerator = () => {
         setEditingCSS(remCSS);
         setEditingJS(js);
         setShowGeneratedCode(true);
+        setIsEditing(false);
 
         // 画面を生成されたコードセクションまでスクロール
         setTimeout(() => {
