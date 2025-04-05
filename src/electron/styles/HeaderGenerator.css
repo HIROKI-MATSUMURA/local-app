@@ -894,3 +894,57 @@
   background-color: #263238;
   border-radius: 8px;
 }
+
+/* 生成段階の表示用スタイル */
+.generation-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: 1.5rem;
+  opacity: 0.85;
+  animation: fade-in 0.3s ease-in-out;
+}
+
+.generation-loader {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 3px solid rgba(76, 201, 240, 0.2);
+  border-radius: 50%;
+  border-top-color: #4cc9f0;
+  animation: spin 1s linear infinite;
+}
+
+.generation-stage {
+  font-size: 0.95rem;
+  color: #555555;
+  font-weight: 500;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
+.control-section {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.control-buttons {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}

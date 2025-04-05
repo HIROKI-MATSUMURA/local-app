@@ -23,8 +23,30 @@ const getSettingsFromLocalStorage = () => {
   }
 };
 
+// CSS変数からHEX値を抽出する関数
+const extractHexValuesFromVariables = (cssVars) => {
+  const hexValues = [];
+  const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+  let match;
+
+  while ((match = varRegex.exec(cssVars)) !== null) {
+    const [_, varName, varValue] = match;
+    const value = varValue.trim();
+
+    // HEX値のみを抽出
+    if (value.startsWith('#')) {
+      hexValues.push(value);
+    }
+  }
+
+  return hexValues;
+};
+
 // 共通のプロンプト指示を生成する関数
-const getCommonPromptInstructions = (responsiveMode, aiBreakpoints) => {
+const getCommonPromptInstructions = (responsiveMode, aiBreakpoints, settings) => {
+  const hasCustomCSS = settings && settings.cssVariables && settings.cssVariables.trim() !== '';
+  const hasResponsiveSettings = settings && settings.responsiveSettings && settings.responsiveSettings.trim() !== '';
+
   return `
 ### Output Format Guidelines:
 - Provide the HTML, CSS, AND JAVASCRIPT without any explanation
@@ -33,8 +55,8 @@ const getCommonPromptInstructions = (responsiveMode, aiBreakpoints) => {
   <!-- Your HTML code here -->
   \`\`\`
 
-  \`\`\`css
-  /* Your CSS code here */
+  \`\`\`scss
+  /* Your SCSS code here */
   \`\`\`
 
   \`\`\`javascript
@@ -45,12 +67,38 @@ const getCommonPromptInstructions = (responsiveMode, aiBreakpoints) => {
 
 ## Responsive Guidelines:
 ${responsiveMode === "sp" ?
-      `- Use mobile-first approach (min-width media queries)
-- Base CSS should be for mobile devices
-- Use media queries to enhance layout for larger screens` :
-      `- Use desktop-first approach (max-width media queries)
-- Base CSS should be for desktop devices
-- Use media queries to adjust layout for smaller screens`}
+      `- Follow the **Mobile-first approach**
+- Base styles should be for mobile devices
+- Use @include mq(md) media queries to enhance layout for larger screens
+- Example:
+\`\`\`scss
+.p-section__content {
+  display: grid;
+  grid-template-columns: 1fr; // Mobile layout (default)
+  gap: 1rem;
+
+  @include mq(md) {
+    grid-template-columns: 1fr 1fr; // Desktop layout
+    gap: 2rem;
+  }
+}
+\`\`\`` :
+      `- Follow the **Desktop-first approach**
+- Base styles should be for desktop devices
+- Use @include mq(md) media queries to adjust layout for smaller screens
+- Example:
+\`\`\`scss
+.p-section__content {
+  display: grid;
+  grid-template-columns: 1fr 1fr; // Desktop layout (default)
+  gap: 2rem;
+
+  @include mq(md) {
+    grid-template-columns: 1fr; // Mobile layout
+    gap: 1rem;
+  }
+}
+\`\`\``}
 
 ## Breakpoints:
 ${aiBreakpoints && aiBreakpoints.length > 0 ?
@@ -60,10 +108,22 @@ ${aiBreakpoints
         .map(bp => `- ${bp.name}: ${bp.value}px`)
         .join('\n')}
 
+**CRITICAL REQUIREMENT - BREAKPOINT USAGE:**
+- ONLY use the defined breakpoint names with @include mq() syntax
+- NEVER use pixel values directly in media queries
+- ALWAYS use the @include mq() format for ALL media queries
+
 Media query syntax example:
-\`\`\`css
-@media (${responsiveMode === "sp" ? "min" : "max"}-width: ${aiBreakpoints.find(bp => bp.aiActive)?.value || 768}px) {
-  /* styles here */
+\`\`\`scss
+.p-header__content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: center;
+
+  @include mq(md) {
+    grid-template-columns: 1fr;
+  }
 }
 \`\`\`` :
       `- Use standard breakpoints if needed:
@@ -71,13 +131,47 @@ Media query syntax example:
   - Tablet: 768px
   - Desktop: 1024px and above`}
 
+## HTML Structure Requirements:
+- Use semantic HTML elements (div, nav, ul, li, a)
+- **Menu structure must use proper list elements:**
+  \`\`\`html
+  <!-- CORRECT structure for menus -->
+  <ul class="p-header__menu">
+    <li class="p-header__menu-item">
+      <a href="#" class="p-header__menu-link">Menu Item</a>
+    </li>
+  </ul>
+
+  <!-- WRONG structure - don't do this -->
+  <ul class="p-header__menu">
+    <a href="#" class="p-header__menu-link">Menu Item</a>
+  </ul>
+  \`\`\`
+
+- **Button structure for hamburger:**
+  \`\`\`html
+  <button class="p-header__drawer-toggle" aria-label="メニューを開く">
+    <span class="p-header__drawer-icon"></span>
+  </button>
+  \`\`\`
+
 ## CSS Specific Requirements:
-- Use modern CSS features (flexbox, grid, etc.)
+- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible with Grid
+- Use modern CSS features
 - Do not use unnecessary vendor prefixes
 - Keep the CSS clean and well-organized
 - No pre-processors or external dependencies
 - Optimize for performance and readability
 - No CSS reset or normalize code
+
+## Color Guidelines:
+${hasCustomCSS ?
+      `- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like $primary-color, etc.)
+- Here is a recommended color palette based on the design:
+  ${extractHexValuesFromVariables(settings.cssVariables).join(', ')}` :
+      `- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like --primary-color, etc.)`}
 
 ## JavaScript Requirements:
 - Include JavaScript for interactive elements like drawer menu
@@ -93,646 +187,1596 @@ Media query syntax example:
 - Implement proper hover/focus states for interactive elements
 - Ensure sufficient color contrast for text readability
 - Size text appropriately for readability on all devices
-- Utilize CSS variables for consistent theming
+
+## FINAL CRUCIAL INSTRUCTIONS ❗
+
+1. **HTML Structure**:
+   - Use semantic tags (but avoid header/main tags)
+   - Follow FLOCSS convention for class names (p-header__element, c-component__element)
+   - Avoid unnecessary nesting
+   - **START HEADING TAGS FROM h2** - do not use h1 tags in components
+   - **CORRECT MENU STRUCTURE**:
+     \`\`\`html
+     <ul class="p-header__menu">
+       <li class="p-header__menu-item">
+         <a href="#" class="p-header__menu-link">Link Text</a>
+       </li>
+     </ul>
+     \`\`\`
+   - **CORRECT BUTTON EXAMPLE**: \`<div class="p-header__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
+   - **WRONG BUTTON EXAMPLE**: \`<div class="p-header__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
+
+2. **CSS Structure**:
+   - **❌ ABSOLUTELY NO NESTING WITH & OPERATOR**
+   - **❌ NO &__element or &:hover NOTATION - ZERO TOLERANCE**
+   - **✅ WRITE FLAT SELECTORS**: .p-header__title or .c-button__icon
+   - **✅ ONLY NEST MEDIA QUERIES inside selectors**
+   - **✅ PRIORITIZE GRID LAYOUT**
+   - **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type per element
+   - **INCORRECT: \`<a class="c-button p-section__button">View more</a>\`**
+   - **CORRECT: \`<a class="c-button">View more</a>\`** based on context
+   - ${hasCustomCSS ?
+      `**✅ USE HEX COLOR VALUES DIRECTLY** - do not use CSS variables` :
+      `**✅ USE HEX COLOR VALUES DIRECTLY** - do not use CSS variables`}
+   - **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it all with flat selectors
+   - **THIS IS A ZERO TOLERANCE REQUIREMENT:** nested SCSS code will be rejected automatically
+
+3. **MEDIA QUERY FORMAT (CRITICAL):**
+   - **ALWAYS** use @include mq() format for ALL media queries
+   - Place media queries INSIDE the selector:
+   \`\`\`scss
+   /* CORRECT */
+   .p-drawer__panel {
+     width: 100%;
+
+     @include mq(md) {
+       width: 50%;
+     }
+   }
+
+   /* WRONG - DON'T DO THIS */
+   .p-drawer__panel {
+     width: 100%;
+   }
+
+   @include mq(md) {
+     .p-drawer__panel {
+       width: 50%;
+     }
+   }
+   \`\`\`
+   - **NEVER** use direct px values like @media (max-width: 768px)
+   - For ${responsiveMode === "sp" ? 'mobile-first' : 'desktop-first'} approach, ${responsiveMode === "sp" ?
+      'start with mobile styles as default, then use @include mq() for larger screens' :
+      'start with desktop styles as default, then use @include mq() for smaller screens'}
+   - ${responsiveMode === "sp" ?
+      `**Mobile-first example:**
+   \`\`\`scss
+   // Mobile layout (default)
+   .p-header__logo {
+     width: 100px;
+   }
+
+   // Desktop layout (in media query)
+   .p-header__logo {
+     @include mq(md) {
+       width: 180px;
+     }
+   }
+   \`\`\`
+   ` :
+      `**Desktop-first example:**
+   \`\`\`scss
+   // Desktop layout (default)
+   .p-header__logo {
+     width: 180px;
+   }
+
+   // Mobile layout (in media query)
+   .p-header__logo {
+     @include mq(md) {
+       width: 100px;
+     }
+   }
+   \`\`\`
+   `}
+
+4. **JavaScript**:
+   - Use vanilla JavaScript only
+   - Ensure accessibility (keyboard operation, ARIA attributes)
+   - Ensure cross-browser compatibility
+   - **DRAWER MENU FUNCTIONALITY:**
+     - Toggle drawer open/close with hamburger button
+     - Close drawer with close button or overlay click
+     - Add appropriate ARIA attributes
+     - Implement smooth transitions
 `;
 };
 
-// ヘッダー生成用のプロンプトを生成する関数
-export const generateHeaderPrompt = async ({
-  responsiveMode,
-  aiBreakpoints,
-  pcImageBase64,
-  spImageBase64,
-  drawerImageBase64,
-  pcImageText,
-  pcColors,
-  spColors,
-  drawerColors,
-  spImageText,
-  drawerImageText,
-  drawerLayout,
-  drawerDirection
-}) => {
+/**
+ * ヘッダー生成用のプロンプトを生成する関数
+ * @param {Object} options - プロンプト生成オプション
+ * @returns {string} 生成されたプロンプト
+ */
+export const generateHeaderPrompt = async (options) => {
   try {
-    console.log("ヘッダープロンプト生成処理を開始");
-    console.log("モード: ヘッダー生成");
+    const {
+      responsiveMode,
+      aiBreakpoints,
+      pcImageBase64,
+      spImageBase64,
+      drawerImageBase64,
+      pcColors,
+      spColors,
+      drawerColors,
+      pcImageText,
+      spImageText,
+      drawerImageText,
+      drawerLayout,
+      drawerDirection
+    } = options;
 
-    // 基本的な画像解析を実行
-    console.log("基本的な画像解析を実行中...");
+    // 画像データの有無を確認
+    const hasPcImage = pcImageBase64 && pcImageBase64.trim() !== '';
+    const hasSpImage = spImageBase64 && spImageBase64.trim() !== '';
+    const hasDrawerImage = drawerImageBase64 && drawerImageBase64.trim() !== '';
 
-    // 画像から色を取得（エラーハンドリング付き）
-    let pcColorsList = pcColors || [];
-    let spColorsList = spColors || [];
-    let drawerColorsList = drawerColors || [];
-    let pcTextData = pcImageText || '';
-    let spTextData = spImageText || '';
-    let drawerTextData = drawerImageText || '';
+    // 画像から追加情報を抽出
+    let extractedPcText = '';
+    let extractedSpText = '';
+    let extractedDrawerText = '';
     let pcSections = [];
     let spSections = [];
     let drawerSections = [];
-    let pcElements = [];
-    let spElements = [];
-    let drawerElements = [];
 
-    // より詳細な画像分析を実行
-    if (pcImageBase64 && !pcColors) {
+    // PC画像から情報抽出
+    if (hasPcImage && !pcImageText) {
       try {
-        pcColorsList = await extractColorsFromImage(pcImageBase64);
-        console.log("PC画像から色を抽出しました:", pcColorsList.length, "色");
-      } catch (error) {
-        console.error("PC画像の色抽出エラー:", error);
-      }
-
-      try {
-        if (!pcImageText) {
-          pcTextData = await extractTextFromImage(pcImageBase64);
-          console.log("PC画像からテキストを抽出しました");
-        }
+        extractedPcText = await extractTextFromImage(pcImageBase64);
+        console.log("PC画像からテキストを抽出しました");
       } catch (error) {
         console.error("PC画像のテキスト抽出エラー:", error);
-        pcTextData = '';
       }
 
       try {
         pcSections = await analyzeImageSections(pcImageBase64);
-        console.log("PC画像のセクション分析が完了しました:", pcSections.length, "セクション");
+        console.log("PC画像のセクション分析が完了しました");
       } catch (error) {
         console.error("PC画像のセクション分析エラー:", error);
-        pcSections = [];
-      }
-
-      try {
-        pcElements = await detectFeatureElements(pcImageBase64);
-        console.log("PC画像の要素検出が完了しました:", pcElements ? pcElements.elements?.length || 0 : 0, "要素");
-      } catch (error) {
-        console.error("PC画像の要素検出エラー:", error);
-        pcElements = { elements: [] };
       }
     }
 
-    if (spImageBase64) {
+    // SP画像から情報抽出
+    if (hasSpImage && !spImageText) {
       try {
-        spColorsList = await extractColorsFromImage(spImageBase64);
-        console.log("SP画像から色を抽出しました:", spColorsList.length, "色");
-      } catch (error) {
-        console.error("SP画像の色抽出エラー:", error);
-      }
-
-      try {
-        spTextData = await extractTextFromImage(spImageBase64);
+        extractedSpText = await extractTextFromImage(spImageBase64);
         console.log("SP画像からテキストを抽出しました");
       } catch (error) {
         console.error("SP画像のテキスト抽出エラー:", error);
-        spTextData = '';
       }
 
       try {
         spSections = await analyzeImageSections(spImageBase64);
-        console.log("SP画像のセクション分析が完了しました:", spSections.length, "セクション");
+        console.log("SP画像のセクション分析が完了しました");
       } catch (error) {
         console.error("SP画像のセクション分析エラー:", error);
-        spSections = [];
-      }
-
-      try {
-        spElements = await detectFeatureElements(spImageBase64);
-        console.log("SP画像の要素検出が完了しました:", spElements ? spElements.elements?.length || 0 : 0, "要素");
-      } catch (error) {
-        console.error("SP画像の要素検出エラー:", error);
-        spElements = { elements: [] };
       }
     }
 
-    if (drawerImageBase64) {
+    // ドロワー画像から情報抽出
+    if (hasDrawerImage && !drawerImageText) {
       try {
-        drawerColorsList = await extractColorsFromImage(drawerImageBase64);
-        console.log("ドロワー画像から色を抽出しました:", drawerColorsList.length, "色");
-      } catch (error) {
-        console.error("ドロワー画像の色抽出エラー:", error);
-      }
-
-      try {
-        drawerTextData = await extractTextFromImage(drawerImageBase64);
+        extractedDrawerText = await extractTextFromImage(drawerImageBase64);
         console.log("ドロワー画像からテキストを抽出しました");
       } catch (error) {
         console.error("ドロワー画像のテキスト抽出エラー:", error);
-        drawerTextData = '';
       }
 
       try {
         drawerSections = await analyzeImageSections(drawerImageBase64);
-        console.log("ドロワー画像のセクション分析が完了しました:", drawerSections.length, "セクション");
+        console.log("ドロワー画像のセクション分析が完了しました");
       } catch (error) {
         console.error("ドロワー画像のセクション分析エラー:", error);
-        drawerSections = [];
-      }
-
-      try {
-        drawerElements = await detectFeatureElements(drawerImageBase64);
-        console.log("ドロワー画像の要素検出が完了しました:", drawerElements ? drawerElements.elements?.length || 0 : 0, "要素");
-      } catch (error) {
-        console.error("ドロワー画像の要素検出エラー:", error);
-        drawerElements = { elements: [] };
       }
     }
+
+    // 画像の説明を追加
+    let imageDescriptionPrompt = '';
+    if (hasPcImage) {
+      imageDescriptionPrompt += '- PCデザインの画像が提供されています\n';
+      if (pcSections && pcSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + pcSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    if (hasSpImage) {
+      imageDescriptionPrompt += '- SPデザインの画像が提供されています\n';
+      if (spSections && spSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + spSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    if (hasDrawerImage) {
+      imageDescriptionPrompt += '- ドロワーメニューの画像が提供されています\n';
+      if (drawerSections && drawerSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + drawerSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    // カスタムブレークポイントの取得
+    const customBreakpoints = aiBreakpoints
+      ? aiBreakpoints
+        .filter(bp => bp.aiActive)
+        .map(bp => `${bp.name}: ${bp.value}px`)
+        .join(', ')
+      : '';
 
     // ローカルストレージから設定を取得
     const settings = getSettingsFromLocalStorage();
 
-    console.log("プロンプトの構築を開始");
-
-    // ヘッダー用プロンプトを構築
-    let prompt = `
-# Header Component Generation from Design Comp
-
-## Basic Information
-- Component Type: Header/Navigation with Drawer Menu
-- Output Type: ${responsiveMode === "both" ? "Responsive Design (PC/SP)" : `${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"}`}
-- Responsive Mode: ${responsiveMode === "sp" ? "Mobile-first (min-width)" : "Desktop-first (max-width)"}
-${aiBreakpoints && aiBreakpoints.length > 0 ?
-        `- Allowed Breakpoints: ${aiBreakpoints
-          .filter(bp => bp.aiActive)
-          .map(bp => `${bp.name} (${bp.value}px)`)
-          .join(', ')}`
-        : '- No breakpoints specified'}
-
-## Image Analysis Results
-`;
-
-    // 抽出されたテキスト情報を追加
-    if (pcTextData || spTextData || drawerTextData) {
-      prompt += `
-### Detected Text:
-${pcTextData ? `#### PC Header Image Text:
-\`\`\`
-${pcTextData}
-\`\`\`` : ""}
-${spTextData ? `#### SP Header Image Text:
-\`\`\`
-${spTextData}
-\`\`\`` : ""}
-${drawerTextData ? `#### Drawer Menu Image Text:
-\`\`\`
-${drawerTextData}
-\`\`\`` : ""}
-
-`;
+    // 画像テキストの抽出と前処理
+    let textContentPrompt = '';
+    if (pcImageText) {
+      textContentPrompt += `PC Header Text Content: ${pcImageText}\n\n`;
+    } else if (extractedPcText) {
+      textContentPrompt += `PC Header Text Content (自動抽出): ${extractedPcText}\n\n`;
     }
 
-    // 色情報を追加
-    if (pcColorsList.length > 0 || spColorsList.length > 0 || drawerColorsList.length > 0) {
-      prompt += `
-### Detected Colors:
-${pcColorsList.length > 0 ? `- PC Header Image Colors: ${pcColorsList.join(", ")}` : ""}
-${spColorsList.length > 0 ? `- SP Header Image Colors: ${spColorsList.join(", ")}` : ""}
-${drawerColorsList.length > 0 ? `- Drawer Menu Colors: ${drawerColorsList.join(", ")}` : ""}
-
-`;
+    if (spImageText) {
+      textContentPrompt += `SP Header Text Content: ${spImageText}\n\n`;
+    } else if (extractedSpText) {
+      textContentPrompt += `SP Header Text Content (自動抽出): ${extractedSpText}\n\n`;
     }
 
-    // 設定情報があれば追加
-    if (settings.cssVariables || settings.resetCSS || settings.responsiveSettings) {
-      prompt += `
-## Project Settings
-`;
+    if (drawerImageText) {
+      textContentPrompt += `Drawer Menu Text Content: ${drawerImageText}\n\n`;
+    } else if (extractedDrawerText) {
+      textContentPrompt += `Drawer Menu Text Content (自動抽出): ${extractedDrawerText}\n\n`;
+    }
 
-      if (settings.cssVariables) {
-        prompt += `
-### CSS Variables:
-\`\`\`css
-${settings.cssVariables}
-\`\`\`
-`;
-      }
+    // 色情報の処理
+    // 色の自動抽出がない場合のみ手動指定を使用
+    let pcExtractedColors = [];
+    let spExtractedColors = [];
+    let drawerExtractedColors = [];
 
-      if (settings.resetCSS) {
-        prompt += `
-### Reset CSS:
-\`\`\`css
-${settings.resetCSS}
-\`\`\`
-`;
-      }
-
-      if (settings.responsiveSettings) {
-        prompt += `
-### Responsive Settings:
-\`\`\`css
-${settings.responsiveSettings}
-\`\`\`
-`;
+    // 画像から色を抽出（手動で指定された色がない場合）
+    if (hasPcImage && (!pcColors || pcColors.length === 0)) {
+      try {
+        pcExtractedColors = await extractColorsFromImage(pcImageBase64);
+        console.log("PC画像から色を抽出しました:", pcExtractedColors.length, "色");
+      } catch (error) {
+        console.error("PC画像の色抽出エラー:", error);
       }
     }
 
-    // ヘッダー固有の指示を追加
-    prompt += `
-## Header Component Requirements:
+    if (hasSpImage && (!spColors || spColors.length === 0)) {
+      try {
+        spExtractedColors = await extractColorsFromImage(spImageBase64);
+        console.log("SP画像から色を抽出しました:", spExtractedColors.length, "色");
+      } catch (error) {
+        console.error("SP画像の色抽出エラー:", error);
+      }
+    }
 
-### Core Requirements:
-- Create a PIXEL-PERFECT header component that EXACTLY matches the uploaded image(s)
-- Pay extreme attention to colors, spacing, font sizes, and element positioning
-- Implement a responsive design that works well on all devices
-- Include navigation menu with clean transitions
-- Ensure the header is sticky/fixed at the top of the viewport
-- Add appropriate hover effects for interactive elements
-- Include a mobile hamburger menu for small screens that opens a drawer menu
-- Ensure accessibility with proper ARIA attributes
-- Follow the drawer menu design if provided in the uploaded image
-- DO NOT add any elements that aren't visible in the reference images
+    if (hasDrawerImage && (!drawerColors || drawerColors.length === 0)) {
+      try {
+        drawerExtractedColors = await extractColorsFromImage(drawerImageBase64);
+        console.log("ドロワー画像から色を抽出しました:", drawerExtractedColors.length, "色");
+      } catch (error) {
+        console.error("ドロワー画像の色抽出エラー:", error);
+      }
+    }
 
-### Drawer Menu Requirements:
-${drawerImageBase64 ? `- Implement the drawer menu that EXACTLY matches the uploaded drawer image
-- Match EVERY DETAIL of the drawer menu styling, layout, and content from the image
-- Include all menu items and icons visible in the reference image (including asterisk (*) symbols)
-- Ensure the background color, text color, and spacing match precisely` :
-        `- Create a standard drawer menu that matches the header design
-- Include same navigation items as in the header
-- Add proper styling that complements the header design`}
-- Drawer should be implemented for ${drawerLayout === "sp-only" ? "mobile devices only" : "both mobile and desktop devices"}
-- Drawer should open from the ${drawerDirection === "fade" ? "center with fade-in effect" : `${drawerDirection} side of the screen`}
-- Ensure smooth open/close transitions
-- Add proper focus management for keyboard navigation
-- Include close button and/or click-outside functionality
+    // ローカルストレージにCSSの変数設定があればそれを優先する
+    let colorGuidelines = '';
+    let manualColors = [...pcColors, ...spColors, ...drawerColors].filter(color => color.name && color.value);
+    let extractedColors = [...pcExtractedColors, ...spExtractedColors, ...drawerExtractedColors];
 
-### JavaScript Requirements:
-- Implement the drawer menu toggle functionality with vanilla JavaScript
-- Add smooth animation for opening/closing the drawer menu
-- Include event listeners for the hamburger menu button
-- Implement click/tap outside to close functionality
-- Add keyboard support (Escape key to close drawer)
-- Make sure the drawer works properly on both touch and mouse devices
-- Add proper ARIA attributes that change dynamically with drawer state
-- Prevent body scrolling when drawer is open
-- Add event listeners to handle window resize events if needed
-- Ensure all interactive elements have proper cursor styling
+    // すべての色を結合（手動色 + 抽出色）
+    const allColors = [...manualColors, ...extractedColors.map(color => ({ name: 'extracted', value: color }))];
 
-### Responsive Design Implementation:
-${responsiveMode === "sp" ?
-        `- Mobile-First approach: Start with mobile design, then enhance for larger screens
-- Base styles are for mobile (SP) design
-- Use min-width media queries (@include mq(md)) for tablet and desktop enhancements
-- For mobile, implement a hamburger menu that expands on click
-- Ensure touch targets are at least 44px in size for all interactive elements
-- Consider mobile performance and minimize JS where possible` :
-        `- Desktop-First approach: Start with desktop design, then adapt for smaller screens
-- Base styles are for desktop (PC) design
-- Use max-width media queries (@include mq(md)) to simplify layout for tablet and mobile
-- For mobile, transition the desktop navigation to a hamburger menu
-- Ensure proper scaling of fonts and spacing for smaller screens
-- Pay attention to header height on mobile to maximize content area`}
+    if (settings.cssVariables && settings.cssVariables.trim() !== '') {
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like $primary-color, etc.)
+- Here is a recommended color palette based on the design:
+`;
 
-### CSS Variables Requirements:
-${settings.cssVariables
-        ? (() => {
-          // cssVariablesから変数名を抽出
-          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
-          let matches;
-          let varList = '';
-          let varNames = [];
+      // 変数からHEX値を抽出
+      const hexValues = extractHexValuesFromVariables(settings.cssVariables);
 
-          // 全ての変数を抽出
-          while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
-            const [_, varName, varValue] = matches;
-            varList += `- $${varName}: ${varValue.trim()}\n`;
-            varNames.push(varName);
-          }
+      // 抽出した色を追加
+      if (hexValues.length > 0) {
+        colorGuidelines += `  ${hexValues.join(', ')}
+`;
+      }
 
-          const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+      // 画像から抽出した色も追加
+      if (allColors.length > 0) {
+        const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+        colorGuidelines += `- Additional colors from the image:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+      }
 
-          return `IMPORTANT: Use ONLY the CSS variables defined in your project settings.
-Specifically, use ONLY these variables:
-${varList}
-For colors not covered by these variables, use direct HEX values instead.
-DO NOT create custom variables.`;
-        })()
-        : `IMPORTANT: Use direct HEX values for all colors extracted from the image analysis.
-Match the colors from the "Detected Colors" section in your output.
-DO NOT create custom variables like $accent-color or $secondary-color.`}
+      colorGuidelines += `- Feel free to use variations of these colors where needed
+`;
+    } else if (allColors.length > 0) {
+      const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like --primary-color, etc.)
+- Here is a recommended color palette based on the design:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+    }
 
-### HTML Guidelines:
-  - Create semantic, accessible HTML for the header
-    - Add class names using FLOCSS methodology
-  - Use the following structure:
+    // ドロワー設定の情報
+    const drawerConfig = `
+## Drawer Menu Configuration:
+- Drawer Layout: ${drawerLayout === 'both' ? 'Both SP/PC' : 'SP Only'}
+- Drawer Direction: ${drawerDirection === 'right' ? 'From Right' :
+        drawerDirection === 'left' ? 'From Left' :
+          drawerDirection === 'top' ? 'From Top' :
+            drawerDirection === 'bottom' ? 'From Bottom' :
+              'Fade In'
+      }
+`;
+
+    // サンプルコードを追加（FLOCSS規則に準拠した正しい実装例）
+    const sampleCode = `
+## Reference Implementation Example (FLOCSS Compliant)
+
+This is a reference implementation that follows FLOCSS methodology and all requirements. Use this structure as a guide, but adapt it to match the design in the provided images.
+
+### HTML Example:
 \`\`\`html
-  <div class="p-header">
-    <div class="p-header__inner">
-      <h1 class="p-header__logo">
-        <!-- Logo content - match exactly what's in the image -->
-      </h1>
-      <nav class="p-header__nav">
-        <!-- Navigation links - match exactly what's in the image -->
-      </nav>
-      <button class="p-header__drawer-button" aria-label="Menu" aria-expanded="false">
-        <!-- Hamburger button -->
-      </button>
-    </div>
+<div class="p-header">
+  <div class="p-header__container">
+    <h1 class="p-header__logo">
+      <a href="/" class="p-header__logo-link">
+        <img src="/images/logo.svg" alt="CodeUps" class="p-header__logo-image">
+      </a>
+    </h1>
+
+    <nav class="p-header__nav">
+      <ul class="p-header__menu">
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">キャンペーン</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">私たちについて</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">ダイビング情報</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">ブログ</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">お客様の声</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">料金一覧</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">よくある質問</a>
+        </li>
+        <li class="p-header__menu-item">
+          <a href="#" class="p-header__menu-link">お問い合わせ</a>
+        </li>
+      </ul>
+    </nav>
+
+    <button class="p-header__drawer-button" aria-label="メニューを開く" aria-expanded="false" aria-controls="drawer-menu">
+      <span class="p-header__drawer-line"></span>
+      <span class="p-header__drawer-line"></span>
+      <span class="p-header__drawer-line"></span>
+    </button>
   </div>
-  <div class="p-drawer" aria-hidden="true">
-    <!-- Drawer menu content - match exactly what's in the image -->
+</div>
+
+<div class="p-drawer" id="drawer-menu" aria-hidden="true">
+  <div class="p-drawer__overlay"></div>
+  <div class="p-drawer__content">
+    <button class="p-drawer__close" aria-label="メニューを閉じる">
+      <span class="p-drawer__close-line"></span>
+      <span class="p-drawer__close-line"></span>
+    </button>
+
+    <nav class="p-drawer__nav">
+      <ul class="p-drawer__menu">
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">キャンペーン</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">私たちについて</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">ダイビング情報</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">ブログ</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">お客様の声</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">料金一覧</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">よくある質問</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">プライバシーポリシー</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">利用規約</a>
+        </li>
+        <li class="p-drawer__menu-item">
+          <a href="#" class="p-drawer__menu-link">お問い合わせ</a>
+        </li>
+      </ul>
+    </nav>
   </div>
-  \`\`\`
-- Add appropriate attributes for accessibility
+</div>
+\`\`\`
 
-### SCSS Guidelines:
-- Follow the ${responsiveMode === "both" ? "responsive approach" : `${responsiveMode === "sp" ? "Mobile-first" : "Desktop-first"} approach`}
-- **❌ ABSOLUTELY NO NESTING IN SCSS! ❌** - This is the most critical requirement
-- All styles must be written with flat selectors
-- Media queries (@include mq()) are the only allowed nesting
-- Use color variables from project settings when possible
-- Implement smooth transitions for hover states
-- Create mobile-friendly navigation with a hamburger menu
-
-## Coding Guidelines
-
-You are a professional front-end developer specializing in SCSS, HTML, and JavaScript.
-
-### Core Requirements:
-- **ONLY code elements visible in the image** - no assumed or extra elements
-- **Be faithful to the design** - PIXEL-PERFECT match to colors, spacing, and layout
-- Use **FLOCSS methodology** instead of BEM
-- **ALWAYS USE CSS GRID LAYOUT** instead of Flexbox - Grid should be your first choice for layouts
-- Do not create container elements (don't fix width of outer elements)
-- **Use color variables from project settings** - Actively use the color variables defined in CSS Variables section
-- **Maintain aspect ratios for all images** - use modern CSS techniques like aspect-ratio property
-- **Avoid fixed width values** - use percentages, max-width, or relative units
-- **Use height properties minimally** - only when absolutely necessary for the design
-
-### HTML Guidelines:
-- Create semantic, accessible HTML
-- Add class names to each block
-- Child elements should use element notation
-- Use proper naming conventions for FLOCSS:
-  - **p-**: Project-specific components (header, footer, main visual, etc.)
-  - **l-**: Layout components (grid, container, wrapper, etc.)
-  - **c-**: Common reusable components (button, card, form, etc.)
-  - **u-**: Utility classes
-- **DO NOT combine different prefixes in the same element** (e.g., DO NOT use \`class="c-button p-section__button"\`)
-- **Each element should use only ONE prefix type** - choose the most appropriate one based on its role
-- **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
-- Analyze the design and assign **specific, descriptive class names** that reflect design features
-
-### JavaScript Guidelines:
-- Write clean, well-structured vanilla JavaScript
-- Use modern JavaScript features (ES6+)
-- Add event listeners for interactive elements
-- Implement smooth animations and transitions
-- Ensure proper state management for UI elements
-- Use proper namespacing to avoid global scope pollution
-- Add proper error handling
-- Ensure cross-browser compatibility
-- Follow accessibility best practices (ARIA attributes, keyboard navigation)
-- Structure your code with appropriate comments (minimal but helpful)
-
-### SCSS Guidelines:
-- Follow the ${responsiveMode === "both" ? "responsive approach" : `${responsiveMode === "sp" ? "Mobile-first" : "Desktop-first"} approach`}
-- **❌ ABSOLUTELY NO NESTING IN SCSS! ❌** - This is the most critical requirement
-- **⚠️ WARNING: Any nested selectors using the & operator will be rejected**
-- **⚠️ WARNING: SCSS with nested selectors will need to be completely rewritten**
-- **✅ The ONLY exception: @include mq() media queries** - NOTHING ELSE can be nested
-
-### 📋 CORRECT SCSS STRUCTURE (FOLLOW THIS EXACTLY):
-
+### SCSS Example:
 \`\`\`scss
-/* ✓ CORRECT: Each selector written separately */
-/* Project Component Example */
-.p-hero {
-  background-color: $primary-color;
-  padding: 2rem 0;
+/* ヘッダー */
+.p-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 100;
+  background-color: #2E2E2E;
 }
 
-.p-hero__title {
-  font-size: 2rem;
-  color: white;
-}
-
-/* Layout Component Example */
-.l-container {
+.p-header__container {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 20px 15px;
 }
 
-/* Common Component Example */
-.c-card {
-  background-color: white;
-  padding: 1.25rem;
+.p-header__logo {
+  margin: 0;
 }
 
-.c-card__title {
-  font-size: 1.25rem;
-  color: $primary-color;
-}
-
-.c-card__content {
-  font-size: 1rem;
-}
-
-/* ✓ CORRECT: Media queries are the ONLY allowed nesting */
-.p-features {
-  display: grid;
-  grid-template-columns: 1fr;
-
-  @include mq(${aiBreakpoints.filter(bp => bp.aiActive)[0]?.name || 'md'}) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-/* ✓ CORRECT: Hover states also written as separate selectors */
-.c-button {
-  background-color: blue;
-  color: white;
-}
-
-.c-button:hover {
-  background-color: darkblue;
-}
-\`\`\`
-
-### 📋 INCORRECT SCSS STRUCTURE (NEVER DO THIS):
-
-\`\`\`scss
-/* ❌ WRONG - Using nesting with & operator */
-.c-card {
-  background-color: white;
-
-  &__title {  /* NEVER DO THIS! */
-    font-size: 1.25rem;
-  }
-
-  &__content {  /* NEVER DO THIS! */
-    font-size: 1rem;
-  }
-
-  &:hover {  /* NEVER DO THIS! */
-    background-color: #f9f9f9;
-  }
-}
-\`\`\`
-
-- **Media query usage (THE ONLY ALLOWED NESTING):**
-\`\`\`scss
-/* ✓ Base mobile styles */
-.c-button {
+.p-header__logo-link {
   display: block;
-  width: 100%;
-  padding: 12px;
-  color: ${responsiveMode === "sp" ? "white" : "blue"};
-  background-color: $primary-color;
-  text-align: center;
+}
 
-  /* ✓ Only media queries can be nested */
-  @include mq(${aiBreakpoints.filter(bp => bp.aiActive)[0]?.name || 'md'}) {
-    display: inline-block;
-    width: auto;
-    padding: 12px 24px;
+.p-header__logo-image {
+  width: 120px;
+  height: auto;
+}
+
+.p-header__nav {
+  display: none;
+
+  @include mq(md) {
+    display: block;
+    margin-left: auto;
   }
+}
+
+.p-header__menu {
+  display: grid;
+  grid-template-columns: repeat(8, auto);
+  gap: 20px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.p-header__menu-item {
+  text-align: center;
+}
+
+.p-header__menu-link {
+  display: block;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 14px;
+  transition: opacity 0.3s;
+}
+
+.p-header__menu-link:hover {
+  opacity: 0.7;
+}
+
+.p-header__drawer-button {
+  display: grid;
+  grid-template-rows: repeat(3, 2px);
+  gap: 5px;
+  width: 25px;
+  height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+
+  @include mq(md) {
+    display: none;
+  }
+}
+
+.p-header__drawer-line {
+  width: 100%;
+  height: 2px;
+  background-color: #ffffff;
+  transition: transform 0.3s, opacity 0.3s;
+}
+
+/* ドロワーメニュー */
+.p-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  visibility: hidden;
+  z-index: 200;
+}
+
+.p-drawer[aria-hidden="false"] {
+  visibility: visible;
+}
+
+.p-drawer__overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.p-drawer[aria-hidden="false"] .p-drawer__overlay {
+  opacity: 1;
+}
+
+.p-drawer__content {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 80%;
+  max-width: 300px;
+  height: 100%;
+  background-color: #4169e1;
+  padding: 60px 20px 20px;
+  transform: translateX(100%);
+  transition: transform 0.3s;
+  overflow-y: auto;
+}
+
+.p-drawer[aria-hidden="false"] .p-drawer__content {
+  transform: translateX(0);
+}
+
+.p-drawer__close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 25px;
+  height: 25px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.p-drawer__close-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: #ffffff;
+}
+
+.p-drawer__close-line:first-child {
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.p-drawer__close-line:last-child {
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.p-drawer__menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.p-drawer__menu-item:not(:last-child) {
+  margin-bottom: 20px;
+}
+
+.p-drawer__menu-link {
+  display: block;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 16px;
+  transition: opacity 0.3s;
+}
+
+.p-drawer__menu-link:hover {
+  opacity: 0.7;
 }
 \`\`\`
 
-- **CRITICAL REQUIREMENT - BREAKPOINT USAGE:**
-  - **ONLY use these exact breakpoint names: ${aiBreakpoints.filter(bp => bp.aiActive).map(bp => bp.name).join(', ') || 'None available'}**
-  - **DO NOT use any other breakpoint names** like sm, xs, xl, etc. unless specified above.
-  - **Breakpoint implementation:** ${responsiveMode === "sp"
-        ? "Mobile-first approach using min-width queries - base styles for mobile, media queries for larger screens"
-        : "Desktop-first approach using max-width queries - base styles for desktop, media queries for smaller screens"}
-- **ABSOLUTELY FORBIDDEN: &__element notation in SCSS** - this is WRONG and MUST NEVER be used
+### JavaScript Example:
+\`\`\`javascript
+document.addEventListener('DOMContentLoaded', () => {
+  const drawerButton = document.querySelector('.p-header__drawer-button');
+  const drawer = document.querySelector('.p-drawer');
+  const drawerClose = document.querySelector('.p-drawer__close');
+  const drawerOverlay = document.querySelector('.p-drawer__overlay');
+  const body = document.body;
 
-- ${settings.cssVariables ?
-        (() => {
-          // cssVariablesから変数名を抽出
-          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
-          let matches;
-          let varNames = [];
+  // ドロワーを開く関数
+  const openDrawer = () => {
+    drawer.setAttribute('aria-hidden', 'false');
+    drawerButton.setAttribute('aria-expanded', 'true');
+    body.style.overflow = 'hidden'; // スクロール防止
+  };
 
-          // 全ての変数を抽出
-          while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
-            const [_, varName] = matches;
-            varNames.push(varName);
-          }
+  // ドロワーを閉じる関数
+  const closeDrawer = () => {
+    drawer.setAttribute('aria-hidden', 'true');
+    drawerButton.setAttribute('aria-expanded', 'false');
+    body.style.overflow = ''; // スクロール許可
+  };
 
-          const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+  // イベントリスナーを設定
+  drawerButton.addEventListener('click', openDrawer);
+  drawerClose.addEventListener('click', closeDrawer);
+  drawerOverlay.addEventListener('click', closeDrawer);
 
-          return `**Use ONLY the CSS variables defined in the project settings**
-- **SPECIFICALLY, use ONLY ${varNamesStr}**
-- **DO NOT USE any other variables not defined in the project settings**`;
-        })()
-        : `**Use the exact colors from the image analysis results**
-- **Match the colors extracted from the uploaded images as closely as possible**
-- **DO NOT use any CSS variables - use the extracted HEX colors from the image analysis instead**`}
-- Ensure compatibility with the provided Reset CSS
-- **For images**: use aspect-ratio property to maintain proportions (e.g., \`aspect-ratio: 16 / 9;\`)
-- **For width**: use percentages or relative units (e.g., \`width: 100%;\`, \`max-width: 100%;\`)
-- **For height**: use auto where possible or aspect-ratio to control dimensions
-- **ALWAYS USE rem UNITS INSTEAD OF px** - Convert all pixel values to rem (root font-size: 16px)
-  - Formula: rem = px / 16
-  - Examples: 16px = 1rem, 24px = 1.5rem, 32px = 2rem, 8px = 0.5rem
-  - The ONLY exceptions are media queries and 1px borders
-`;
-
-    // AIの出力にネスト構造が含まれないように強い警告を追加
-    prompt += `
-## FINAL CRUCIAL INSTRUCTIONS - CODE STRUCTURE
-- **NEVER UNDER ANY CIRCUMSTANCES OUTPUT NESTED SCSS USING & OPERATOR**
-- **ANY CODE WITH &__element or &:hover NOTATION IS STRICTLY PROHIBITED**
-- **YOU MUST ALWAYS WRITE FLAT SELECTORS** such as .p-hero__title or .c-card__title (not .p-hero { &__title } or .c-card { &__title })
-- **USE APPROPRIATE PREFIX FOR EACH ELEMENT TYPE**:
-  - p- for page/project specific components like heroes, headers, footers, main sections
-  - l- for layout components like containers, grids, wrappers
-  - c- for common reusable UI components like buttons, cards, forms, navigation menus
-  - u- for utility classes
-- **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type per element
-- **INCORRECT: \`<a class="c-button p-section__button">View more</a>\`**
-- **CORRECT: Choose either \`<a class="c-button">View more</a>\`** based on context
-- **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it all with flat selectors
-- **THIS IS A ZERO TOLERANCE REQUIREMENT:** nested SCSS code will be rejected automatically
-
-## JavaScript Output Requirements
-- **YOU MUST INCLUDE JAVASCRIPT CODE IN YOUR RESPONSE**
-- Provide JavaScript for drawer menu functionality
-- Include event listeners for opening/closing the drawer menu
-- Add smooth animations for the drawer transitions
-- Implement accessibility features (keyboard navigation, ARIA attributes)
-- Ensure cross-browser compatibility
-- The JavaScript should be clear, well-structured, and commented appropriately
-- DO NOT USE ANY EXTERNAL LIBRARIES OR FRAMEWORKS - vanilla JavaScript only
-
-Remember: The ONLY nesting allowed is for @include mq() media queries - nothing else.
-
-I will immediately reject your solution if it contains any nested SCSS using the & operator or if JavaScript for the drawer menu functionality is missing.
-`;
-
-    // エラー時のバックアッププロンプト
-    if (!prompt || prompt.trim() === '') {
-      console.warn("生成されたプロンプトが空です。緊急用のプロンプトを使用します。");
-      prompt = getEmergencyPrompt();
+  // ESCキーでドロワーを閉じる
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && drawer.getAttribute('aria-hidden') === 'false') {
+      closeDrawer();
     }
+  });
+});
+\`\`\`
+`;
 
-    console.log("ヘッダープロンプト生成完了");
-    return prompt;
+    // 共通のプロンプト指示を取得
+    const commonInstructions = getCommonPromptInstructions(responsiveMode, aiBreakpoints, settings);
+
+    // メインプロンプトの構築
+    return `
+# Modern Header and Drawer Menu Generation
+
+Create HTML, CSS, and JavaScript for a modern website header and drawer menu that matches the provided design.
+
+## Basic Information
+- Output Type: ${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"} Priority
+${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.filter(bp => bp.aiActive).map(bp => `${bp.name}: ${bp.value}px`).join(', ')}` : ''}
+${imageDescriptionPrompt ? `\n## Image Analysis\n${imageDescriptionPrompt}` : ''}
+
+## Design Requirements
+
+1. **Header**:
+   - Fixed position at top of page
+   - Full width with logo on left, navigation in center/right
+   - For mobile: Logo and hamburger menu button only
+   - Proper spacing and alignment of elements
+
+2. **Drawer Menu**:
+   - Slide-in from ${drawerDirection === 'right' ? 'right' :
+        drawerDirection === 'left' ? 'left' :
+          drawerDirection === 'top' ? 'top' :
+            drawerDirection === 'bottom' ? 'bottom' : 'right'} side
+   - Close button (X) in the top-right
+   - List of navigation links
+   - Backdrop overlay that darkens the background
+
+3. **Interactions**:
+   - Drawer opens when hamburger button is clicked
+   - Drawer closes when X button or overlay is clicked
+   - Smooth transitions for open/close animations
+   - Keyboard accessibility for all interactions
+
+## Design Rules (Important)
+
+### Coding Conventions:
+- **Follow FLOCSS methodology strictly**
+  - Project prefix: "p-" (e.g., p-header, p-drawer)
+  - Component prefix: "c-" (e.g., c-button)
+  - Layout prefix: "l-" (e.g., l-container)
+  - Utility prefix: "u-" (e.g., u-hidden)
+
+${textContentPrompt}
+${colorGuidelines}
+${drawerConfig}
+${sampleCode}
+
+${commonInstructions}
+`;
   } catch (error) {
-    console.error("プロンプト生成エラー:", error);
-    return getEmergencyPrompt();
+    console.error('ヘッダープロンプト生成中にエラーが発生しました:', error);
+
+    // エラーが発生しても最低限のプロンプトを生成して返す
+    return `
+# Modern Header and Drawer Menu Generation
+
+Create HTML, CSS, and JavaScript for a modern website header and drawer menu.
+
+## Important Instructions
+- ONLY code elements visible in the image - no assumed or extra elements
+- Be faithful to the design - accurate colors, spacing, and layout
+- Use FLOCSS methodology instead of BEM
+- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
+- No SCSS nesting - write flat SCSS structure
+- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS❗❗**
+- **START HEADING TAGS FROM h2** - do not use h1 tags in components
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES**
+- DO NOT use <header> or <main> tags
+- Use specific, descriptive class names reflecting design features
+
+## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
+- **❌ ABSOLUTELY NO NESTING IN SCSS!** (EXCEPT for media queries)
+- **❌ NEVER use &__element notation**
+- **❌ NEVER use &:hover or other nested pseudo-selectors**
+- **✅ BUT DO NEST MEDIA QUERIES** inside selectors
+- **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type
+- **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it with flat selectors
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+/* SCSS code here */
+\`\`\`
+
+\`\`\`javascript
+// JavaScript code here
+\`\`\`
+`;
   }
 };
 
-// エラー時のバックアッププロンプト
-const getEmergencyPrompt = () => {
-  // ローカルストレージから設定を取得
-  const settings = getSettingsFromLocalStorage();
+/**
+ * ヘッダー構造のみに集中したプロンプトを生成する関数
+ * @param {Object} options - プロンプト生成オプション
+ * @returns {string} 生成されたプロンプト
+ */
+export const generateHeaderStructurePrompt = async (options) => {
+  try {
+    const {
+      responsiveMode,
+      aiBreakpoints,
+      pcImageBase64,
+      spImageBase64,
+      pcColors,
+      spColors,
+      pcImageText,
+      spImageText
+    } = options;
 
-  return `
-# Header Component Generation
+    // 画像データの有無を確認
+    const hasPcImage = pcImageBase64 && pcImageBase64.trim() !== '';
+    const hasSpImage = spImageBase64 && spImageBase64.trim() !== '';
 
-## Requirements
-- Create a modern, professional header component with drawer menu
-- Implement responsive design (mobile-first approach)
-- Include logo, navigation menu, and hamburger button
-- Add a drawer menu for mobile views with JavaScript functionality
-- Ensure accessibility with proper semantic HTML and ARIA attributes
-- DO NOT use nested SCSS with & operator
-- Write all selectors separately in flat structure
-- Include JavaScript for drawer functionality
+    // 画像から追加情報を抽出
+    let extractedPcText = '';
+    let extractedSpText = '';
+    let pcSections = [];
+    let spSections = [];
 
-## JavaScript Requirements
-- Implement drawer menu toggle functionality with vanilla JavaScript
-- Add smooth animations for opening/closing the drawer
-- Add proper event listeners and keyboard support
-- Ensure accessibility with appropriate ARIA attributes
-- DO NOT use any external libraries or frameworks
-
-## CSS Variables Requirements
-${settings.cssVariables ? (() => {
-      // cssVariablesから変数名を抽出
-      const varRegex = /\$([\w-]+):\s*([^;]+);/g;
-      let matches;
-      let varList = '';
-      let varNames = [];
-
-      // 全ての変数を抽出
-      while ((matches = varRegex.exec(settings.cssVariables)) !== null) {
-        const [_, varName, varValue] = matches;
-        varList += `- $${varName}: ${varValue.trim()}\n`;
-        varNames.push(varName);
+    // PC画像から情報抽出
+    if (hasPcImage && !pcImageText) {
+      try {
+        extractedPcText = await extractTextFromImage(pcImageBase64);
+        console.log("PC画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("PC画像のテキスト抽出エラー:", error);
       }
 
-      const varNamesStr = varNames.map(name => `$${name}`).join(', ');
+      try {
+        pcSections = await analyzeImageSections(pcImageBase64);
+        console.log("PC画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("PC画像のセクション分析エラー:", error);
+      }
+    }
 
-      return `IMPORTANT: Use ONLY the CSS variables defined in your project settings.
-Specifically, use ONLY these variables:
-${varList}
-For colors not covered by these variables, use direct HEX values instead.
-DO NOT create custom variables.`;
-    })() : `IMPORTANT: Use direct HEX values for all colors extracted from the image analysis.
-Match the colors from the "Detected Colors" section in your output.
-DO NOT create custom variables like $accent-color or $secondary-color.`}
+    // SP画像から情報抽出
+    if (hasSpImage && !spImageText) {
+      try {
+        extractedSpText = await extractTextFromImage(spImageBase64);
+        console.log("SP画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("SP画像のテキスト抽出エラー:", error);
+      }
 
-## Output Format
-- Provide HTML, CSS, AND JavaScript code
-- Use modern CSS features like flexbox and CSS variables
-- Format with markdown code blocks for each language
+      try {
+        spSections = await analyzeImageSections(spImageBase64);
+        console.log("SP画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("SP画像のセクション分析エラー:", error);
+      }
+    }
 
-Please generate a clean, responsive header component with drawer menu based on these requirements.
+    // 画像の説明を追加
+    let imageDescriptionPrompt = '';
+    if (hasPcImage) {
+      imageDescriptionPrompt += '- PCデザインの画像が提供されています\n';
+      if (pcSections && pcSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + pcSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    if (hasSpImage) {
+      imageDescriptionPrompt += '- SPデザインの画像が提供されています\n';
+      if (spSections && spSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + spSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    // カスタムブレークポイントの取得
+    const customBreakpoints = aiBreakpoints && aiBreakpoints.length > 0
+      ? aiBreakpoints
+        .filter(bp => bp.aiActive)
+        .map(bp => `${bp.name}: ${bp.value}px`)
+        .join(', ')
+      : '';
+
+    // ローカルストレージから設定を取得
+    const settings = getSettingsFromLocalStorage();
+
+    // 画像テキストの前処理
+    let textContentPrompt = '';
+    if (pcImageText) {
+      textContentPrompt += `PC Header Text Content: ${pcImageText}\n\n`;
+    } else if (extractedPcText) {
+      textContentPrompt += `PC Header Text Content (自動抽出): ${extractedPcText}\n\n`;
+    }
+
+    if (spImageText) {
+      textContentPrompt += `SP Header Text Content: ${spImageText}\n\n`;
+    } else if (extractedSpText) {
+      textContentPrompt += `SP Header Text Content (自動抽出): ${extractedSpText}\n\n`;
+    }
+
+    // 色情報の処理
+    // 色の自動抽出がない場合のみ手動指定を使用
+    let pcExtractedColors = [];
+    let spExtractedColors = [];
+
+    // 画像から色を抽出（手動で指定された色がない場合）
+    if (hasPcImage && (!pcColors || pcColors.length === 0)) {
+      try {
+        pcExtractedColors = await extractColorsFromImage(pcImageBase64);
+        console.log("PC画像から色を抽出しました:", pcExtractedColors.length, "色");
+      } catch (error) {
+        console.error("PC画像の色抽出エラー:", error);
+      }
+    }
+
+    if (hasSpImage && (!spColors || spColors.length === 0)) {
+      try {
+        spExtractedColors = await extractColorsFromImage(spImageBase64);
+        console.log("SP画像から色を抽出しました:", spExtractedColors.length, "色");
+      } catch (error) {
+        console.error("SP画像の色抽出エラー:", error);
+      }
+    }
+
+    let colorGuidelines = '';
+    let manualColors = [...pcColors, ...spColors].filter(color => color.name && color.value);
+    let extractedColors = [...pcExtractedColors, ...spExtractedColors];
+
+    // すべての色を結合（手動色 + 抽出色）
+    const allColors = [...manualColors, ...extractedColors.map(color => ({ name: 'extracted', value: color }))];
+
+    if (settings.cssVariables && settings.cssVariables.trim() !== '') {
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like $primary-color, etc.)
+- Here is a recommended color palette based on the design:
 `;
+
+      // 変数からHEX値を抽出
+      const hexValues = extractHexValuesFromVariables(settings.cssVariables);
+
+      // 抽出した色を追加
+      if (hexValues.length > 0) {
+        colorGuidelines += `  ${hexValues.join(', ')}
+`;
+      }
+
+      // 画像から抽出した色も追加
+      if (allColors.length > 0) {
+        const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+        colorGuidelines += `- Additional colors from the image:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+      }
+
+      colorGuidelines += `- Feel free to use variations of these colors where needed
+`;
+    } else if (allColors.length > 0) {
+      const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like --primary-color, etc.)
+- Here is a recommended color palette based on the design:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+    }
+
+    // 共通のプロンプト指示を取得
+    const commonInstructions = getCommonPromptInstructions(responsiveMode, aiBreakpoints, settings);
+
+    // メインプロンプトの構築
+    return `
+# Modern Website Header Generation
+
+Create HTML and CSS for a modern website header (without drawer menu).
+
+## Basic Information
+- Output Type: ${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"} Priority
+${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.filter(bp => bp.aiActive).map(bp => `${bp.name}: ${bp.value}px`).join(', ')}` : ''}
+${imageDescriptionPrompt ? `\n## Image Analysis\n${imageDescriptionPrompt}` : ''}
+
+## Design Rules (Important)
+
+### Coding Conventions:
+- **Follow FLOCSS methodology strictly**
+  - Component prefix: "c-" (e.g., c-button)
+  - Project prefix: "p-" (e.g., p-header)
+  - Layout prefix: "l-" (e.g., l-container)
+  - Utility prefix: "u-" (e.g., u-hidden)
+
+${textContentPrompt}
+${colorGuidelines}
+
+${commonInstructions}
+`;
+  } catch (error) {
+    console.error('ヘッダー構造プロンプト生成中にエラーが発生しました:', error);
+
+    // エラーが発生しても最低限のプロンプトを生成して返す
+    return `
+# Modern Website Header Generation
+
+Create HTML and CSS for a modern website header (without drawer menu).
+
+## Important Instructions
+- ONLY code elements visible in the image - no assumed or extra elements
+- Be faithful to the design - accurate colors, spacing, and layout
+- Use FLOCSS methodology instead of BEM
+- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
+- No SCSS nesting - write flat SCSS structure
+- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS❗❗**
+- **START HEADING TAGS FROM h2** - do not use h1 tags in components
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES**
+- DO NOT use <header> or <main> tags
+- Use specific, descriptive class names reflecting design features
+
+## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
+- **❌ ABSOLUTELY NO NESTING IN SCSS!** (EXCEPT for media queries)
+- **❌ NEVER use &__element notation**
+- **❌ NEVER use &:hover or other nested pseudo-selectors**
+- **✅ BUT DO NEST MEDIA QUERIES** inside selectors
+- **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type
+- **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it with flat selectors
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+/* SCSS code here */
+\`\`\`
+
+\`\`\`javascript
+// JavaScript code here
+\`\`\`
+`;
+  }
 };
 
-export default generateHeaderPrompt;
+/**
+ * ドロワーメニューのみに集中したプロンプトを生成する関数
+ * @param {Object} options - プロンプト生成オプション
+ * @returns {string} 生成されたプロンプト
+ */
+export const generateDrawerMenuPrompt = async (options) => {
+  try {
+    const {
+      responsiveMode,
+      aiBreakpoints,
+      drawerImageBase64,
+      drawerDirection,
+      drawerLayout,
+      drawerColors,
+      drawerImageText
+    } = options;
+
+    // 画像データの有無を確認
+    const hasDrawerImage = drawerImageBase64 && drawerImageBase64.trim() !== '';
+
+    // 画像から追加情報を抽出
+    let extractedDrawerText = '';
+    let drawerSections = [];
+
+    // ドロワー画像から情報抽出
+    if (hasDrawerImage && !drawerImageText) {
+      try {
+        extractedDrawerText = await extractTextFromImage(drawerImageBase64);
+        console.log("ドロワー画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("ドロワー画像のテキスト抽出エラー:", error);
+      }
+
+      try {
+        drawerSections = await analyzeImageSections(drawerImageBase64);
+        console.log("ドロワー画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("ドロワー画像のセクション分析エラー:", error);
+      }
+    }
+
+    // 画像の説明を追加
+    let imageDescriptionPrompt = '';
+    if (hasDrawerImage) {
+      imageDescriptionPrompt += '- ドロワーメニューの画像が提供されています\n';
+      if (drawerSections && drawerSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + drawerSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    // カスタムブレークポイントの取得
+    const customBreakpoints = aiBreakpoints && aiBreakpoints.length > 0
+      ? aiBreakpoints
+        .filter(bp => bp.aiActive)
+        .map(bp => `${bp.name}: ${bp.value}px`)
+        .join(', ')
+      : '';
+
+    // ローカルストレージから設定を取得
+    const settings = getSettingsFromLocalStorage();
+
+    // 画像テキストの前処理
+    let textContentPrompt = '';
+    if (drawerImageText) {
+      textContentPrompt += `Drawer Menu Text Content: ${drawerImageText}\n\n`;
+    } else if (extractedDrawerText) {
+      textContentPrompt += `Drawer Menu Text Content (自動抽出): ${extractedDrawerText}\n\n`;
+    }
+
+    // 色情報の処理
+    // 色の自動抽出がない場合のみ手動指定を使用
+    let drawerExtractedColors = [];
+
+    // 画像から色を抽出（手動で指定された色がない場合）
+    if (hasDrawerImage && (!drawerColors || drawerColors.length === 0)) {
+      try {
+        drawerExtractedColors = await extractColorsFromImage(drawerImageBase64);
+        console.log("ドロワー画像から色を抽出しました:", drawerExtractedColors.length, "色");
+      } catch (error) {
+        console.error("ドロワー画像の色抽出エラー:", error);
+      }
+    }
+
+    let colorGuidelines = '';
+    let manualColors = [...drawerColors].filter(color => color.name && color.value);
+    let extractedColors = [...drawerExtractedColors];
+
+    // すべての色を結合（手動色 + 抽出色）
+    const allColors = [...manualColors, ...extractedColors.map(color => ({ name: 'extracted', value: color }))];
+
+    if (settings.cssVariables && settings.cssVariables.trim() !== '') {
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like $primary-color, etc.)
+- Here is a recommended color palette based on the design:
+`;
+
+      // 変数からHEX値を抽出
+      const hexValues = extractHexValuesFromVariables(settings.cssVariables);
+
+      // 抽出した色を追加
+      if (hexValues.length > 0) {
+        colorGuidelines += `  ${hexValues.join(', ')}
+`;
+      }
+
+      // 画像から抽出した色も追加
+      if (allColors.length > 0) {
+        const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+        colorGuidelines += `- Additional colors from the image:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+      }
+
+      colorGuidelines += `- Feel free to use variations of these colors where needed
+`;
+    } else if (allColors.length > 0) {
+      const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like --primary-color, etc.)
+- Here is a recommended color palette based on the design:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+    }
+
+    // ドロワー設定の情報
+    const drawerConfig = `
+## Drawer Menu Configuration:
+- Drawer Layout: ${drawerLayout === 'both' ? 'Both SP/PC' : 'SP Only'}
+- Drawer Direction: ${drawerDirection === 'right' ? 'From Right' :
+        drawerDirection === 'left' ? 'From Left' :
+          drawerDirection === 'top' ? 'From Top' :
+            drawerDirection === 'bottom' ? 'From Bottom' :
+              'Fade In'
+      }
+`;
+
+    // 共通のプロンプト指示を取得
+    const commonInstructions = getCommonPromptInstructions(responsiveMode, aiBreakpoints, settings);
+
+    // メインプロンプトの構築
+    return `
+# Modern Drawer Menu Generation
+
+Create HTML, CSS, and JavaScript for a modern website drawer menu.
+
+## Basic Information
+- Output Type: ${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"} Priority
+${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.filter(bp => bp.aiActive).map(bp => `${bp.name}: ${bp.value}px`).join(', ')}` : ''}
+${imageDescriptionPrompt ? `\n## Image Analysis\n${imageDescriptionPrompt}` : ''}
+
+## Design Rules (Important)
+
+### Coding Conventions:
+- **Follow FLOCSS methodology strictly**
+  - Component prefix: "c-" (e.g., c-button)
+  - Project prefix: "p-" (e.g., p-drawer)
+  - Layout prefix: "l-" (e.g., l-container)
+  - Utility prefix: "u-" (e.g., u-hidden)
+
+${textContentPrompt}
+${colorGuidelines}
+${drawerConfig}
+
+${commonInstructions}
+`;
+  } catch (error) {
+    console.error('ドロワーメニュープロンプト生成中にエラーが発生しました:', error);
+
+    // エラーが発生しても最低限のプロンプトを生成して返す
+    return `
+# Modern Drawer Menu Generation
+
+Create HTML, CSS, and JavaScript for a modern website drawer menu.
+
+## Important Instructions
+- ONLY code elements visible in the image - no assumed or extra elements
+- Be faithful to the design - accurate colors, spacing, and layout
+- Use FLOCSS methodology instead of BEM
+- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
+- No SCSS nesting - write flat SCSS structure
+- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS❗❗**
+- **START HEADING TAGS FROM h2** - do not use h1 tags in components
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES**
+- DO NOT use <header> or <main> tags
+- Use specific, descriptive class names reflecting design features
+
+## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
+- **❌ ABSOLUTELY NO NESTING IN SCSS!** (EXCEPT for media queries)
+- **❌ NEVER use &__element notation**
+- **❌ NEVER use &:hover or other nested pseudo-selectors**
+- **✅ BUT DO NEST MEDIA QUERIES** inside selectors
+- **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type
+- **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it with flat selectors
+
+## Drawer Menu Functionality
+- Create smooth open/close animations
+- Implement focus management for accessibility
+- Add close button and backdrop click handling
+- Ensure keyboard accessibility (ESC to close)
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+/* SCSS code here */
+\`\`\`
+
+\`\`\`javascript
+// JavaScript code here
+\`\`\`
+`;
+  }
+};
+
+/**
+ * ヘッダーとドロワーメニューの統合のためのプロンプトを生成する関数
+ * @param {Object} options - プロンプト生成オプション
+ * @returns {string} 生成されたプロンプト
+ */
+export const generateIntegrationPrompt = async (options) => {
+  try {
+    const {
+      responsiveMode,
+      aiBreakpoints,
+      pcImageBase64,
+      spImageBase64,
+      drawerImageBase64,
+      pcColors,
+      spColors,
+      drawerColors,
+      pcImageText,
+      spImageText,
+      drawerImageText,
+      drawerLayout,
+      drawerDirection,
+      headerHtml,
+      headerCss,
+      drawerHtml,
+      drawerCss,
+      drawerJs
+    } = options;
+
+    // 画像データの有無を確認
+    const hasPcImage = pcImageBase64 && pcImageBase64.trim() !== '';
+    const hasSpImage = spImageBase64 && spImageBase64.trim() !== '';
+    const hasDrawerImage = drawerImageBase64 && drawerImageBase64.trim() !== '';
+
+    // 画像から追加情報を抽出
+    let extractedPcText = '';
+    let extractedSpText = '';
+    let extractedDrawerText = '';
+    let pcSections = [];
+    let spSections = [];
+    let drawerSections = [];
+
+    // PC画像から情報抽出
+    if (hasPcImage && !pcImageText) {
+      try {
+        extractedPcText = await extractTextFromImage(pcImageBase64);
+        console.log("PC画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("PC画像のテキスト抽出エラー:", error);
+      }
+
+      try {
+        pcSections = await analyzeImageSections(pcImageBase64);
+        console.log("PC画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("PC画像のセクション分析エラー:", error);
+      }
+    }
+
+    // SP画像から情報抽出
+    if (hasSpImage && !spImageText) {
+      try {
+        extractedSpText = await extractTextFromImage(spImageBase64);
+        console.log("SP画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("SP画像のテキスト抽出エラー:", error);
+      }
+
+      try {
+        spSections = await analyzeImageSections(spImageBase64);
+        console.log("SP画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("SP画像のセクション分析エラー:", error);
+      }
+    }
+
+    // ドロワー画像から情報抽出
+    if (hasDrawerImage && !drawerImageText) {
+      try {
+        extractedDrawerText = await extractTextFromImage(drawerImageBase64);
+        console.log("ドロワー画像からテキストを抽出しました");
+      } catch (error) {
+        console.error("ドロワー画像のテキスト抽出エラー:", error);
+      }
+
+      try {
+        drawerSections = await analyzeImageSections(drawerImageBase64);
+        console.log("ドロワー画像のセクション分析が完了しました");
+      } catch (error) {
+        console.error("ドロワー画像のセクション分析エラー:", error);
+      }
+    }
+
+    // 画像の説明を追加
+    let imageDescriptionPrompt = '';
+    if (hasPcImage) {
+      imageDescriptionPrompt += '- PCデザインの画像が提供されています\n';
+      if (pcSections && pcSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + pcSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    if (hasSpImage) {
+      imageDescriptionPrompt += '- SPデザインの画像が提供されています\n';
+      if (spSections && spSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + spSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    if (hasDrawerImage) {
+      imageDescriptionPrompt += '- ドロワーメニューの画像が提供されています\n';
+      if (drawerSections && drawerSections.length > 0) {
+        imageDescriptionPrompt += '  - ' + drawerSections.length + '個のセクションが検出されました\n';
+      }
+    }
+
+    // カスタムブレークポイントの取得
+    const customBreakpoints = aiBreakpoints && aiBreakpoints.length > 0
+      ? aiBreakpoints
+        .filter(bp => bp.aiActive)
+        .map(bp => `${bp.name}: ${bp.value}px`)
+        .join(', ')
+      : '';
+
+    // ローカルストレージから設定を取得
+    const settings = getSettingsFromLocalStorage();
+
+    // テキスト情報を準備
+    let textContentPrompt = '';
+    if (pcImageText || extractedPcText || spImageText || extractedSpText || drawerImageText || extractedDrawerText) {
+      textContentPrompt = '## Text Content Analysis\n';
+
+      if (pcImageText) {
+        textContentPrompt += `PC Header Text: ${pcImageText}\n\n`;
+      } else if (extractedPcText) {
+        textContentPrompt += `PC Header Text (自動抽出): ${extractedPcText}\n\n`;
+      }
+
+      if (spImageText) {
+        textContentPrompt += `SP Header Text: ${spImageText}\n\n`;
+      } else if (extractedSpText) {
+        textContentPrompt += `SP Header Text (自動抽出): ${extractedSpText}\n\n`;
+      }
+
+      if (drawerImageText) {
+        textContentPrompt += `Drawer Menu Text: ${drawerImageText}\n\n`;
+      } else if (extractedDrawerText) {
+        textContentPrompt += `Drawer Menu Text (自動抽出): ${extractedDrawerText}\n\n`;
+      }
+    }
+
+    // 色情報の処理
+    // 色の自動抽出がない場合のみ手動指定を使用
+    let pcExtractedColors = [];
+    let spExtractedColors = [];
+    let drawerExtractedColors = [];
+
+    // 画像から色を抽出（手動で指定された色がない場合）
+    if (hasPcImage && (!pcColors || pcColors.length === 0)) {
+      try {
+        pcExtractedColors = await extractColorsFromImage(pcImageBase64);
+        console.log("PC画像から色を抽出しました:", pcExtractedColors.length, "色");
+      } catch (error) {
+        console.error("PC画像の色抽出エラー:", error);
+      }
+    }
+
+    if (hasSpImage && (!spColors || spColors.length === 0)) {
+      try {
+        spExtractedColors = await extractColorsFromImage(spImageBase64);
+        console.log("SP画像から色を抽出しました:", spExtractedColors.length, "色");
+      } catch (error) {
+        console.error("SP画像の色抽出エラー:", error);
+      }
+    }
+
+    if (hasDrawerImage && (!drawerColors || drawerColors.length === 0)) {
+      try {
+        drawerExtractedColors = await extractColorsFromImage(drawerImageBase64);
+        console.log("ドロワー画像から色を抽出しました:", drawerExtractedColors.length, "色");
+      } catch (error) {
+        console.error("ドロワー画像の色抽出エラー:", error);
+      }
+    }
+
+    let colorGuidelines = '';
+    let manualColors = [...pcColors, ...spColors, ...drawerColors].filter(color => color.name && color.value);
+    let extractedColors = [...pcExtractedColors, ...spExtractedColors, ...drawerExtractedColors];
+
+    // すべての色を結合（手動色 + 抽出色）
+    const allColors = [...manualColors, ...extractedColors.map(color => ({ name: 'extracted', value: color }))];
+
+    if (settings.cssVariables && settings.cssVariables.trim() !== '') {
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like $primary-color, etc.)
+- Here is a recommended color palette based on the design:
+`;
+
+      // 変数からHEX値を抽出
+      const hexValues = extractHexValuesFromVariables(settings.cssVariables);
+
+      // 抽出した色を追加
+      if (hexValues.length > 0) {
+        colorGuidelines += `  ${hexValues.join(', ')}
+`;
+      }
+
+      // 画像から抽出した色も追加
+      if (allColors.length > 0) {
+        const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+        colorGuidelines += `- Additional colors from the image:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+      }
+
+      colorGuidelines += `- Feel free to use variations of these colors where needed
+`;
+    } else if (allColors.length > 0) {
+      const uniqueColors = [...new Map(allColors.map(color => [color.value, color])).values()];
+      colorGuidelines = `
+## Color Guidelines:
+- Use ONLY HEX color values directly in your CSS
+- DO NOT use CSS variables (like --primary-color, etc.)
+- Here is a recommended color palette based on the design:
+  ${uniqueColors.map(color => color.value).join(', ')}
+`;
+    }
+
+    // ドロワー設定の情報
+    const drawerConfig = `
+## Drawer Menu Configuration:
+- Drawer Layout: ${drawerLayout === 'both' ? 'Both SP/PC' : 'SP Only'}
+- Drawer Direction: ${drawerDirection === 'right' ? 'From Right' :
+        drawerDirection === 'left' ? 'From Left' :
+          drawerDirection === 'top' ? 'From Top' :
+            drawerDirection === 'bottom' ? 'From Bottom' :
+              'Fade In'
+      }
+`;
+
+    // 既存コードの情報
+    const existingCode = `
+## Existing Header Code:
+
+\`\`\`html
+${headerHtml || '<!-- No header HTML provided -->'}
+\`\`\`
+
+\`\`\`scss
+${headerCss || '/* No header CSS provided */'}
+\`\`\`
+
+## Existing Drawer Menu Code:
+
+\`\`\`html
+${drawerHtml || '<!-- No drawer HTML provided -->'}
+\`\`\`
+
+\`\`\`scss
+${drawerCss || '/* No drawer CSS provided */'}
+\`\`\`
+
+\`\`\`javascript
+${drawerJs || '// No drawer JavaScript provided'}
+\`\`\`
+`;
+
+    // 共通のプロンプト指示を取得
+    const commonInstructions = getCommonPromptInstructions(responsiveMode, aiBreakpoints, settings);
+
+    // メインプロンプトの構築
+    return `
+# Header and Drawer Menu Integration
+
+Integrate the header and drawer menu components into a unified, functional solution.
+
+## Basic Information
+- Output Type: ${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"} Priority
+${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.filter(bp => bp.aiActive).map(bp => `${bp.name}: ${bp.value}px`).join(', ')}` : ''}
+${imageDescriptionPrompt ? `\n## Image Analysis\n${imageDescriptionPrompt}` : ''}
+
+## Design Rules (Important)
+
+### Coding Conventions:
+- **Follow FLOCSS methodology strictly**
+  - Component prefix: "c-" (e.g., c-button)
+  - Project prefix: "p-" (e.g., p-header, p-drawer)
+  - Layout prefix: "l-" (e.g., l-container)
+  - Utility prefix: "u-" (e.g., u-hidden)
+
+${textContentPrompt}
+${colorGuidelines}
+${drawerConfig}
+${existingCode}
+
+## Integration Task
+
+Your task is to integrate the header and drawer menu components into a single, cohesive solution:
+
+1. **Review Existing Code**:
+   - Analyze the provided header and drawer code
+   - Identify elements that need to be connected (e.g., hamburger buttons, navigation)
+
+2. **Resolve Conflicts**:
+   - Eliminate any duplicated classes or styles
+   - Ensure consistent naming conventions
+   - Combine similar styles where appropriate
+
+3. **Unify JavaScript Functionality**:
+   - Create a single JavaScript file that handles both header and drawer functionality
+   - Ensure proper event handling and accessibility
+   - Implement smooth transitions for all interactive elements
+
+4. **Output Complete Solution**:
+   - Provide complete HTML, SCSS and JavaScript that combines both components
+   - Ensure all functionality works seamlessly
+   - Keep code clean, organized, and maintainable
+
+${commonInstructions}
+`;
+  } catch (error) {
+    console.error('統合プロンプト生成中にエラーが発生しました:', error);
+
+    // エラーが発生しても最低限のプロンプトを生成して返す
+    return `
+# Header and Drawer Menu Integration
+
+Integrate the header and drawer menu components into a unified, functional solution.
+
+## Important Instructions
+- Maintain FLOCSS methodology in all code
+- Combine and deduplicate classes from header and drawer components
+- Ensure proper JavaScript functionality for both components
+- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
+- No SCSS nesting - write flat SCSS structure
+- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS❗❗**
+- **START HEADING TAGS FROM h2** - do not use h1 tags in components
+- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES**
+- DO NOT use <header> or <main> tags
+- Use specific, descriptive class names reflecting design features
+
+## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
+- **❌ ABSOLUTELY NO NESTING IN SCSS!** (EXCEPT for media queries)
+- **❌ NEVER use &__element notation**
+- **❌ NEVER use &:hover or other nested pseudo-selectors**
+- **✅ BUT DO NEST MEDIA QUERIES** inside selectors
+- **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type
+- **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it with flat selectors
+
+## Output Format:
+\`\`\`html
+<!-- HTML code here -->
+\`\`\`
+
+\`\`\`scss
+/* SCSS code here */
+\`\`\`
+
+\`\`\`javascript
+// JavaScript code here
+\`\`\`
+`;
+  }
+};

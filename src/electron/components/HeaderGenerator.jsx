@@ -18,159 +18,14 @@ import 'highlight.js/styles/github.css';
 import Header from './Header';
 import CodeDisplay from './CodeDisplay';
 import CodeGenerationSettings from './CodeGenerationSettings';
-import { generateHeaderPrompt } from "../utils/headerPromptGenerator";
+import { generateHeaderPrompt, generateHeaderStructurePrompt, generateDrawerMenuPrompt, generateIntegrationPrompt } from "../utils/headerPromptGenerator";
 import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
 import "../styles/AICodeGenerator.scss";
+import flattenSCSS from "../utils/flattenSCSS";
+import convertPxToRem from "../utils/convertPxToRem";
+import resizeImage from "../utils/resizeImage";
 
-const LOCAL_STORAGE_KEY = "header_generator_state";
-
-// SCSSのネスト構造を平坦化する関数
-const flattenSCSS = (scss) => {
-  if (!scss) return scss;
-
-  // 結果を格納する配列
-  const lines = scss.split('\n');
-  const result = [];
-
-  // 現在の親セレクタとインデントレベルを追跡
-  let parentSelector = null;
-  let currentIndent = 0;
-  let inComment = false;
-  let inMediaQuery = false;
-  let mediaQueryBlock = '';
-  let mediaQueryIndent = 0;
-
-  // 各行を処理
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmedLine = line.trim();
-
-    // コメント処理
-    if (trimmedLine.startsWith('/*')) inComment = true;
-    if (trimmedLine.endsWith('*/')) {
-      inComment = false;
-      result.push(line);
-      continue;
-    }
-    if (inComment) {
-      result.push(line);
-      continue;
-    }
-
-    // 空行の場合はそのまま追加
-    if (trimmedLine === '') {
-      result.push('');
-      continue;
-    }
-
-    // インデントレベルを計算
-    const indentMatch = line.match(/^(\s+)/);
-    const indent = indentMatch ? indentMatch[1].length : 0;
-
-    // メディアクエリ処理
-    if (trimmedLine.startsWith('@include mq(') && !inMediaQuery) {
-      inMediaQuery = true;
-      mediaQueryBlock = line;
-      mediaQueryIndent = indent;
-      continue;
-    }
-
-    if (inMediaQuery) {
-      mediaQueryBlock += '\n' + line;
-      if (trimmedLine === '}') {
-        inMediaQuery = false;
-        result.push(mediaQueryBlock);
-        mediaQueryBlock = '';
-      }
-      continue;
-    }
-
-    // セレクタ行の検出
-    if (trimmedLine.includes('{') && !trimmedLine.includes('}')) {
-      // インデントレベルが下がった場合、親セレクタをリセット
-      if (indent <= currentIndent) {
-        parentSelector = null;
-      }
-
-      // 親セレクタを記録
-      parentSelector = trimmedLine.split('{')[0].trim();
-      currentIndent = indent;
-      result.push(line);
-    }
-    // ネストされたセレクタの検出 (&__)
-    else if (trimmedLine.startsWith('&') && parentSelector) {
-      const nestedPart = trimmedLine.split('{')[0].trim();
-      // &__title { のようなパターンを.parent__titleに変換
-      if (nestedPart.startsWith('&__')) {
-        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
-        // インデントを親と同じレベルに調整
-        const spaces = ' '.repeat(currentIndent);
-        result.push(`${spaces}${newSelector}`);
-      }
-      // &:hover { のようなパターンを.parent:hoverに変換
-      else if (nestedPart.startsWith('&:')) {
-        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
-        const spaces = ' '.repeat(currentIndent);
-        result.push(`${spaces}${newSelector}`);
-      }
-    }
-    // 通常の行はそのまま追加
-    else {
-      result.push(line);
-    }
-  }
-
-  return result.join('\n');
-};
-
-// pxをremに変換する関数
-const convertPxToRem = (scss) => {
-  if (!scss) return scss;
-
-  // base font-size: 16px
-  const ROOT_FONT_SIZE = 16;
-
-  // 行ごとに処理
-  const lines = scss.split('\n');
-  const result = [];
-
-  // メディアクエリ内かどうかのフラグ
-  let inMediaQuery = false;
-
-  for (const line of lines) {
-    // メディアクエリの開始と終了を検出
-    if (line.includes('@include mq(')) {
-      inMediaQuery = true;
-    }
-    if (inMediaQuery && line.trim() === '}') {
-      inMediaQuery = false;
-    }
-
-    // メディアクエリ内またはborderの1pxはそのまま残す
-    if (inMediaQuery ||
-      line.includes('border') && line.includes('1px') ||
-      line.includes('box-shadow') && line.includes('px')) {
-      result.push(line);
-      continue;
-    }
-
-    // pxをremに変換（数値とpxの間にスペースがあってもマッチ）
-    let processedLine = line;
-    const pxRegex = /(\d*\.?\d+)\s*px/g;
-
-    processedLine = processedLine.replace(pxRegex, (match, pixelValue) => {
-      // 小数点第3位までの精度で変換
-      const remValue = (parseFloat(pixelValue) / ROOT_FONT_SIZE).toFixed(3);
-      // 末尾の0を削除（例：1.500rem → 1.5rem、1.000rem → 1rem）
-      const trimmedRemValue = parseFloat(remValue);
-      return `${trimmedRemValue}rem`;
-    });
-
-    result.push(processedLine);
-  }
-
-  return result.join('\n');
-};
+const LOCAL_STORAGE_KEY = "headerGeneratorState";
 
 // 2つのHEX色の類似度を計算する関数
 const getColorSimilarity = (hex1, hex2) => {
@@ -351,12 +206,19 @@ const HeaderGenerator = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState("edit");
   const [previewHeight, setPreviewHeight] = useState(500);
-  const [previewWidth, setPreviewWidth] = useState(1280);
+  const [previewWidth, setPreviewWidth] = useState(1200); // デフォルト幅として1200pxを設定
   const [previewDevice, setPreviewDevice] = useState("pc");
   const [generatedCode, setGeneratedCode] = useState("");
   const [showGeneratedCode, setShowGeneratedCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const generatedCodeRef = useRef(null);
+
+  // 3段階生成のための状態変数
+  const [generationStage, setGenerationStage] = useState('');
+  const [intermediateResults, setIntermediateResults] = useState({
+    header: { html: '', css: '', js: '' },
+    drawer: { html: '', css: '', js: '' }
+  });
 
   // 画像関連の状態変数
   const [pcImage, setPcImage] = useState(null);
@@ -667,112 +529,132 @@ const HeaderGenerator = () => {
       }
       setProcessedCSS(processedCss);
 
+      // JSコードを処理（外部スクリプト参照を削除）
+      let processedJs = isEditing ? editingJS : generatedJS || '';
+
+      // script要素内のsrc属性への参照を削除
+      processedJs = processedJs.replace(/<script.*?src=["'].*?["'].*?><\/script>/g, '');
+
+      // 外部参照がある場合の警告
+      if (processedJs.includes('src="') || processedJs.includes("src='")) {
+        console.warn("生成されたJSコードに外部スクリプト参照が含まれています。プレビューでは動作しません。");
+      }
+
       // より確実なレンダリングのため、DOCTYPE宣言を追加
       const iframe = previewRef.current;
       const doc = iframe.contentWindow.document;
       doc.open();
       doc.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            body {
-              margin: 0;
-              padding: 0;
-              font-family: "Noto Sans JP", Arial, sans-serif;
-            }
-            .preview-container {
-              width: 100%;
-              max-width: ${previewWidth}px;
-              margin: 0 auto;
-              box-sizing: border-box;
-              min-height: 100%; /* 余白を削除 */
-              display: block;
-              position: relative;
-            }
-            *,
-            *::before,
-            *::after {
-              box-sizing: border-box;
-            }
-            /* すべての画像にブロック表示を適用 */
-            img {
-              display: block;
-              max-width: 100%;
-            }
-            /* 特に大きなプレビューサイズでの表示を改善 */
-            @media (min-width: 1440px) {
-              .preview-container {
-                min-height: 100%;
-              }
-            }
-            ${processedCss || ''}
-          </style>
-          <script>
-            // 親ウィンドウに高さを通知するシンプルなスクリプト
-            function updateHeight() {
-              // コンテンツの高さを計算
-              const previewContainer = document.querySelector('.preview-container');
-
-              let contentHeight;
-              if (previewContainer) {
-                contentHeight = previewContainer.getBoundingClientRect().height;
-              } else {
-                contentHeight = Math.max(
-                  document.body.scrollHeight,
-                  document.documentElement.scrollHeight,
-                  document.body.offsetHeight,
-                  document.documentElement.offsetHeight
-                );
-              }
-
-              // 余裕を持たせる
-              const heightWithMargin = Math.ceil(contentHeight);
-
-              // 親ウィンドウに通知
-              if (window.parent) {
-                window.parent.postMessage({
-                  type: 'resize',
-                  height: heightWithMargin
-                }, '*');
-              }
-            }
-
-            // 画像の読み込み完了時に高さを更新
-            window.addEventListener('load', function() {
-              // 初期実行
-              updateHeight();
-
-              // 少し遅延して再実行（CSS適用後）
-              setTimeout(updateHeight, 300);
-
-              // 画像の読み込み完了時にも高さを更新
-              document.querySelectorAll('img').forEach(img => {
-                if (!img.complete) {
-                  img.addEventListener('load', updateHeight);
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  margin: 0;
+                  padding: 0;
+                  font-family: "Noto Sans JP", Arial, sans-serif;
                 }
-              });
-            });
+                .preview-container {
+                  width: 100%;
+                  max-width: ${previewWidth}px;
+                  margin: 0 auto;
+                  box-sizing: border-box;
+                  min-height: 100%; /* 余白を削除 */
+                  display: block;
+                  position: relative;
+                }
+                *,
+                *::before,
+                *::after {
+                  box-sizing: border-box;
+                }
+                /* すべての画像にブロック表示を適用 */
+                img {
+                  display: block;
+                  max-width: 100%;
+                }
+                /* 特に大きなプレビューサイズでの表示を改善 */
+                @media (min-width: 1440px) {
+                  .preview-container {
+                    min-height: 100%;
+                  }
+                }
+            ${processedCss || ''}
+              </style>
+              <script>
+                // 親ウィンドウに高さを通知するシンプルなスクリプト
+                function updateHeight() {
+                  // コンテンツの高さを計算
+                  const previewContainer = document.querySelector('.preview-container');
 
-            // リサイズ時に高さを更新
-            window.addEventListener('resize', function() {
-              clearTimeout(window.resizeTimer);
-              window.resizeTimer = setTimeout(updateHeight, 100);
-            });
+                  let contentHeight;
+                  if (previewContainer) {
+                    contentHeight = previewContainer.getBoundingClientRect().height;
+                  } else {
+                    contentHeight = Math.max(
+                      document.body.scrollHeight,
+                      document.documentElement.scrollHeight,
+                      document.body.offsetHeight,
+                      document.documentElement.offsetHeight
+                    );
+                  }
+
+                  // 余裕を持たせる
+                  const heightWithMargin = Math.ceil(contentHeight);
+
+                  // 親ウィンドウに通知
+                  if (window.parent) {
+                    window.parent.postMessage({
+                      type: 'resize',
+                      height: heightWithMargin
+                    }, '*');
+                  }
+                }
+
+            // ドロワーメニュー用の共通関数
+            function handleKeyDown(event) {
+              if (event.key === 'Escape') {
+                if (typeof closeDrawer === 'function') {
+                  closeDrawer();
+                }
+              }
+            }
+
+                // 画像の読み込み完了時に高さを更新
+                window.addEventListener('load', function() {
+                  // 初期実行
+                  updateHeight();
+
+                  // 少し遅延して再実行（CSS適用後）
+                  setTimeout(updateHeight, 300);
+
+                  // 画像の読み込み完了時にも高さを更新
+                  document.querySelectorAll('img').forEach(img => {
+                    if (!img.complete) {
+                      img.addEventListener('load', updateHeight);
+                    }
+                  });
+                });
+
+                // リサイズ時に高さを更新
+                window.addEventListener('resize', function() {
+                  clearTimeout(window.resizeTimer);
+                  window.resizeTimer = setTimeout(updateHeight, 100);
+                });
 
             // ユーザーが作成したJavaScriptコード
-            ${isEditing ? editingJS : generatedJS || ''}
-          </script>
-        </head>
-        <body>
-          <div class="preview-container">
+            ${processedJs}
+              </script>
+            </head>
+            <body>
+              <div class="preview-container">
             ${isEditing ? editingHTML : generatedHTML || ''}
-          </div>
-        </body>
-        </html>
-      `);
+              </div>
+            </body>
+            </html>
+          `);
       doc.close();
     } catch (error) {
       console.error("プレビュー更新エラー:", error);
@@ -1010,177 +892,258 @@ const HeaderGenerator = () => {
     updatePreview();
   };
 
-  // コード生成処理
-  const handleGenerateCode = async () => {
+  // 新しいヘッダー生成マスター関数（3段階処理）
+  const handleGenerateHeaderMaster = async () => {
     if (!pcImage && !spImage && !drawerImage) {
       alert('少なくとも1つの画像をアップロードしてください');
       return;
     }
 
     setLoading(true);
+    setGenerationStage('header'); // ステップ1: ヘッダー構造の生成
 
     try {
-      // ヘッダー専用のプロンプトを生成
-      const prompt = await generateHeaderPrompt({
+      // ステップ1: ヘッダー構造生成
+      console.log("ステップ1: ヘッダー構造の生成を開始");
+      const headerStructure = await generateHeaderStructure();
+      console.log("ヘッダー構造生成完了:", headerStructure);
+
+      // ステップ2: ドロワーメニュー生成
+      setGenerationStage('drawer'); // ステップ2: ドロワーメニューの生成
+      console.log("ステップ2: ドロワーメニューの生成を開始");
+      const drawerMenu = await generateDrawerMenu();
+      console.log("ドロワーメニュー生成完了:", drawerMenu);
+
+      // ステップ3: 統合
+      setGenerationStage('integration'); // ステップ3: 統合処理
+      console.log("ステップ3: 統合処理を開始");
+      const integratedCode = await integrateComponents(headerStructure, drawerMenu);
+      console.log("統合完了:", integratedCode);
+
+      // 最終的なコードを設定
+      setFinalGeneratedCode(integratedCode);
+
+      // 生成完了
+      setGenerationStage('');
+      setLoading(false);
+
+      // プレビューを表示
+      setTimeout(() => {
+        updatePreview();
+      }, 200);
+
+    } catch (error) {
+      console.error("ヘッダー生成エラー:", error);
+      alert(`ヘッダー生成に失敗しました: ${error.message || '不明なエラー'}`);
+      setLoading(false);
+      setGenerationStage('');
+    }
+  };
+
+  // ステップ1: ヘッダー構造の生成
+  const generateHeaderStructure = async () => {
+    try {
+      // PCとSPのヘッダー構造のみに集中したプロンプトを生成
+      const headerPrompt = await generateHeaderStructurePrompt({
         responsiveMode,
         aiBreakpoints,
         pcImageBase64: pcImage,
         spImageBase64: spImage,
-        drawerImageBase64: drawerImage,
         pcColors,
         spColors,
-        drawerColors,
         pcImageText: pcText,
-        spImageText: spText,
+        spImageText: spText
+      });
+
+      // APIを呼び出してヘッダー構造のコードを生成
+      const headerResult = await window.api.generateCode({
+        prompt: headerPrompt,
+        uploadedImage: prepareImage(pcImage)
+      });
+
+      if (!headerResult || !headerResult.generatedCode) {
+        throw new Error("ヘッダー構造の生成に失敗しました");
+      }
+
+      // 生成されたコードを解析
+      const parsedCode = parseGeneratedCode(headerResult.generatedCode);
+
+      // 中間結果を保存
+      setIntermediateResults(prev => ({
+        ...prev,
+        header: parsedCode
+      }));
+
+      return parsedCode;
+    } catch (error) {
+      console.error("ヘッダー構造生成エラー:", error);
+      throw error;
+    }
+  };
+
+  // ステップ2: ドロワーメニューの生成
+  const generateDrawerMenu = async () => {
+    try {
+      // ドロワーメニューに集中したプロンプトを生成
+      const drawerPrompt = await generateDrawerMenuPrompt({
+        responsiveMode,
+        aiBreakpoints,
+        drawerImageBase64: drawerImage,
+        drawerColors,
         drawerImageText: drawerText,
         drawerLayout,
         drawerDirection
       });
 
-      console.log("生成されたプロンプト:", prompt);
+      // APIを呼び出してドロワーメニューのコードを生成
+      const drawerResult = await window.api.generateCode({
+        prompt: drawerPrompt,
+        uploadedImage: prepareImage(drawerImage)
+      });
 
-      // 空のプロンプトを送らないようチェック
-      if (!prompt || prompt.trim() === "") {
-        console.error("エラー: 送信するプロンプトが空です");
-        alert("プロンプトが空のため、コードを生成できません。");
-        setLoading(false);
-        return;
+      if (!drawerResult || !drawerResult.generatedCode) {
+        throw new Error("ドロワーメニューの生成に失敗しました");
       }
 
-      // 画像データの処理
-      let uploadedImage = null;
-      if (pcImage) {
-        try {
-          // 画像データの最適化
-          console.log("画像の前処理を実行します");
+      // 生成されたコードを解析
+      const parsedCode = parseGeneratedCode(drawerResult.generatedCode);
 
-          let processedImageData = pcImage;
+      // 中間結果を保存
+      setIntermediateResults(prev => ({
+        ...prev,
+        drawer: parsedCode
+      }));
 
-          // 画像のメディアタイプを確認
-          const mediaTypeMatch = processedImageData.match(/^data:([^;]+);base64,/);
-          const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : pcImage.mimeType;
-
-          console.log(`画像のメディアタイプ: ${mediaType}`);
-
-          // サイズが大きい場合はリサイズ（メディアタイプを保持）
-          if (processedImageData && processedImageData.length > 10000000) { // 10MB以上なら
-            console.log("画像サイズが大きいため、画像を最適化します（元サイズ: " + processedImageData.length + " bytes）");
-            processedImageData = await resizeImage(processedImageData, 1200); // 最大幅1200pxに縮小
-            console.log("画像を最適化しました（新サイズ: " + processedImageData.length + " bytes）");
-          }
-
-          // 画像データの準備
-          uploadedImage = {
-            name: "image.jpg",
-            path: pcImage,
-            data: processedImageData,
-            mimeType: mediaType
-          };
-
-          console.log("画像情報を送信:", uploadedImage.name);
-          console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
-        } catch (imgErr) {
-          console.error("画像最適化エラー:", imgErr);
-          alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
-          uploadedImage = null;
-        }
-      }
-
-      console.log("window.api:", window.api ? "存在します" : "存在しません");
-
-      try {
-        // APIを呼び出してコード生成
-        console.log("generateCode関数を呼び出し中...");
-        const result = await window.api.generateCode({
-          prompt: prompt,
-          uploadedImage: uploadedImage
-        });
-        console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
-
-        if (!result || !result.generatedCode) {
-          throw new Error("コード生成に失敗しました");
-        }
-
-        const generatedCode = result.generatedCode;
-        console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
-
-        // 生成されたコードをHTMLとCSSに分割
-        const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
-        const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
-        const jsMatch = generatedCode.match(/```javascript\n([\s\S]*?)```/) || generatedCode.match(/```js\n([\s\S]*?)```/);
-
-        console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
-        console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
-        console.log("JavaScript抽出結果:", jsMatch ? "マッチしました" : "マッチしませんでした");
-
-        const html = htmlMatch ? htmlMatch[1].trim() : "";
-        const css = cssMatch ? cssMatch[1].trim() : "";
-        const js = jsMatch ? jsMatch[1].trim() : "";
-
-        if (!html || !css) {
-          console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
-          console.log("HTML:", html);
-          console.log("CSS:", css);
-          alert("生成されたコードの形式が正しくありません。");
-          setLoading(false);
-          return;
-        }
-
-        // SCSSのネスト構造を検出してフラット化
-        const flattenedCSS = flattenSCSS(css);
-
-        // ネスト構造が検出されたかどうかチェック
-        if (flattenedCSS !== css) {
-          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
-          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
-        }
-
-        // pxをremに変換
-        const remCSS = convertPxToRem(flattenedCSS);
-
-        // 生成されたコードをステートに設定
-        setGeneratedCode(generatedCode);
-        setGeneratedHTML(html);
-        setGeneratedCSS(remCSS);
-        setGeneratedJS(js);
-        setEditingHTML(html);
-        setEditingCSS(remCSS);
-        setEditingJS(js);
-        setShowGeneratedCode(true);
-        setIsEditing(false);
-
-        // 画面を生成されたコードセクションまでスクロール
-        setTimeout(() => {
-          if (generatedCodeRef.current) {
-            generatedCodeRef.current.scrollIntoView({
-              behavior: 'smooth',
-              block: 'start'
-            });
-          }
-          updatePreview();
-        }, 500);
-      } catch (error) {
-        console.error("コード生成エラー:", error);
-
-        // エラーメッセージを解析して表示
-        let errorMessage = error.message;
-
-        // Claude APIの画像エラーをより分かりやすく表示
-        if (errorMessage.includes("Image does not match the provided media type")) {
-          errorMessage = "画像形式エラー: アップロードされた画像の形式が一致しません。\n別の画像を試すか、他の形式（JPG/PNG）に変換してみてください。";
-        } else if (errorMessage.includes("media_type")) {
-          errorMessage = "画像メディアタイプエラー: APIがサポートしていない画像形式です。\nJPEG、PNG、GIF、WEBPのいずれかの形式をご利用ください。";
-        }
-
-        alert(`コード生成エラー: ${errorMessage}`);
-      } finally {
-        setLoading(false);
-      }
+      return parsedCode;
     } catch (error) {
-      console.error('コード生成中にエラーが発生しました:', error);
-      alert('コードの生成中にエラーが発生しました。もう一度お試しください。');
-      setLoading(false);
+      console.error("ドロワーメニュー生成エラー:", error);
+      throw error;
     }
+  };
+
+  // ステップ3: 統合処理
+  const integrateComponents = async (headerStructure, drawerMenu) => {
+    try {
+      // 統合用のプロンプトを生成
+      const integrationPrompt = await generateIntegrationPrompt({
+        headerHTML: headerStructure.html,
+        headerCSS: headerStructure.css,
+        headerJS: headerStructure.js,
+        drawerHTML: drawerMenu.html,
+        drawerCSS: drawerMenu.css,
+        drawerJS: drawerMenu.js,
+        responsiveMode,
+        aiBreakpoints
+      });
+
+      // APIを呼び出して統合コードを生成
+      const integrationResult = await window.api.generateCode({
+        prompt: integrationPrompt
+      });
+
+      if (!integrationResult || !integrationResult.generatedCode) {
+        throw new Error("コード統合に失敗しました");
+      }
+
+      // 生成されたコードを解析
+      return parseGeneratedCode(integrationResult.generatedCode);
+    } catch (error) {
+      console.error("コード統合エラー:", error);
+
+      // 統合に失敗した場合は、ヘッダーとドロワーのコードを手動で結合する
+      console.log("統合に失敗したため、手動結合を試みます");
+
+      return {
+        html: headerStructure.html + '\n' + drawerMenu.html,
+        css: headerStructure.css + '\n\n' + drawerMenu.css,
+        js: headerStructure.js + '\n\n' + drawerMenu.js
+      };
+    }
+  };
+
+  // 生成されたコードを解析する関数
+  const parseGeneratedCode = (generatedCode) => {
+    // HTMLとCSSとJSに分割
+    const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
+    const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
+    const jsMatch = generatedCode.match(/```javascript\n([\s\S]*?)```/) || generatedCode.match(/```js\n([\s\S]*?)```/);
+
+    const html = htmlMatch ? htmlMatch[1].trim() : "";
+    const css = cssMatch ? cssMatch[1].trim() : "";
+    const js = jsMatch ? jsMatch[1].trim() : "";
+
+    return { html, css, js };
+  };
+
+  // 最終的な生成コードを設定する関数
+  const setFinalGeneratedCode = (code) => {
+    // SCSSのネスト構造を検出してフラット化
+    const flattenedCSS = flattenSCSS(code.css);
+
+    // ネスト構造が検出されたかどうかチェック
+    if (flattenedCSS !== code.css) {
+      console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+      alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
+    }
+
+    // pxをremに変換
+    const remCSS = convertPxToRem(flattenedCSS);
+
+    // 生成されたコードをステートに設定
+    setGeneratedCode(`
+\`\`\`html
+${code.html}
+\`\`\`
+
+\`\`\`css
+${remCSS}
+\`\`\`
+
+\`\`\`javascript
+${code.js}
+\`\`\`
+    `);
+    setGeneratedHTML(code.html);
+    setGeneratedCSS(remCSS);
+    setGeneratedJS(code.js);
+    setEditingHTML(code.html);
+    setEditingCSS(remCSS);
+    setEditingJS(code.js);
+    setShowGeneratedCode(true);
+    setIsEditing(false);
+  };
+
+  // 画像データを準備する関数
+  const prepareImage = (imageBase64) => {
+    if (!imageBase64) return null;
+
+    try {
+      // 画像のメディアタイプを確認
+      const mediaTypeMatch = imageBase64.match(/^data:([^;]+);base64,/);
+      const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/jpeg';
+
+      return {
+        name: "image.jpg",
+        path: imageBase64,
+        data: imageBase64,
+        mimeType: mediaType
+      };
+    } catch (error) {
+      console.error("画像準備エラー:", error);
+      return null;
+    }
+  };
+
+  // 生成中のフィードバック表示コンポーネント
+  const GenerationProgress = ({ stage, isLoading }) => {
+    if (!isLoading) return null;
+
+    return (
+      <div className="generation-progress">
+        <div className="generation-loader"></div>
+        <div className="generation-stage">{stage || 'コード生成中...'}</div>
+      </div>
+    );
   };
 
   // 再生成処理
@@ -1773,34 +1736,41 @@ const HeaderGenerator = () => {
         </div>
       </div>
 
-      <button
-        className={`generate-button ${loading ? 'loading' : ''}`}
-        onClick={handleGenerateCode}
-        disabled={loading || (!pcImage && !spImage && !drawerImage)}
-      >
-        {loading ? "生成中..." : "コードを生成"}
-      </button>
+      <div className="control-section">
+        <div className="control-buttons">
+          <button
+            className={`generate-button ${loading ? 'loading' : ''}`}
+            onClick={handleGenerateHeaderMaster}
+            disabled={loading || (!pcImage && !spImage && !drawerImage)}
+          >
+            {loading ? "生成中..." : "ヘッダー生成"}
+          </button>
 
-      {showGeneratedCode && (
-        <div className="reset-buttons-container">
-          <button
-            className="reset-code-button"
-            onClick={handleResetCode}
-            disabled={loading}
-            title="生成したコードのみをリセットします。アップロードした画像は保持されます。"
-          >
-            コードをリセット
-          </button>
-          <button
-            className="reset-all-button"
-            onClick={handleResetAll}
-            disabled={loading}
-            title="生成したコードとアップロードした画像を含むすべてのデータをリセットします。"
-          >
-            すべてリセット
-          </button>
+          {/* 進行状況表示 */}
+          <GenerationProgress stage={generationStage} isLoading={loading} />
+
+          {showGeneratedCode && (
+            <div className="reset-buttons-container">
+              <button
+                className="reset-code-button"
+                onClick={handleResetCode}
+                disabled={loading}
+                title="生成したコードのみをリセットします。アップロードした画像は保持されます。"
+              >
+                コードをリセット
+              </button>
+              <button
+                className="reset-all-button"
+                onClick={handleResetAll}
+                disabled={loading}
+                title="生成したコードとアップロードした画像を含むすべてのデータをリセットします。"
+              >
+                すべてリセット
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {showGeneratedCode && (
         <div className="generated-code-container" ref={generatedCodeRef}>
