@@ -18,13 +18,13 @@ const App = () => {
 
   const menuItems = [
     { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
-    { id: "changelog", label: "変更ログ", icon: "📝" },
+    // { id: "changelog", label: "変更ログ", icon: "📝" },
     { id: "reset-css", label: "リセットCSS関連", icon: "🎨" },
     { id: "responsive-config", label: "レスポンシブ関連", icon: "📱" },
     { id: "variable-config", label: "変数設定", icon: "⚙️" },
     { id: "ai-code-generator", label: "AIコード生成", icon: "🤖" },
-    { id: "header-generator", label: "ヘッダー生成", icon: "🔝" },
-    { id: "stylex-converter", label: "StyleXコンバーター", icon: "🔄" },
+    // { id: "header-generator", label: "ヘッダー生成", icon: "🔝" },
+    // { id: "stylex-converter", label: "StyleXコンバーター", icon: "🔄" },
     { id: "api-settings", label: "API設定", icon: "🔑" },
   ];
 
