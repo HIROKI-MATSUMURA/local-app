@@ -4,6 +4,11 @@ const fs = require('fs');
 const axios = require('axios');
 const { session } = require('electron');
 
+// ハードコードされたAPIキー
+const OPENAI_API_KEY = "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";
+const CLAUDE_API_KEY = "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";
+const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
+
 // グローバルエラーハンドリング
 process.on('uncaughtException', (error) => {
   console.error('未捕捉の例外が発生しました:', error);
@@ -548,6 +553,128 @@ $mediaquerys: (
   // APIキー取得ハンドラ
   ipcMain.handle('get-api-key', async () => {
     return getApiKey();
+  });
+
+  // AIコード生成ハンドラ
+  ipcMain.handle('generate-code', async (event, params) => {
+    try {
+      console.log('AIコード生成リクエストを受信しました');
+
+      // ハードコードされたAPIキーを使用
+      const selectedProvider = DEFAULT_PROVIDER;
+      const apiKey = selectedProvider === 'openai' ? OPENAI_API_KEY : CLAUDE_API_KEY;
+
+      console.log(`選択されたAIプロバイダ: ${selectedProvider}`);
+
+      if (!apiKey) {
+        throw new Error(`APIキーが設定されていません`);
+      }
+
+      const { prompt, uploadedImage } = params;
+
+      if (!prompt) {
+        throw new Error('プロンプトが指定されていません');
+      }
+
+      // 画像情報のログ
+      if (uploadedImage) {
+        console.log(`画像情報: ${uploadedImage.name || 'unknown'} (${uploadedImage.data ? uploadedImage.data.length + ' bytes' : 'no data'})`);
+      } else {
+        console.log('画像なし - テキストのみのリクエスト');
+      }
+
+      // APIリクエスト
+      let response;
+
+      if (selectedProvider === 'openai') {
+        // OpenAI APIリクエスト
+        console.log('OpenAI APIにリクエスト送信...');
+
+        const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+
+        // 画像がある場合
+        if (uploadedImage && uploadedImage.data) {
+          messages[0].content.push({
+            type: 'image_url',
+            image_url: {
+              url: uploadedImage.data,
+              detail: 'high'
+            }
+          });
+        }
+
+        const requestData = {
+          model: 'gpt-4o',
+          messages,
+          max_tokens: 4096,
+          temperature: 0.7
+        };
+
+        response = await axios.post('https://api.openai.com/v1/chat/completions', requestData, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          }
+        });
+
+        console.log(`OpenAI APIレスポンス: HTTP ${response.status}`);
+
+        return {
+          generatedCode: response.data.choices[0].message.content,
+          provider: 'openai'
+        };
+      } else {
+        // Claude APIリクエスト
+        console.log('Claude APIにリクエスト送信...');
+
+        let messageContent;
+
+        // 画像がある場合
+        if (uploadedImage && uploadedImage.data) {
+          messageContent = [
+            { type: 'text', text: prompt },
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: uploadedImage.mimeType || 'image/jpeg',
+                data: uploadedImage.data.split(',')[1] // Base64データ部分のみ抽出
+              }
+            }
+          ];
+        } else {
+          messageContent = prompt;
+        }
+
+        const requestData = {
+          model: 'claude-3-5-haiku-20241022',
+          messages: [{
+            role: 'user',
+            content: messageContent
+          }],
+          max_tokens: 4096,
+          temperature: 0.7
+        };
+
+        response = await axios.post('https://api.anthropic.com/v1/messages', requestData, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01'
+          }
+        });
+
+        console.log(`Claude APIレスポンス: HTTP ${response.status}`);
+
+        return {
+          generatedCode: response.data.content[0].text,
+          provider: 'claude'
+        };
+      }
+    } catch (error) {
+      console.error('AIコード生成エラー:', error);
+      throw new Error(`コード生成中にエラーが発生しました: ${error.message}`);
+    }
   });
 }
 

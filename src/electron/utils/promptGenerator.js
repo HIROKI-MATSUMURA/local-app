@@ -1,5 +1,11 @@
 import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
 
+// 共通のエラーハンドリング関数
+const handleAnalysisError = (operation, error, defaultValue) => {
+  console.error(`${operation}エラー:`, error);
+  return defaultValue;
+};
+
 // ローカルストレージから設定を取得する関数
 const getSettingsFromLocalStorage = () => {
   try {
@@ -42,228 +48,184 @@ const extractHexValuesFromVariables = (cssVars) => {
   return hexValues;
 };
 
-const generatePrompt = async ({ responsiveMode, aiBreakpoints, pcImageBase64, spImageBase64 }) => {
-  try {
-    console.log("プロンプト生成処理を開始");
+// 画像解析を実行して結果を取得する関数
+const analyzeImage = async (imageBase64, imageType) => {
+  if (!imageBase64) return { colors: [], text: '', sections: [], elements: { elements: [] } };
 
-    // 基本的な画像解析を実行
-    console.log("基本的な画像解析を実行中...");
+  const colors = await extractColorsFromImage(imageBase64)
+    .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, []));
 
-    // 画像から色を取得（エラーハンドリング付き）
-    let pcColors = [];
-    let spColors = [];
-    let pcText = '';
-    let spText = '';
-    let pcSections = [];
-    let spSections = [];
-    let pcElements = [];
-    let spElements = [];
+  console.log(`${imageType}画像から色を抽出しました:`, colors.length, "色");
 
-    // より詳細な画像分析を実行
-    if (pcImageBase64) {
-      try {
-        pcColors = await extractColorsFromImage(pcImageBase64);
-        console.log("PC画像から色を抽出しました:", pcColors.length, "色");
-      } catch (error) {
-        console.error("PC画像の色抽出エラー:", error);
-      }
+  const text = await extractTextFromImage(imageBase64)
+    .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, ''));
 
-      try {
-        pcText = await extractTextFromImage(pcImageBase64);
-        console.log("PC画像からテキストを抽出しました");
-      } catch (error) {
-        console.error("PC画像のテキスト抽出エラー:", error);
-        pcText = '';
-      }
+  console.log(`${imageType}画像からテキストを抽出しました`);
 
-      try {
-        pcSections = await analyzeImageSections(pcImageBase64);
-        console.log("PC画像のセクション分析が完了しました:", pcSections.length, "セクション");
-      } catch (error) {
-        console.error("PC画像のセクション分析エラー:", error);
-        pcSections = [];
-      }
+  const sections = await analyzeImageSections(imageBase64)
+    .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, []));
 
-      try {
-        pcElements = await detectFeatureElements(pcImageBase64);
-        console.log("PC画像の要素検出が完了しました:", pcElements ? pcElements.elements?.length || 0 : 0, "要素");
-      } catch (error) {
-        console.error("PC画像の要素検出エラー:", error);
-        pcElements = { elements: [] };
-      }
-    }
+  console.log(`${imageType}画像のセクション分析が完了しました:`, sections.length, "セクション");
 
-    if (spImageBase64) {
-      try {
-        spColors = await extractColorsFromImage(spImageBase64);
-        console.log("SP画像から色を抽出しました:", spColors.length, "色");
-      } catch (error) {
-        console.error("SP画像の色抽出エラー:", error);
-      }
+  const elements = await detectFeatureElements(imageBase64)
+    .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] }));
 
-      try {
-        spText = await extractTextFromImage(spImageBase64);
-        console.log("SP画像からテキストを抽出しました");
-      } catch (error) {
-        console.error("SP画像のテキスト抽出エラー:", error);
-        spText = '';
-      }
+  console.log(`${imageType}画像の要素検出が完了しました:`, elements ? elements.elements?.length || 0 : 0, "要素");
 
-      try {
-        spSections = await analyzeImageSections(spImageBase64);
-        console.log("SP画像のセクション分析が完了しました:", spSections.length, "セクション");
-      } catch (error) {
-        console.error("SP画像のセクション分析エラー:", error);
-        spSections = [];
-      }
+  return { colors, text, sections, elements };
+};
 
-      try {
-        spElements = await detectFeatureElements(spImageBase64);
-        console.log("SP画像の要素検出が完了しました:", spElements ? spElements.elements?.length || 0 : 0, "要素");
-      } catch (error) {
-        console.error("SP画像の要素検出エラー:", error);
-        spElements = { elements: [] };
-      }
-    }
-
-    // ローカルストレージから設定を取得
-    const settings = getSettingsFromLocalStorage();
-
-    console.log("プロンプトの構築を開始");
-
-    // より構造化されたプロンプトを構築
-    let prompt = `
+// コアプロンプト部分を構築する関数
+const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
+  return `
 # HTML/SCSS Code Generation from Design Comp
 
 ## Basic Information
 - Output Type: ${responsiveMode === "both" ? "Responsive Design (PC/SP)" : `${responsiveMode === "pc" ? "PC (Desktop)" : "SP (Mobile)"}`}
 ${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.map(bp => `${bp.width}px`).join(', ')}` : ''}
+`;
+};
 
+// 解析結果部分を構築する関数
+const buildAnalysisSection = (pcAnalysis, spAnalysis) => {
+  let section = `
 ## Image Analysis Results
 `;
 
-    // 抽出されたテキスト情報を追加
-    if (pcText || spText) {
-      prompt += `
+  // テキスト情報
+  if (pcAnalysis.text || spAnalysis.text) {
+    section += `
 ### Detected Text:
-${pcText ? `#### PC Image Text:
+${pcAnalysis.text ? `#### PC Image Text:
 \`\`\`
-${pcText}
+${pcAnalysis.text}
 \`\`\`` : ""}
-${spText ? `#### SP Image Text:
+${spAnalysis.text ? `#### SP Image Text:
 \`\`\`
-${spText}
+${spAnalysis.text}
 \`\`\`` : ""}
 
 `;
-    }
+  }
 
-    // 色情報を追加
-    if (pcColors.length > 0 || spColors.length > 0) {
-      prompt += `
+  // 色情報
+  if (pcAnalysis.colors.length > 0 || spAnalysis.colors.length > 0) {
+    section += `
 ### Detected Colors:
-${pcColors.length > 0 ? `- PC Image Main Colors: ${pcColors.join(", ")}` : ""}
-${spColors.length > 0 ? `- SP Image Main Colors: ${spColors.join(", ")}` : ""}
+${pcAnalysis.colors.length > 0 ? `- PC Image Main Colors: ${pcAnalysis.colors.join(", ")}` : ""}
+${spAnalysis.colors.length > 0 ? `- SP Image Main Colors: ${spAnalysis.colors.join(", ")}` : ""}
 
 `;
-    }
+  }
 
-    // セクション情報を追加
-    if (pcSections.length > 0 || spSections.length > 0) {
-      prompt += `
+  // セクション情報
+  if (pcAnalysis.sections.length > 0 || spAnalysis.sections.length > 0) {
+    section += `
 ### Detected Section Structure:
-${pcSections.length > 0 ? `- PC Image: ${JSON.stringify(pcSections.map(section => ({
-        position: `section ${section.section} from top`,
-        dominantColor: section.dominantColor
-      })))}` : ""}
-${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section => ({
-        position: `section ${section.section} from top`,
-        dominantColor: section.dominantColor
-      })))}` : ""}
+${pcAnalysis.sections.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.sections.map(section => ({
+      position: `section ${section.section} from top`,
+      dominantColor: section.dominantColor
+    })))}` : ""}
+${spAnalysis.sections.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.sections.map(section => ({
+      position: `section ${section.section} from top`,
+      dominantColor: section.dominantColor
+    })))}` : ""}
 
 `;
-    }
+  }
 
-    // 要素情報を追加（エラーハンドリング付き）
-    if ((pcElements && pcElements.elements && pcElements.elements.length > 0) ||
-      (spElements && spElements.elements && spElements.elements.length > 0)) {
-      prompt += `
+  // 要素情報
+  if ((pcAnalysis.elements && pcAnalysis.elements.elements && pcAnalysis.elements.elements.length > 0) ||
+    (spAnalysis.elements && spAnalysis.elements.elements && spAnalysis.elements.elements.length > 0)) {
+    section += `
 ### Detected Main Elements:
-${pcElements && pcElements.elements && pcElements.elements.length > 0 ? `- PC Image: ${JSON.stringify(pcElements.elements)}` : ""}
-${spElements && spElements.elements && spElements.elements.length > 0 ? `- SP Image: ${JSON.stringify(spElements.elements)}` : ""}
+${pcAnalysis.elements && pcAnalysis.elements.elements && pcAnalysis.elements.elements.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.elements.elements)}` : ""}
+${spAnalysis.elements && spAnalysis.elements.elements && spAnalysis.elements.elements.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.elements.elements)}` : ""}
 
 `;
-    }
+  }
 
-    // ローカルストレージから取得した設定を追加
-    if (settings.resetCSS || settings.cssVariables || settings.responsiveSettings) {
-      prompt += `
+  return section;
+};
+
+// 設定セクションを構築する関数
+const buildSettingsSection = (settings, pcColors, spColors) => {
+  if (!settings.resetCSS && !settings.cssVariables && !settings.responsiveSettings) {
+    return '';
+  }
+
+  let section = `
 ## Project Settings
 `;
 
-      if (settings.resetCSS) {
-        prompt += `### Reset CSS:
+  if (settings.resetCSS) {
+    section += `### Reset CSS:
 \`\`\`css
 ${settings.resetCSS}
 \`\`\`
 
 `;
-      }
+  }
 
-      if (settings.cssVariables) {
-        prompt += `
+  if (settings.cssVariables) {
+    section += `
 ### Color Guidelines:
 - Use ONLY HEX color values directly in your CSS
 - DO NOT use CSS variables (like $primary-color, etc.)
 - Here is a recommended color palette based on the design:
 `;
 
-        // 変数からHEX値を抽出
-        const hexValues = extractHexValuesFromVariables(settings.cssVariables);
+    // 変数からHEX値を抽出
+    const hexValues = extractHexValuesFromVariables(settings.cssVariables);
 
-        // 抽出した色を追加
-        if (hexValues.length > 0) {
-          prompt += `  ${hexValues.join(', ')}
+    // 抽出した色を追加
+    if (hexValues.length > 0) {
+      section += `  ${hexValues.join(', ')}
 `;
-        }
+    }
 
-        // PC画像とSP画像から抽出した色も追加
-        if (pcColors.length > 0 || spColors.length > 0) {
-          prompt += `- Additional colors from the image:
+    // PC画像とSP画像から抽出した色も追加
+    if (pcColors.length > 0 || spColors.length > 0) {
+      section += `- Additional colors from the image:
   ${[...pcColors, ...spColors].filter((c, i, a) => a.indexOf(c) === i).join(', ')}
 `;
-        }
+    }
 
-        prompt += `- Feel free to use variations of these colors where needed
+    section += `- Feel free to use variations of these colors where needed
 
 `;
-      } else {
-        // cssVariablesがない場合
-        prompt += `### CSS Variables:
+  } else {
+    // cssVariablesがない場合
+    section += `### CSS Variables:
 \`\`\`css
 ${settings.cssVariables}
 \`\`\`
 
 `;
-      }
+  }
 
-      if (settings.responsiveSettings) {
-        prompt += `### Responsive Settings:
+  if (settings.responsiveSettings) {
+    section += `### Responsive Settings:
 \`\`\`css
 ${settings.responsiveSettings}
 \`\`\`
 
 `;
-      }
-    }
+  }
 
-    // 最後に具体的な指示を追加
-    prompt += `
+  return section;
+};
+
+// ガイドラインセクションを構築する関数
+const buildGuidelinesSection = (responsiveMode) => {
+  return `
 ## Coding Guidelines
 
 You are a professional front-end developer specializing in SCSS and HTML.
 
 ### Core Requirements:
+- **❗❗MOST CRITICAL: FAITHFULLY REPRODUCE THE DESIGN COMP❗❗** - match exact layout, spacing, sizing, and visual details
+- **Compare your output with the provided image before submitting** - make adjustments to match design details precisely
 - **ONLY code elements visible in the image** - no assumed or extra elements
 - **Be faithful to the design** - accurate colors, spacing, and layout
 - Use **FLOCSS methodology** instead of BEM
@@ -281,16 +243,42 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - Use proper naming conventions for FLOCSS
 - **START HEADING TAGS FROM h2** - do not use h1 tags in components
 - **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
-- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
-- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
+- **CORRECT BUTTON EXAMPLE**: \`<div class="p-hoge__button"><a href="#" class="c-button">View more →</a></div>\`
+- **WRONG BUTTON EXAMPLE**: \`<div class="p-hoge__button"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
 - **DO NOT use <header> or <main> tags** - use div with appropriate classes instead
 - Analyze the design and assign **specific, descriptive class names** that reflect design features
+- **Accessibility considerations**:
+  - Use appropriate ARIA attributes for interactive elements
+  - Ensure sufficient color contrast (minimum 4.5:1 for normal text)
+  - **Add Japanese alt text to all images**:
+    - Use descriptive Japanese text (e.g., alt="株式会社〇〇のロゴ" instead of alt="企業ロゴ")
+    - Use empty alt attribute for decorative images (alt="")
+    - Keep descriptions concise (5-15 Japanese characters)
+    - Ensure alt text conveys the image's purpose
+  - Ensure keyboard navigation works for interactive elements
+
+### FLOCSS Component Structure Guidelines:
+- **Project (p-)**: Page/layout specific components
+  - Example: \`.p-hero\`, \`.p-footer\`, \`.p-news-section\`
+  - Use for large distinctive sections of the page
+
+- **Layout (l-)**: Structure and grid components
+  - Example: \`.l-container\`, \`.l-grid\`, \`.l-row\`
+  - Used for layout structures that organize content
+
+- **Component (c-)**: Reusable UI elements
+  - Example: \`.c-button\`, \`.c-card\`, \`.c-form\`
+  - Independent, reusable elements that can appear in multiple contexts
+
+- **Utility (u-)**: Single-purpose utility classes
+  - Example: \`.u-text-center\`, \`.u-margin-top\`
+  - Typically modify one specific property
 
 ### SCSS Guidelines:
 - Follow the ${responsiveMode === "both" ? "responsive approach" : `${responsiveMode === "pc" ? "Desktop-first" : "Mobile-first"} approach`}
-- **❗❗CRITICAL: MEDIA QUERIES MUST BE PLACED INSIDE SELECTORS❗❗** - like this:
+- **❗❗CRITICAL: MEDIA QUERIES MUST BE PLACED INSIDE SELECTORS - AND THEY ARE THE *ONLY* NESTING ALLOWED❗❗** - like this:
 \`\`\`scss
-.p-information__content {
+.p-hoge__content {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
@@ -301,9 +289,42 @@ You are a professional front-end developer specializing in SCSS and HTML.
   }
 }
 \`\`\`
+
+- **❌ NEVER USE SCSS NESTING WITH & SYMBOL** - Here's what NOT to do:
+\`\`\`scss
+// THIS IS WRONG - NEVER DO THIS
+.p-hoge {
+  background-color: #e9f5f9;
+
+  &__title {  // WRONG - DON'T USE &__
+    font-size: 2rem;
+  }
+
+  &__content {  // WRONG - DON'T USE &__
+    display: grid;
+  }
+}
+\`\`\`
+
+- **✅ CORRECT WAY - USE FLAT SELECTORS** - Always write like this:
+\`\`\`scss
+// THIS IS CORRECT - ALWAYS DO THIS
+.p-hoge {
+  background-color: #e9f5f9;
+}
+
+.p-hoge__title {  // CORRECT - FLAT SELECTOR
+  font-size: 2rem;
+}
+
+.p-hoge__content {  // CORRECT - FLAT SELECTOR
+  display: grid;
+}
+\`\`\`
+
 - **❌ NEVER WRITE MEDIA QUERIES THIS WAY** (WRONG! DON'T DO THIS!):
 \`\`\`scss
-.p-information__content {
+.p-hoge__content {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
@@ -311,16 +332,18 @@ You are a professional front-end developer specializing in SCSS and HTML.
 }
 
 @include mq(md) {
-  .p-information__content {
+  .p-hoge__content {
     grid-template-columns: 1fr;
   }
 }
 \`\`\`
-- Reference the preset CSS variables when appropriate
-- Ensure compatibility with the provided Reset CSS
-- **For images**: use aspect-ratio property to maintain proportions (e.g., \`aspect-ratio: 16 / 9;\`)
-- **For width**: use percentages or relative units (e.g., \`width: 100%;\`, \`max-width: 100%;\`)
-- **For height**: use auto where possible or aspect-ratio to control dimensions
+
+### Performance Optimization Guidelines:
+- Use modern CSS properties (will-change, contain, etc.) for performance-critical animations
+- Avoid unnecessary DOM nesting to reduce rendering complexity
+- Use CSS Grid efficiently to minimize layout shifts during loading
+- Consider lazy-loading for images below the fold using loading="lazy" attribute
+- Prefer system fonts or optimized web fonts to reduce layout shifts
 
 ## Output Format:
 \`\`\`html
@@ -332,7 +355,12 @@ You are a professional front-end developer specializing in SCSS and HTML.
 \`\`\`
 
 Analyze the image structure and layout in detail to create accurate HTML and SCSS that precisely reflect ONLY what is visible in the image.
+`;
+};
 
+// レスポンシブデザインガイドラインセクションを構築する関数
+const buildResponsiveGuidelinesSection = () => {
+  return `
 ## Responsive Design Implementation Guidelines
 
 ### For Output Type: SP (Mobile)
@@ -340,7 +368,7 @@ Use a Mobile-first approach. Base styles should be for mobile devices, and use @
 
 Example:
 \`\`\`scss
-.p-section__content {
+.p-hoge__content {
   display: grid;
   grid-template-columns: 1fr; // Single column for SP
   gap: 1rem;
@@ -357,7 +385,7 @@ Use a Desktop-first approach. Base styles should be for desktop devices, and use
 
 Example:
 \`\`\`scss
-.p-section__content {
+.p-hoge__content {
   display: grid;
   grid-template-columns: 1fr 1fr; // Multiple columns for PC according to design
   gap: 2rem;
@@ -371,48 +399,59 @@ Example:
 
 In both cases, ensure that mobile displays have a single-column layout, while desktop displays follow the multi-column structure as shown in the design comp. The media query function @include mq(md) should be used consistently for both approaches.
 `;
+};
 
-    // AIの出力にネスト構造が含まれないように強い警告を追加
-    prompt += `
+// 最終指示セクションを構築する関数
+const buildFinalInstructionsSection = () => {
+  return `
 ## FINAL CRUCIAL INSTRUCTIONS - SCSS STRUCTURE
-- **NEVER UNDER ANY CIRCUMSTANCES OUTPUT NESTED SCSS USING & OPERATOR**
+- **❌❌❌ NEVER UNDER ANY CIRCUMSTANCES OUTPUT NESTED SCSS USING & OPERATOR ❌❌❌**
 - **ANY CODE WITH &__element or &:hover NOTATION IS STRICTLY PROHIBITED**
+- **I WILL REJECT ANY CODE THAT USES SCSS NESTING WITH & SYMBOL**
 - **YOU MUST ALWAYS WRITE FLAT SELECTORS** such as .p-hero__title or .c-card__title (not .p-hero { &__title } or .c-card { &__title })
+- **ONLY MEDIA QUERIES @include mq() ARE ALLOWED TO BE NESTED INSIDE SELECTORS**
 - **USE APPROPRIATE PREFIX FOR EACH ELEMENT TYPE**:
   - p- for page/project specific components like heroes, headers, footers, main sections
   - l- for layout components like containers, grids, wrappers
   - c- for common reusable UI components like buttons, cards, forms, navigation menus
   - u- for utility classes
 - **DO NOT USE MULTIPLE DIFFERENT PREFIXES ON THE SAME ELEMENT** - Choose exactly one prefix type per element
-- **INCORRECT: \`<a class="c-button p-section__button">View more</a>\`**
+- **INCORRECT: \`<a class="c-button p-hoge__button">View more</a>\`**
 - **CORRECT: \`<a class="c-button">View more</a>\`** based on context
 - **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it all with flat selectors
 - **THIS IS A ZERO TOLERANCE REQUIREMENT:** nested SCSS code will be rejected automatically
-
-Remember: The ONLY nesting allowed is for @include mq() media queries - **ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS**.
-
-I will immediately reject your solution if it contains any nested SCSS using the & operator OR if media queries are not placed inside selectors. Example of REQUIRED media query format:
-
-\`\`\`scss
-.p-information__content {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-  align-items: center;
-
-  @include mq(md) {
-    grid-template-columns: 1fr;
-  }
-}
-\`\`\`
 `;
+};
+
+// プロンプト生成の主要関数
+const generatePrompt = async ({ responsiveMode, aiBreakpoints, pcImageBase64, spImageBase64 }) => {
+  try {
+    console.log("プロンプト生成処理を開始");
+
+    // 画像解析を実行
+    console.log("画像解析を実行中...");
+    const pcAnalysis = await analyzeImage(pcImageBase64, "PC");
+    const spAnalysis = await analyzeImage(spImageBase64, "SP");
+
+    // ローカルストレージから設定を取得
+    const settings = getSettingsFromLocalStorage();
+
+    console.log("プロンプトの構築を開始");
+
+    // プロンプトの各セクションを構築
+    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
+    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
+    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
+    prompt += buildGuidelinesSection(responsiveMode);
+    prompt += buildResponsiveGuidelinesSection();
+    prompt += buildFinalInstructionsSection();
 
     console.log("プロンプト生成が完了しました");
     return prompt;
   } catch (error) {
     console.error('プロンプト生成中にエラーが発生しました:', error);
 
-    // エラーが発生しても最低限のプロンプトを生成して返す
+    // エラーが発生しても最低限のプロンプトを返す
     return `
 # HTML/SCSS Code Generation from Design Comp
 
@@ -420,41 +459,53 @@ Analyze the uploaded image and generate HTML and SCSS code.
 Accurately reproduce the layout, elements, text, and colors in the image.
 
 ## Important Instructions
+- **❗❗MOST CRITICAL: FAITHFULLY REPRODUCE THE DESIGN COMP❗❗** - match exact layout, spacing, sizing, and visual details
+- **Compare your output with the provided image before submitting** - make adjustments to match design details precisely
 - ONLY code elements visible in the image - no assumed or extra elements
 - Be faithful to the design - accurate colors, spacing, and layout
 - Use FLOCSS methodology instead of BEM
 - **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
 - No SCSS nesting - write flat SCSS structure
-- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS❗❗** - like this:
+- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS - AND THEY ARE THE *ONLY* NESTING ALLOWED❗❗**
+
+## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
+- **❌❌❌ ABSOLUTELY NO NESTING IN SCSS USING & SYMBOL! ❌❌❌**
+- **❌ NEVER use &__element notation**
+- **❌ NEVER use &:hover or other nested pseudo-selectors**
+- **✅ ONLY MEDIA QUERIES MAY BE NESTED** inside selectors like this:
 \`\`\`scss
-.element {
-  property: value;
+// CORRECT - FLAT STRUCTURE WITH MEDIA QUERIES INSIDE
+.p-hoge__content {
+  display: grid;
+  grid-template-columns: 1fr;
+
   @include mq(md) {
-    property: other-value;
+    grid-template-columns: 1fr 1fr;
   }
 }
 \`\`\`
-- **START HEADING TAGS FROM h2** - do not use h1 tags in components
-- **USE <a> TAGS DIRECTLY WITH COMPONENT CLASSES** - apply component classes like c-button directly to <a> tags, do not create unnecessary div wrappers
-- **CORRECT BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><a href="#" class="c-button">View more →</a></div>\`
-- **WRONG BUTTON EXAMPLE**: \`<div class="p-information__button-wrapper"><div class="c-button"><a href="#" class="c-button__link">View more →</a></div></div>\`
-- DO NOT use <header> or <main> tags
-- Use specific, descriptive class names reflecting design features
-- Maintain aspect ratios for all images using aspect-ratio property
-- Avoid fixed width values - use percentages or relative units
-- Use height properties minimally - only when absolutely necessary
 
-## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
-- **❌ ABSOLUTELY NO NESTING IN SCSS!** (EXCEPT for media queries)
-- **❌ NEVER use &__element notation**
-- **❌ NEVER use &:hover or other nested pseudo-selectors**
-- **✅ BUT DO NEST MEDIA QUERIES** inside selectors like this:
+## ❌ NEVER DO THIS:
 \`\`\`scss
-.element {
-  property: value;
-  @include mq(md) {
-    property: other-value;
+// WRONG - NEVER USE THIS NESTED STRUCTURE
+.p-hoge {
+  background-color: #e9f5f9;
+
+  &__title {  // WRONG
+    font-size: 2rem;
   }
+}
+\`\`\`
+
+## ✅ ALWAYS DO THIS:
+\`\`\`scss
+// CORRECT - ALWAYS USE THIS FLAT STRUCTURE
+.p-hoge {
+  background-color: #e9f5f9;
+}
+
+.p-hoge__title {  // CORRECT
+  font-size: 2rem;
 }
 \`\`\`
 

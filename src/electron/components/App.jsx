@@ -6,7 +6,7 @@ import VariableConfig from "./VariableConfig";
 import GenerateHTML from "./GenerateHTML";
 import AICodeGenerator from "./AICodeGenerator";
 import HeaderGenerator from "./HeaderGenerator";
-import APISettings from "./APISettings";
+// import APISettings from "./APISettings";
 import StyleXConverter from "./StyleXConverter";
 import "../styles/css/main.css";
 import "../styles/css/components.css";
@@ -25,7 +25,7 @@ const App = () => {
     { id: "ai-code-generator", label: "AIコード生成", icon: "🤖" },
     // { id: "header-generator", label: "ヘッダー生成", icon: "🔝" },
     // { id: "stylex-converter", label: "StyleXコンバーター", icon: "🔄" },
-    { id: "api-settings", label: "API設定", icon: "🔑" },
+    // { id: "api-settings", label: "API設定", icon: "🔑" },
   ];
 
   // タブ切り替え前に未保存の変更をチェック
@@ -62,8 +62,8 @@ const App = () => {
         return <HeaderGenerator />;
       case "stylex-converter":
         return <StyleXConverter />;
-      case "api-settings":
-        return <APISettings />;
+      // case "api-settings":
+      //   return <APISettings />;
       default:
         return null;
     }

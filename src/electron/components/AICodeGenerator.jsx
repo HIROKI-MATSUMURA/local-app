@@ -555,7 +555,8 @@ const AICodeGenerator = () => {
             min-height: 100vh;
             overflow-x: hidden;
           }
-          img[src^="path-to-"] {
+          img[src^="path-to-"],
+          img[src^="path/to/"] {
             background-color: #ccc;
             min-height: 100px;
             max-width: 100%;
