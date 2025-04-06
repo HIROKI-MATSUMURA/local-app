@@ -1164,7 +1164,7 @@ $radius-xl: 16px;
 
       .save-form {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        grid-template-columns: 1fr 1fr;
         gap: $spacing-md;
 
         .form-group {
@@ -1186,6 +1186,7 @@ $radius-xl: 16px;
             background-color: #fff;
             font-size: $font-size-md;
             transition: $transition-base;
+            box-sizing: border-box;
 
             &:focus {
               outline: none;
@@ -1654,6 +1655,17 @@ $radius-xl: 16px;
         font-size: $font-size-xs;
         color: $text-tertiary;
         line-height: 1.4;
+
+        code {
+          background-color: rgba($primary-color, 0.08);
+          padding: 2px 5px;
+          border-radius: 3px;
+          font-family: $font-code;
+          color: $primary-dark;
+          font-size: 90%;
+          white-space: nowrap;
+          border: 1px solid rgba($primary-color, 0.1);
+        }
       }
     }
 

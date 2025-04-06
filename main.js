@@ -272,6 +272,10 @@ app.whenReady().then(() => {
     callback({ requestHeaders: details.requestHeaders });
   });
 
+  // 最初にIPC ハンドラーを設定（レンダラープロセスのロード前に実行）
+  console.log('アプリ起動時にIPCハンドラーを設定します');
+  setupIPCHandlers();
+
   // まずスプラッシュ画面を表示
   createSplashWindow();
 
@@ -351,9 +355,17 @@ function setupIPCHandlers() {
   // HTMLファイル一覧を取得する
   ipcMain.handle('get-html-files', async () => {
     try {
+      console.log('get-html-files ハンドラーが呼び出されました');
       const srcDir = path.join(__dirname, 'src');
+
+      if (!fs.existsSync(srcDir)) {
+        console.log(`srcディレクトリが存在しません: ${srcDir}`);
+        return [];
+      }
+
       const files = await fs.promises.readdir(srcDir);
       const htmlFiles = files.filter(file => file.endsWith('.html'));
+      console.log('HTMLファイル一覧:', htmlFiles);
       return htmlFiles;
     } catch (error) {
       console.error('HTMLファイル一覧の取得中にエラーが発生しました:', error);
@@ -364,6 +376,7 @@ function setupIPCHandlers() {
   // ファイル存在確認
   ipcMain.handle('check-file-exists', async (event, blockName) => {
     try {
+      console.log('check-file-exists ハンドラーが呼び出されました:', blockName);
       const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
       const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
 
@@ -379,6 +392,7 @@ function setupIPCHandlers() {
         html: fs.existsSync(htmlPartsFilePath)
       };
 
+      console.log('ファイル存在チェック結果:', fileExists);
       return {
         exists: fileExists.scss || fileExists.html,
         fileExists
@@ -733,19 +747,23 @@ $mediaquerys: (
     }
   });
 
-  // AI生成コードの保存機能
-  ipcMain.handle('save-ai-generated-code', async (event, { scssCode, htmlCode, blockName, targetHtmlFile }) => {
+  // AI生成コードの保存用共通関数
+  const saveAIGeneratedCode = async ({ scssCode, htmlCode, blockName, targetHtmlFile }) => {
     try {
+      console.log('AI生成コードの保存処理を開始します:', { blockName, targetHtmlFile });
+
       // ディレクトリの存在確認・作成
       const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
       const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
 
       if (!fs.existsSync(scssDir)) {
         fs.mkdirSync(scssDir, { recursive: true });
+        console.log(`SCSSディレクトリを作成しました: ${scssDir}`);
       }
 
       if (!fs.existsSync(htmlPartsDir)) {
         fs.mkdirSync(htmlPartsDir, { recursive: true });
+        console.log(`HTMLパーツディレクトリを作成しました: ${htmlPartsDir}`);
       }
 
       // SCSSファイルパスの作成
@@ -764,6 +782,7 @@ $mediaquerys: (
 
       // 既存ファイルがある場合の処理
       if (fileExists.scss || fileExists.html) {
+        console.log('ファイルが既に存在します:', { scssFileName, htmlFileName });
         return {
           success: false,
           error: `ファイルが既に存在します: ${fileExists.scss ? scssFileName : ''} ${fileExists.html ? htmlFileName : ''}`,
@@ -825,12 +844,19 @@ $mediaquerys: (
       console.error('AI生成コードの保存中にエラーが発生しました:', error);
       return { success: false, error: error.message };
     }
+  };
+
+  // AI生成コードの保存機能
+  ipcMain.handle('save-ai-generated-code', async (event, params) => {
+    console.log('save-ai-generated-code ハンドラーが呼び出されました');
+    return await saveAIGeneratedCode(params);
   });
 
   // 既に存在するブロック名のリネーム処理
   ipcMain.handle('rename-and-save-ai-code', async (event, { scssCode, htmlCode, originalBlockName, newBlockName, targetHtmlFile }) => {
     try {
-      return await ipcMain.handle('save-ai-generated-code', null, {
+      console.log('rename-and-save-ai-code ハンドラーが呼び出されました:', { originalBlockName, newBlockName });
+      return await saveAIGeneratedCode({
         scssCode,
         htmlCode,
         blockName: newBlockName,

@@ -2070,9 +2070,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     const fetchHtmlFiles = async () => {
       try {
         const files = await window.api.getHtmlFiles();
-        setHtmlFiles(files);
-        if (files.length > 0) {
-          setSelectedHtmlFile(files[0]);
+        // ファイルリストを逆順に並べ替え（最新のファイルが上に表示されるように）
+        const reversedFiles = [...files].reverse();
+        setHtmlFiles(reversedFiles);
+        if (reversedFiles.length > 0) {
+          setSelectedHtmlFile(reversedFiles[0]);
         }
       } catch (error) {
         console.error("HTMLファイル一覧の取得中にエラーが発生しました:", error);
@@ -2589,18 +2591,19 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             {detectedScssBlocks.length > 0 && (
               <div className="detected-blocks-section">
                 <h4>検出されたブロック</h4>
-                <div className="detected-blocks-info">
-                  <p>
-                    検出されたSCSSブロックは各々1ファイルとして <code>src/scss/object/AI_Component/_ブロック名.scss</code> に保存されます。
-                    ファイル名が重複する場合は、保存時に新しい名前の入力が求められます。
-                  </p>
-                </div>
+
+
+
                 <div className="detected-blocks-list">
                   {detectedScssBlocks
                     // メインブロックのみをフィルタリング（__を含まないブロック名）
                     .filter(block => !block.name.includes('__'))
                     // 擬似クラスをフィルタリング（:を含むブロック名は除外）
                     .filter(block => !block.name.includes(':'))
+                    // 重複するブロック名を除去（一意のブロック名のみ表示）
+                    .filter((block, index, self) =>
+                      index === self.findIndex(b => b.name === block.name)
+                    )
                     .map((block) => (
                       <div
                         key={block.name}
@@ -2647,7 +2650,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                       </div>
                     ))}
                 </div>
-
+                <small className="input-help">
+                  検出されたSCSSブロックは各々1ファイルとして <code>src/scss/object/AI_Component/_ブロック名.scss</code> に保存されます。
+                  <br />ファイル名が重複する場合は、保存時に新しい名前の入力が求められます。
+                </small>
                 {/* ブロック詳細モーダル */}
                 {showBlockDetails && selectedScssBlock && (
                   <div className="block-details-modal" onClick={handleModalBackdropClick}>
@@ -2707,9 +2713,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   className="block-name-input"
                 />
                 <small className="input-help">
-                  このブロック名のHTMLがパーツファイルとして保存され、選択したHTMLファイルに追加されます。
-                  {detectedHtmlBlocks.length > 0 &&
-                    ` 検出されたメインブロック: ${detectedHtmlBlocks[0].name}`}
+                  このブロック名のHTMLがパーツファイルとして<code>src/partsHTML/{blockName}.html</code>に保存され、選択した追加先HTMLファイルに追加されます。<br />ファイル名が重複する場合は、保存時に新しい名前の入力が求められます。
                 </small>
               </div>
 
