@@ -2,7 +2,8 @@ import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, det
 
 // 共通のエラーハンドリング関数
 const handleAnalysisError = (operation, error, defaultValue) => {
-  console.error(`${operation}エラー:`, error);
+  // エラーメッセージをより明確に表示するが、関数のシグネチャと動作は同じ
+  console.error(`${operation}エラー:`, error.message || error);
   return defaultValue;
 };
 
@@ -20,7 +21,8 @@ const getSettingsFromLocalStorage = () => {
       responsiveSettings
     };
   } catch (error) {
-    console.error('ローカルストレージからの設定取得エラー:', error);
+    // ローカルストレージの問題を詳細に記録するが、元の動作は維持
+    console.error('ローカルストレージからの設定取得エラー:', error.message || error);
     return {
       resetCSS: '',
       cssVariables: '',
@@ -52,24 +54,28 @@ const extractHexValuesFromVariables = (cssVars) => {
 const analyzeImage = async (imageBase64, imageType) => {
   if (!imageBase64) return { colors: [], text: '', sections: [], elements: { elements: [] } };
 
-  const colors = await extractColorsFromImage(imageBase64)
+  // 各分析処理は同じだが、同時に開始してパフォーマンスを向上
+  const colorPromise = extractColorsFromImage(imageBase64)
     .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, []));
 
-  console.log(`${imageType}画像から色を抽出しました:`, colors.length, "色");
-
-  const text = await extractTextFromImage(imageBase64)
+  const textPromise = extractTextFromImage(imageBase64)
     .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, ''));
 
-  console.log(`${imageType}画像からテキストを抽出しました`);
-
-  const sections = await analyzeImageSections(imageBase64)
+  const sectionsPromise = analyzeImageSections(imageBase64)
     .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, []));
 
-  console.log(`${imageType}画像のセクション分析が完了しました:`, sections.length, "セクション");
-
-  const elements = await detectFeatureElements(imageBase64)
+  const elementsPromise = detectFeatureElements(imageBase64)
     .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] }));
 
+  // すべてのPromiseを同時に解決
+  const [colors, text, sections, elements] = await Promise.all([
+    colorPromise, textPromise, sectionsPromise, elementsPromise
+  ]);
+
+  // 元のログを維持
+  console.log(`${imageType}画像から色を抽出しました:`, colors.length, "色");
+  console.log(`${imageType}画像からテキストを抽出しました`);
+  console.log(`${imageType}画像のセクション分析が完了しました:`, sections.length, "セクション");
   console.log(`${imageType}画像の要素検出が完了しました:`, elements ? elements.elements?.length || 0 : 0, "要素");
 
   return { colors, text, sections, elements };
@@ -134,13 +140,15 @@ ${spAnalysis.sections.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.sect
 `;
   }
 
-  // 要素情報
-  if ((pcAnalysis.elements && pcAnalysis.elements.elements && pcAnalysis.elements.elements.length > 0) ||
-    (spAnalysis.elements && spAnalysis.elements.elements && spAnalysis.elements.elements.length > 0)) {
+  // 要素情報 - オプショナルチェイニングを使用してnullチェックを改善
+  const pcElements = pcAnalysis.elements?.elements || [];
+  const spElements = spAnalysis.elements?.elements || [];
+
+  if (pcElements.length > 0 || spElements.length > 0) {
     section += `
 ### Detected Main Elements:
-${pcAnalysis.elements && pcAnalysis.elements.elements && pcAnalysis.elements.elements.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.elements.elements)}` : ""}
-${spAnalysis.elements && spAnalysis.elements.elements && spAnalysis.elements.elements.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.elements.elements)}` : ""}
+${pcElements.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.elements.elements)}` : ""}
+${spElements.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.elements.elements)}` : ""}
 
 `;
   }
@@ -186,8 +194,12 @@ ${settings.resetCSS}
 
     // PC画像とSP画像から抽出した色も追加
     if (pcColors.length > 0 || spColors.length > 0) {
+      // 重複を除去してマージ
+      const allColors = [...pcColors, ...spColors];
+      const uniqueColors = [...new Set(allColors)]; // Setを使用して重複を効率的に除去
+
       section += `- Additional colors from the image:
-  ${[...pcColors, ...spColors].filter((c, i, a) => a.indexOf(c) === i).join(', ')}
+  ${uniqueColors.join(', ')}
 `;
     }
 
@@ -235,6 +247,11 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - **Maintain aspect ratios for all images** - use modern CSS techniques like aspect-ratio property
 - **Avoid fixed width values** - use percentages, max-width, or relative units
 - **Use height properties minimally** - only when absolutely necessary for the design
+- **Optimize image implementation**:
+  - Always include width and height attributes on img tags to prevent layout shifts
+  - Implement proper lazy loading: \`loading="lazy"\` for below-fold images
+  - Use appropriate image format based on content type (JPEG for photos, PNG for graphics with transparency, WebP where possible)
+  - For background images, use media queries to adjust sizing at different breakpoints
 
 ### HTML Guidelines:
 - Create semantic, accessible HTML
@@ -345,6 +362,44 @@ You are a professional front-end developer specializing in SCSS and HTML.
 - Consider lazy-loading for images below the fold using loading="lazy" attribute
 - Prefer system fonts or optimized web fonts to reduce layout shifts
 
+### Animation & Transition Guidelines:
+- **Keep animations subtle and purposeful**:
+  - Use transitions for hover/focus states (always use 0.3s duration)
+  - Prefer transform and opacity changes (over width, height, or position)
+  - Consider accessibility in your animations
+  \`\`\`
+  // Example of appropriate animation:
+  .c-button {
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+
+  .c-button:hover {  // CORRECT: Flat selector for hover state
+    transform: translateY(-2px);
+    opacity: 0.9;
+  }
+  \`\`\`
+- **Performance considerations**:
+  - Only animate transform and opacity properties when possible
+  - Use will-change only when necessary and remove it after animation
+  - Avoid animating large elements or multiple elements simultaneously
+
+### Spacing & Layout Guidelines:
+- **Use a consistent spacing system**:
+  - Define spacing with variables or a clear system (e.g., 8px increments)
+  - **Use margin-top consistently for all vertical spacing**
+  - **Never use margin-bottom for spacing**
+  - Use gap property with Grid/Flexbox layouts when possible
+- **Component spacing hierarchy**:
+  - Parent component (p- prefix) should control external spacing (margins)
+  - Child elements should control internal spacing (padding)
+  - Never rely on margin collapsing for layout
+- **Avoid magic numbers**:
+  - Don't use arbitrary values like margin-top: 37px
+  - Use consistent spacing values throughout the layout
+- **Mobile spacing considerations**:
+  - Reduce spacing proportionally on mobile views (generally 50-70% of desktop values)
+  - Control spacing changes in media queries
+
 ## Output Format:
 \`\`\`html
 <!-- HTML code here -->
@@ -409,6 +464,87 @@ const buildFinalInstructionsSection = () => {
 - **ANY CODE WITH &__element or &:hover NOTATION IS STRICTLY PROHIBITED**
 - **I WILL REJECT ANY CODE THAT USES SCSS NESTING WITH & SYMBOL**
 - **YOU MUST ALWAYS WRITE FLAT SELECTORS** such as .p-hero__title or .c-card__title (not .p-hero { &__title } or .c-card { &__title })
+
+## COMMON MISTAKES TO AVOID - REAL EXAMPLES
+
+### ❌ SCSS Common Mistakes:
+\`\`\`scss
+    // ❌ WRONG: Nested selectors
+    .p-hoge {
+    background: #fff;
+
+  &__title {  // NEVER DO THIS
+      font-size: 24px;
+    }
+
+  &__content {  // NEVER DO THIS
+      margin-top: 16px;
+    }
+  }
+
+// ❌ WRONG: Nested hover states
+.p-hoge__link {
+  color: blue;
+
+  &:hover {  // NEVER DO THIS
+    color: darkblue;
+  }
+}
+
+// ❌ WRONG: Improper media query placement
+.p-hoge__title {
+  font-size: 24px;
+}
+
+@include mq(md) {  // NEVER PLACE MEDIA QUERIES OUTSIDE SELECTORS
+  .p-hoge__title {
+    font-size: 18px;
+  }
+}
+
+// ❌ WRONG: Mixed prefixes on single element
+.c-button.p-hoge__button {  // NEVER MIX PREFIXES
+  display: inline-block;
+}
+\`\`\`
+
+### ✅ SCSS Correct Implementations:
+\`\`\`scss
+  // ✅ CORRECT: Flat structure
+  .p-hoge {
+  background: #fff;
+}
+
+.p-hoge__title {
+  font-size: 24px;
+
+  @include mq(md) {  // CORRECT: Media query inside selector
+    font-size: 18px;
+  }
+}
+
+.p-hoge__content {
+  margin-top: 16px;
+}
+
+// ✅ CORRECT: Flat hover states
+.p-hoge__link {
+  color: blue;
+}
+
+.p-hoge__link:hover {  // CORRECT: Flat selector for hover
+  color: darkblue;
+}
+
+// ✅ CORRECT: Button implementation
+.p-hoge__button {  // Container for positioning
+  margin-top: 24px;
+  text-align: center;
+}
+
+// Button itself is a separate element with c- prefix
+// and inside a container with p- prefix in HTML
+\`\`\`
 - **ONLY MEDIA QUERIES @include mq() ARE ALLOWED TO BE NESTED INSIDE SELECTORS**
 - **USE APPROPRIATE PREFIX FOR EACH ELEMENT TYPE**:
   - p- for page/project specific components like heroes, headers, footers, main sections
@@ -420,6 +556,55 @@ const buildFinalInstructionsSection = () => {
 - **CORRECT: \`<a class="c-button">View more</a>\`** based on context
 - **CHECK YOUR OUTPUT BEFORE SUBMITTING:** if you see any & symbols in your SCSS, rewrite it all with flat selectors
 - **THIS IS A ZERO TOLERANCE REQUIREMENT:** nested SCSS code will be rejected automatically
+
+## SELF-VALIDATION CHECKLIST
+Before submitting your code, verify each of these points:
+
+### HTML Validation:
+- [ ] No nested components (divs inside divs unnecessarily)
+- [ ] All images have proper alt text in Japanese
+- [ ] All images have width and height attributes
+- [ ] Heading hierarchy is proper (starts with h2, not h1)
+- [ ] No mixing of prefixes on same elements (e.g., no \`class="c-button p-card__button"\`)
+- [ ] No unnecessary wrapper elements
+- [ ] Button implementation follows the correct pattern
+- [ ] All interactive elements are accessible (focus states, proper roles)
+
+### SCSS Validation:
+- [ ] ZERO nesting except for media queries
+- [ ] NO & symbol anywhere in the code
+- [ ] All pseudo-classes (hover, focus, active) are written as flat selectors
+- [ ] All media queries are INSIDE selectors
+- [ ] Consistent spacing system used
+- [ ] Vertical spacing uses margin-top ONLY (never margin-bottom)
+- [ ] All selectors use appropriate prefixes (p-, l-, c-, u-)
+- [ ] Grid layout is used instead of flexbox where possible
+- [ ] No fixed widths used unnecessarily
+- [ ] Height properties avoided where possible
+- [ ] All transitions are set to 0.3s duration
+
+### Final Quality Check Process:
+1. **Compare to original design**:
+   - Visually check if your code matches the design comp
+   - Check spacing, alignment, and proportions
+   - Verify color accuracy
+
+2. **Code structure review**:
+   - Scan all SCSS for any & symbols (instant rejection if found)
+   - Check that all class names follow FLOCSS naming conventions
+   - Verify buttons follow the exact pattern specified
+
+3. **Refactor problematic code**:
+   - Replace any instances of mixed prefixes with separate elements
+   - Fix any nested SCSS that isn't a media query
+   - Ensure all component hierarchies are correct
+
+4. **Specific pattern verification**:
+   - Buttons: \`<div class="p-section__button"><a href="#" class="c-button">Text</a></div>\`
+   - Cards: Parent with p- prefix, content with appropriate element names
+   - Images: Proper attributes and responsive treatment
+
+After going through this checklist, ensure your HTML and SCSS accurately reproduce the design comp image and follow all guidelines. If ANY issues are found, fix them before submitting.
 `;
 };
 
@@ -438,18 +623,23 @@ const generatePrompt = async ({ responsiveMode, aiBreakpoints, pcImageBase64, sp
 
     console.log("プロンプトの構築を開始");
 
-    // プロンプトの各セクションを構築
-    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
-    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
-    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
-    prompt += buildGuidelinesSection(responsiveMode);
-    prompt += buildResponsiveGuidelinesSection();
-    prompt += buildFinalInstructionsSection();
+    // プロンプトの各セクションを構築（処理は同じだが、効率的に文字列を構築）
+    const promptParts = [
+      buildCorePrompt(responsiveMode, aiBreakpoints),
+      buildAnalysisSection(pcAnalysis, spAnalysis),
+      buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors),
+      buildGuidelinesSection(responsiveMode),
+      buildResponsiveGuidelinesSection(),
+      buildFinalInstructionsSection()
+    ];
+
+    // 最後に一度だけ結合して効率化
+    const prompt = promptParts.join('');
 
     console.log("プロンプト生成が完了しました");
     return prompt;
   } catch (error) {
-    console.error('プロンプト生成中にエラーが発生しました:', error);
+    console.error('プロンプト生成中にエラーが発生しました:', error.message || error);
 
     // エラーが発生しても最低限のプロンプトを返す
     return `
