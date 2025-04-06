@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import sassGlobImports from "vite-plugin-sass-glob-import";
 import viteImagemin from "vite-plugin-imagemin";
+import handlebars from "vite-plugin-handlebars";
 import path from "path";
 import fs from "fs";
 import sharp from "sharp";
@@ -20,6 +21,9 @@ export default defineConfig({
       jsxRuntime: "classic"
     }),
     sassGlobImports(),
+    handlebars({
+      partialDirectory: path.resolve(__dirname, 'src/partsHTML'),
+    }),
     viteImagemin({
       gifsicle: { optimizationLevel: 3 },
       optipng: { optimizationLevel: 7 },
