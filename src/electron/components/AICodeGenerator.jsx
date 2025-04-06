@@ -2041,6 +2041,83 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     };
   };
 
+  // 保存機能用の状態
+  const [blockName, setBlockName] = useState("");
+  const [htmlFiles, setHtmlFiles] = useState([]);
+  const [selectedHtmlFile, setSelectedHtmlFile] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(null);
+  const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // HTMLファイル一覧の取得
+  useEffect(() => {
+    const fetchHtmlFiles = async () => {
+      try {
+        const files = await window.api.getHtmlFiles();
+        setHtmlFiles(files);
+        if (files.length > 0) {
+          setSelectedHtmlFile(files[0]);
+        }
+      } catch (error) {
+        console.error("HTMLファイル一覧の取得中にエラーが発生しました:", error);
+      }
+    };
+
+    fetchHtmlFiles();
+  }, []);
+
+  // ブロック名が入力されたときの処理
+  const handleBlockNameChange = (e) => {
+    setBlockName(e.target.value);
+  };
+
+  // HTML選択時の処理
+  const handleHtmlFileSelect = (e) => {
+    setSelectedHtmlFile(e.target.value);
+  };
+
+  // AI生成コードの保存処理
+  const handleSaveCode = async () => {
+    if (!blockName.trim()) {
+      setSaveError("ブロック名を入力してください");
+      setSaveSuccess(false);
+      return;
+    }
+
+    if (!selectedHtmlFile) {
+      setSaveError("HTMLファイルを選択してください");
+      setSaveSuccess(false);
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError("");
+    setSaveSuccess(null);
+
+    try {
+      const result = await window.api.saveAIGeneratedCode(
+        editingCSS,
+        editingHTML,
+        blockName.trim(),
+        selectedHtmlFile
+      );
+
+      if (result.success) {
+        setSaveSuccess(true);
+        setSaveError("");
+      } else {
+        setSaveSuccess(false);
+        setSaveError(result.error || "保存中にエラーが発生しました");
+      }
+    } catch (error) {
+      console.error("AI生成コードの保存中にエラーが発生しました:", error);
+      setSaveSuccess(false);
+      setSaveError(error.message || "保存中にエラーが発生しました");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="ai-code-generator">
       <Header
@@ -2210,6 +2287,56 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       {showGeneratedCode && (
         <div className="generated-code-container" ref={generatedCodeRef}>
+          {/* コード保存UI - タブの上に移動 */}
+          <div className="code-save-container">
+            <h3>コードを保存</h3>
+            <div className="save-form">
+              <div className="form-group">
+                <label htmlFor="block-name">ブロック名:</label>
+                <input
+                  type="text"
+                  id="block-name"
+                  value={blockName}
+                  onChange={handleBlockNameChange}
+                  placeholder="例: header-section"
+                  className="block-name-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="html-file">追加先HTMLファイル:</label>
+                <select
+                  id="html-file"
+                  value={selectedHtmlFile}
+                  onChange={handleHtmlFileSelect}
+                  className="html-file-select"
+                >
+                  {htmlFiles.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                className={`save-code-button ${isSaving ? 'saving' : ''}`}
+                onClick={handleSaveCode}
+                disabled={isSaving || !editingHTML || !editingCSS}
+              >
+                {isSaving ? "保存中..." : "コードを保存"}
+              </button>
+
+              {saveSuccess !== null && (
+                <div className={`save-status ${saveSuccess ? 'success' : 'error'}`}>
+                  {saveSuccess
+                    ? "コードが正常に保存されました！"
+                    : `エラー: ${saveError}`}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="tabs">
             <button
               onClick={() => setIsEditing(false)}

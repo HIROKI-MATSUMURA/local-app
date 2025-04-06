@@ -676,6 +676,83 @@ $mediaquerys: (
       throw new Error(`コード生成中にエラーが発生しました: ${error.message}`);
     }
   });
+
+  // AI生成コードの保存機能
+  ipcMain.handle('save-ai-generated-code', async (event, { scssCode, htmlCode, blockName, targetHtmlFile }) => {
+    try {
+      // ディレクトリの存在確認・作成
+      const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
+      const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
+
+      if (!fs.existsSync(scssDir)) {
+        fs.mkdirSync(scssDir, { recursive: true });
+      }
+
+      if (!fs.existsSync(htmlPartsDir)) {
+        fs.mkdirSync(htmlPartsDir, { recursive: true });
+      }
+
+      // SCSSファイルの保存
+      const scssFilePath = path.join(scssDir, `_${blockName}.scss`);
+      const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+
+      await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
+      console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
+
+      // HTMLパーツファイルの保存
+      const htmlPartsFilePath = path.join(htmlPartsDir, `${blockName}.html`);
+      await fs.promises.writeFile(htmlPartsFilePath, htmlCode, 'utf8');
+      console.log(`HTMLパーツファイルを保存しました: ${htmlPartsFilePath}`);
+
+      // 対象のHTMLファイルにインクルード文を追加
+      if (targetHtmlFile) {
+        const targetFilePath = path.join(__dirname, 'src', targetHtmlFile);
+
+        if (fs.existsSync(targetFilePath)) {
+          let targetHtmlContent = await fs.promises.readFile(targetFilePath, 'utf8');
+
+          // </main>タグの直前にインクルード文を追加
+          const mainCloseTag = '</main>';
+          const includeStatement = `  {{> ${blockName} }}\n  `;
+
+          if (targetHtmlContent.includes(mainCloseTag)) {
+            // 既に同じインクルード文があるか確認
+            if (!targetHtmlContent.includes(`{{> ${blockName} }}`)) {
+              targetHtmlContent = targetHtmlContent.replace(mainCloseTag, `${includeStatement}${mainCloseTag}`);
+              await fs.promises.writeFile(targetFilePath, targetHtmlContent, 'utf8');
+              console.log(`対象HTMLファイルにインクルード文を追加しました: ${targetFilePath}`);
+            } else {
+              console.log(`インクルード文は既に存在しています: ${targetFilePath}`);
+            }
+          } else {
+            console.log(`対象HTMLファイルに</main>タグが見つかりません: ${targetFilePath}`);
+            return { success: false, error: 'ターゲットHTMLファイルに</main>タグが見つかりません' };
+          }
+        } else {
+          console.log(`対象HTMLファイルが存在しません: ${targetFilePath}`);
+          return { success: false, error: 'ターゲットHTMLファイルが存在しません' };
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('AI生成コードの保存中にエラーが発生しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // HTMLファイル一覧を取得する
+  ipcMain.handle('get-html-files', async () => {
+    try {
+      const srcDir = path.join(__dirname, 'src');
+      const files = await fs.promises.readdir(srcDir);
+      const htmlFiles = files.filter(file => file.endsWith('.html'));
+      return htmlFiles;
+    } catch (error) {
+      console.error('HTMLファイル一覧の取得中にエラーが発生しました:', error);
+      return [];
+    }
+  });
 }
 
 // Macでアプリケーションが閉じられる際の処理

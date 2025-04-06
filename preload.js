@@ -178,4 +178,29 @@ contextBridge.exposeInMainWorld('api', {
       return null;
     }
   },
+
+  // AI生成コードを保存する関数
+  saveAIGeneratedCode: async (scssCode, htmlCode, blockName, targetHtmlFile) => {
+    try {
+      return await ipcRenderer.invoke('save-ai-generated-code', {
+        scssCode,
+        htmlCode,
+        blockName,
+        targetHtmlFile
+      });
+    } catch (error) {
+      console.error('AI生成コードの保存中にエラーが発生しました:', error);
+      throw error;
+    }
+  },
+
+  // HTMLファイル一覧を取得する関数
+  getHtmlFiles: async () => {
+    try {
+      return await ipcRenderer.invoke('get-html-files');
+    } catch (error) {
+      console.error('HTMLファイル一覧の取得中にエラーが発生しました:', error);
+      return [];
+    }
+  },
 });
