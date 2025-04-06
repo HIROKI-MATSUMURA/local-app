@@ -19,6 +19,7 @@ import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnal
 import "../styles/AICodeGenerator.scss";
 import 'highlight.js/styles/github.css';
 import Header from './Header';
+import { detectScssBlocks, detectHtmlBlocks } from "../utils/codeParser";
 
 const LOCAL_STORAGE_KEY = "ai_code_generator_state";
 
@@ -210,6 +211,9 @@ const AICodeGenerator = () => {
   const [customSizeInput, setCustomSizeInput] = useState("");
   const [showCustomSizeInput, setShowCustomSizeInput] = useState(false);
   const [scaleRatio, setScaleRatio] = useState(1);
+
+  // 保存から除外するブロックを管理
+  const [excludedBlocks, setExcludedBlocks] = useState([]);
 
   // 再生成用の指示
   const [regenerateInstructions, setRegenerateInstructions] = useState("");
@@ -2049,6 +2053,18 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
+  // リネームダイアログ用の状態
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [newBlockName, setNewBlockName] = useState("");
+  const [conflictInfo, setConflictInfo] = useState(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  // ブロック検出用の状態
+  const [detectedScssBlocks, setDetectedScssBlocks] = useState([]);
+  const [detectedHtmlBlocks, setDetectedHtmlBlocks] = useState([]);
+  const [selectedScssBlock, setSelectedScssBlock] = useState(null);
+  const [showBlockDetails, setShowBlockDetails] = useState(false);
+
   // HTMLファイル一覧の取得
   useEffect(() => {
     const fetchHtmlFiles = async () => {
@@ -2066,6 +2082,27 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     fetchHtmlFiles();
   }, []);
 
+  // コード生成完了時にブロック検出を実行
+  useEffect(() => {
+    if (generatedCSS && generatedHTML) {
+      // SCSSブロックの検出
+      const scssBlocks = detectScssBlocks(generatedCSS);
+      setDetectedScssBlocks(scssBlocks);
+
+      // HTMLブロックの検出
+      const htmlBlocks = detectHtmlBlocks(generatedHTML);
+      setDetectedHtmlBlocks(htmlBlocks);
+
+      // 最初に検出されたHTMLブロックをデフォルトのブロック名に設定
+      if (htmlBlocks.length > 0) {
+        setBlockName(htmlBlocks[0].name);
+      }
+
+      console.log("検出されたSCSSブロック:", scssBlocks);
+      console.log("検出されたHTMLブロック:", htmlBlocks);
+    }
+  }, [generatedCSS, generatedHTML]);
+
   // ブロック名が入力されたときの処理
   const handleBlockNameChange = (e) => {
     setBlockName(e.target.value);
@@ -2074,6 +2111,57 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // HTML選択時の処理
   const handleHtmlFileSelect = (e) => {
     setSelectedHtmlFile(e.target.value);
+  };
+
+  // SCSSブロックの選択処理
+  const handleScssBlockSelect = (blockName) => {
+    // 選択されたメインブロックに関連するすべてのブロック（エレメントと擬似クラスを含む）を取得
+    const mainBlockCode = detectedScssBlocks.find(block => block.name === blockName);
+
+    // メインブロックに関連するすべてのエレメントと擬似クラスを見つける
+    const relatedElements = detectedScssBlocks.filter(block =>
+      block.name.startsWith(blockName + '__') || // エレメント
+      block.name === blockName ||
+      (block.name.startsWith(blockName + ':') && block.name.indexOf('__') === -1) // 擬似クラス（エレメントの擬似クラスは除外）
+    );
+
+    // 擬似クラスのブロック
+    const pseudoClasses = detectedScssBlocks.filter(block =>
+      block.name.startsWith(blockName + ':') && block.name.indexOf('__') === -1
+    );
+
+    // エレメントのみのブロック（擬似クラスなし）
+    const elements = relatedElements.filter(block =>
+      block.name.startsWith(blockName + '__') && block.name !== blockName
+    );
+
+    // メインブロックとその関連エレメントをすべて含む統合コード
+    const fullBlockCode = {
+      name: blockName,
+      code: mainBlockCode.code,
+      pseudoClasses: pseudoClasses, // 擬似クラスを分けて格納
+      elements: elements // エレメントを格納
+    };
+
+    setSelectedScssBlock(fullBlockCode);
+    setShowBlockDetails(true);
+    // モーダル表示時にスクロールをロック
+    document.body.style.overflow = 'hidden';
+  };
+
+  // ブロック詳細表示を閉じる
+  const handleCloseBlockDetails = () => {
+    setShowBlockDetails(false);
+    // スクロールロック解除
+    document.body.style.overflow = 'auto';
+  };
+
+  // モーダル外クリック時の処理
+  const handleModalBackdropClick = (e) => {
+    // モーダルの背景部分のみがクリックされた場合に閉じる
+    if (e.target.className === 'block-details-modal') {
+      handleCloseBlockDetails();
+    }
   };
 
   // AI生成コードの保存処理
@@ -2095,19 +2183,64 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setSaveSuccess(null);
 
     try {
-      const result = await window.api.saveAIGeneratedCode(
-        editingCSS,
-        editingHTML,
-        blockName.trim(),
-        selectedHtmlFile
+      // ファイル存在チェック
+      const result = await window.api.checkFileExists(blockName);
+
+      // ファイル存在チェックとリネームダイアログ表示
+      if (result.exists) {
+        // 衝突情報を設定
+        setConflictInfo({
+          originalBlockName: blockName,
+          scssCode: editingCSS,
+          htmlCode: editingHTML,
+          fileExists: result.fileExists
+        });
+        setShowRenameDialog(true);
+        setNewBlockName(blockName + '-new');
+        // スクロールをロック
+        document.body.style.overflow = 'hidden';
+        setIsSaving(false);
+        return;
+      }
+
+      // 除外されていないブロックのみをフィルタリング
+      const blocksToSave = detectedScssBlocks.filter(block =>
+        !excludedBlocks.includes(block.name)
       );
 
-      if (result.success) {
+      if (blocksToSave.length === 0) {
+        setSaveSuccess(false);
+        setSaveError("保存するブロックがありません。すべてのブロックが除外されています。");
+        setIsSaving(false);
+        return;
+      }
+
+      // 各SCSSブロックを個別に保存（除外されたものを除く）
+      const savePromises = blocksToSave.map(async (block) => {
+        return await window.api.saveAIGeneratedCode(
+          block.code,           // そのブロックのSCSSコード
+          block.name === blockName ? editingHTML : "",  // 選択されたブロックのみHTMLを保存
+          block.name,           // ブロック名
+          block.name === blockName ? selectedHtmlFile : null  // 選択されたブロックのみHTMLファイルに追加
+        );
+      });
+
+      const results = await Promise.all(savePromises);
+
+      // エラーがあるか確認
+      const hasError = results.some(result => !result.success);
+
+      if (!hasError) {
         setSaveSuccess(true);
         setSaveError("");
       } else {
+        const errorMessages = results
+          .filter(result => !result.success)
+          .map(result => result.error)
+          .join(", ");
+
         setSaveSuccess(false);
-        setSaveError(result.error || "保存中にエラーが発生しました");
+        setSaveError(`保存中にエラーが発生しました: ${errorMessages}`);
       }
     } catch (error) {
       console.error("AI生成コードの保存中にエラーが発生しました:", error);
@@ -2118,12 +2251,173 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     }
   };
 
+  // リネームダイアログの処理
+  const handleCloseRenameDialog = () => {
+    setShowRenameDialog(false);
+    setNewBlockName("");
+    setConflictInfo(null);
+    setIsRenaming(false);
+    // スクロールロック解除
+    document.body.style.overflow = 'auto';
+  };
+
+  // リネームダイアログ外クリック時の処理
+  const handleRenameDialogBackdropClick = (e) => {
+    // ダイアログ処理中は何もしない
+    if (isRenaming) return;
+
+    // ダイアログの背景部分のみがクリックされた場合に閉じる
+    if (e.target.className === 'rename-dialog-overlay') {
+      handleCloseRenameDialog();
+    }
+  };
+
+  // リネームして保存処理
+  const handleRenameAndSave = async () => {
+    if (!newBlockName.trim()) {
+      setSaveError("新しいブロック名を入力してください");
+      return;
+    }
+
+    // リネーム用の名前チェック
+    const invalidChars = /[^a-zA-Z0-9-_]/g;
+    if (invalidChars.test(newBlockName)) {
+      setSaveError("ブロック名には英数字、ハイフン、アンダースコアのみ使用できます");
+      return;
+    }
+
+    setIsRenaming(true);
+    setSaveError("");
+
+    try {
+      // メインブロックをリネームして保存
+      const result = await window.api.renameAndSaveAICode(
+        conflictInfo.scssCode,
+        conflictInfo.htmlCode,
+        conflictInfo.originalBlockName,
+        newBlockName,
+        selectedHtmlFile
+      );
+
+      // リネーム結果処理
+      if (result.success) {
+        setShowRenameDialog(false);
+        setConflictInfo(null);
+        setSaveSuccess(true);
+        setSaveError("");
+        setBlockName(newBlockName);
+      } else {
+        setSaveSuccess(false);
+        setSaveError(`リネームして保存中にエラーが発生しました: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("リネームして保存中にエラーが発生しました:", error);
+      setSaveSuccess(false);
+      setSaveError(error.message || "リネームして保存中にエラーが発生しました");
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  // ブロックを除外する処理
+  const handleExcludeBlock = (e, blockName) => {
+    e.stopPropagation(); // イベントの伝播を止める
+    setExcludedBlocks([...excludedBlocks, blockName]);
+  };
+
+  // 除外を解除する処理
+  const handleIncludeBlock = (e, blockName) => {
+    e.stopPropagation(); // イベントの伝播を止める
+    setExcludedBlocks(excludedBlocks.filter(name => name !== blockName));
+  };
+
+  // ブロックが除外されているかチェック
+  const isBlockExcluded = (blockName) => {
+    return excludedBlocks.includes(blockName);
+  };
+
   return (
     <div className="ai-code-generator">
       <Header
         title="AIコード生成"
         description="AIを活用してデザイン画像からHTMLとCSSを自動生成します"
       />
+
+      {/* リネームダイアログ */}
+      {showRenameDialog && (
+        <div className="rename-dialog-overlay" onClick={handleRenameDialogBackdropClick}>
+          <div className="rename-dialog">
+            <div className="rename-dialog-header">
+              <h3>ファイル名の衝突</h3>
+              <button
+                className="close-button"
+                onClick={handleCloseRenameDialog}
+                disabled={isRenaming}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="rename-dialog-content">
+              <p className="conflict-message">
+                {conflictInfo && conflictInfo.fileExists.scss && conflictInfo.fileExists.html ? (
+                  `SCSSファイル "_${conflictInfo.originalBlockName}.scss" とHTMLファイル "${conflictInfo.originalBlockName}.html" が既に存在します。`
+                ) : conflictInfo && conflictInfo.fileExists.scss ? (
+                  `SCSSファイル "_${conflictInfo.originalBlockName}.scss" が既に存在します。`
+                ) : conflictInfo && conflictInfo.fileExists.html ? (
+                  `HTMLファイル "${conflictInfo.originalBlockName}.html" が既に存在します。`
+                ) : "ファイルが既に存在します。"}
+              </p>
+
+              <p>新しいブロック名を入力してください：</p>
+
+              <div className="rename-input-group">
+                <input
+                  type="text"
+                  value={newBlockName}
+                  onChange={(e) => setNewBlockName(e.target.value)}
+                  placeholder="新しいブロック名"
+                  disabled={isRenaming}
+                />
+
+                <div className="rename-preview">
+                  <div className="file-preview">
+                    <span className="file-icon">📄</span>
+                    <span className="file-name">_<strong>{newBlockName || "ブロック名"}</strong>.scss</span>
+                  </div>
+                  <div className="file-preview">
+                    <span className="file-icon">📄</span>
+                    <span className="file-name"><strong>{newBlockName || "ブロック名"}</strong>.html</span>
+                  </div>
+                </div>
+              </div>
+
+              {saveError && (
+                <div className="rename-error">
+                  {saveError}
+                </div>
+              )}
+            </div>
+
+            <div className="rename-dialog-actions">
+              <button
+                className="cancel-button"
+                onClick={handleCloseRenameDialog}
+                disabled={isRenaming}
+              >
+                キャンセル
+              </button>
+              <button
+                className={`rename-button ${isRenaming ? 'renaming' : ''}`}
+                onClick={handleRenameAndSave}
+                disabled={isRenaming || !newBlockName.trim()}
+              >
+                {isRenaming ? "処理中..." : "リネームして保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="upload-section">
         <div
@@ -2290,9 +2584,120 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           {/* コード保存UI - タブの上に移動 */}
           <div className="code-save-container">
             <h3>コードを保存</h3>
+
+            {/* 検出されたブロック情報の表示 */}
+            {detectedScssBlocks.length > 0 && (
+              <div className="detected-blocks-section">
+                <h4>検出されたブロック</h4>
+                <div className="detected-blocks-info">
+                  <p>
+                    検出されたSCSSブロックは各々1ファイルとして <code>src/scss/object/AI_Component/_ブロック名.scss</code> に保存されます。
+                    ファイル名が重複する場合は、保存時に新しい名前の入力が求められます。
+                  </p>
+                </div>
+                <div className="detected-blocks-list">
+                  {detectedScssBlocks
+                    // メインブロックのみをフィルタリング（__を含まないブロック名）
+                    .filter(block => !block.name.includes('__'))
+                    // 擬似クラスをフィルタリング（:を含むブロック名は除外）
+                    .filter(block => !block.name.includes(':'))
+                    .map((block) => (
+                      <div
+                        key={block.name}
+                        className={`detected-block-item ${blockName === block.name ? 'selected' : ''} ${isBlockExcluded(block.name) ? 'excluded' : ''}`}
+                        onClick={() => handleScssBlockSelect(block.name)}
+                      >
+                        <span className="block-name">{block.name}</span>
+                        <span className="block-info">SCSSブロック</span>
+
+                        <div className="block-actions">
+                          <button
+                            className="view-block-button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleScssBlockSelect(block.name);
+                            }}
+                            title="詳細を表示"
+                          >
+                            詳細
+                          </button>
+
+                          {isBlockExcluded(block.name) ? (
+                            <button
+                              className="include-block-button"
+                              onClick={(e) => handleIncludeBlock(e, block.name)}
+                              title="保存対象に戻す"
+                            >
+                              保存対象に戻す
+                            </button>
+                          ) : (
+                            <button
+                              className="exclude-block-button"
+                              onClick={(e) => handleExcludeBlock(e, block.name)}
+                              title="保存対象から除外"
+                            >
+                              保存対象から除外
+                            </button>
+                          )}
+                        </div>
+
+                        {isBlockExcluded(block.name) && (
+                          <div className="excluded-label">保存対象外</div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+
+                {/* ブロック詳細モーダル */}
+                {showBlockDetails && selectedScssBlock && (
+                  <div className="block-details-modal" onClick={handleModalBackdropClick}>
+                    <div className="block-details-content">
+                      <div className="block-details-header">
+                        <h4>{selectedScssBlock.name}の詳細</h4>
+                        <button className="close-button" onClick={handleCloseBlockDetails}>×</button>
+                      </div>
+                      <div className="block-details-info">
+                        <p>このブロックに含まれる全てのセレクタが表示されています。SCSS保存時にはこれらすべてが反映されます。</p>
+                      </div>
+                      <div className="block-code-preview">
+                        <h5>メインブロック</h5>
+                        <pre>{selectedScssBlock.code}</pre>
+
+                        {/* 擬似クラスの表示 */}
+                        {selectedScssBlock.pseudoClasses && selectedScssBlock.pseudoClasses.length > 0 && (
+                          <div className="block-elements">
+                            <h5>擬似クラス ({selectedScssBlock.pseudoClasses.length})</h5>
+                            {selectedScssBlock.pseudoClasses.map((element, index) => (
+                              <div key={index} className="element-code">
+                                <div className="element-name">{element.name}</div>
+                                <pre>{element.code}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 関連エレメントの表示 */}
+                        {selectedScssBlock.elements && selectedScssBlock.elements.length > 0 && (
+                          <div className="block-elements">
+                            <h5>エレメント ({selectedScssBlock.elements.length})</h5>
+                            {selectedScssBlock.elements.map((element, index) => (
+                              <div key={index} className="element-code">
+                                <div className="element-name">{element.name}</div>
+                                <pre>{element.code}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="save-form">
               <div className="form-group">
-                <label htmlFor="block-name">ブロック名:</label>
+                <label htmlFor="block-name">メインブロック名:</label>
                 <input
                   type="text"
                   id="block-name"
@@ -2301,6 +2706,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   placeholder="例: header-section"
                   className="block-name-input"
                 />
+                <small className="input-help">
+                  このブロック名のHTMLがパーツファイルとして保存され、選択したHTMLファイルに追加されます。
+                  {detectedHtmlBlocks.length > 0 &&
+                    ` 検出されたメインブロック: ${detectedHtmlBlocks[0].name}`}
+                </small>
               </div>
 
               <div className="form-group">
@@ -2317,12 +2727,15 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                     </option>
                   ))}
                 </select>
+                <small className="input-help">
+                  選択したHTMLファイルの&lt;/main&gt;タグ直前に{`{{> ${blockName} }}`}が追加されます。
+                </small>
               </div>
 
               <button
                 className={`save-code-button ${isSaving ? 'saving' : ''}`}
                 onClick={handleSaveCode}
-                disabled={isSaving || !editingHTML || !editingCSS}
+                disabled={isSaving || !editingHTML || !editingCSS || detectedScssBlocks.length === 0}
               >
                 {isSaving ? "保存中..." : "コードを保存"}
               </button>
@@ -2330,7 +2743,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               {saveSuccess !== null && (
                 <div className={`save-status ${saveSuccess ? 'success' : 'error'}`}>
                   {saveSuccess
-                    ? "コードが正常に保存されました！"
+                    ? `コードが正常に保存されました！検出された${detectedScssBlocks.length}個のブロックを保存しました。`
                     : `エラー: ${saveError}`}
                 </div>
               )}
