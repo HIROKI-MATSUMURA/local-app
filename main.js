@@ -3,10 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { session } = require('electron');
+require('dotenv').config();
 
 // ハードコードされたAPIキー
-const OPENAI_API_KEY = "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";
-const CLAUDE_API_KEY = "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";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
 
 // グローバルエラーハンドリング
