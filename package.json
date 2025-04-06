@@ -1,17 +1,22 @@
 {
-  "name": "electron-sample-app",
+  "name": "creait-code",
   "version": "1.0.0",
-  "description": "",
+  "description": "AIを活用したコード生成・変換ツール",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "concurrently \"npx vite\" \"electron .\"",
-    "build": "vite build"
+    "build": "vite build",
+    "package-mac": "electron-builder --mac",
+    "package-win": "electron-builder --win",
+    "package-linux": "electron-builder --linux",
+    "package": "npm run build && electron-builder"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "7.6.0",
     "electron": "33.3.1",
+    "electron-builder": "^24.13.3",
     "sass": "^1.83.1",
     "sharp": "^0.33.5",
     "vite": "6.0.7",
@@ -40,5 +45,30 @@
   },
   "volta": {
     "node": "18.17.0"
+  },
+  "build": {
+    "appId": "com.creait.code",
+    "productName": "CreAIte Code",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "public/icon.icns"
+    },
+    "win": {
+      "icon": "public/icon.ico"
+    },
+    "linux": {
+      "icon": "public/icon.png",
+      "category": "Development"
+    }
   }
 }

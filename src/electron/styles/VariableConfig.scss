@@ -682,7 +682,9 @@
 
       .preview-image {
         max-width: 100%;
+        width: 100%;
         height: auto;
+        object-fit: contain;
         display: block;
         cursor: crosshair;
         transition: filter 0.3s ease;
@@ -942,6 +944,10 @@
     box-shadow: $shadow-md;
     overflow: hidden;
     transition: all 0.3s ease;
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    justify-content: center;
 
     &:hover {
       box-shadow: $shadow-lg;

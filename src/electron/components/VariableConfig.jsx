@@ -1715,7 +1715,7 @@ ${colorVariables}
                   <div
                     className="image-container"
                     ref={imageContainerRef}
-                    style={{ overflow: 'visible', position: 'relative' }}
+                    style={{ position: 'relative' }}
                   >
                     <img
                       ref={imageRef}
@@ -1725,7 +1725,7 @@ ${colorVariables}
                       onClick={handleImageClick}
                       onMouseMove={handleMouseMove}
                       onMouseLeave={handleMouseLeave}
-                      style={{ maxWidth: '100%', display: 'block', position: 'relative' }}
+                      style={{ width: '100%', display: 'block', position: 'relative' }}
                     />
                     <canvas
                       ref={canvasRef}
