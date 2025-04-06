@@ -1129,40 +1129,99 @@ const AICodeGenerator = () => {
 
       console.log("再生成開始", regenerateInstructions);
 
-      const regeneratePrompt = `
-Modify the HTML and CSS below based on the instructions while maintaining the original structure.
-Keep the original layout, element placement, and class names as much as possible.
+      // 分析モードかどうかを確認 - 特定のキーワードが含まれている場合
+      const isAnalysisMode = /分析|解析|問題点|診断|チェック|確認|レビュー|analyze|review|check|issues/i.test(regenerateInstructions);
 
-Modification: ${regenerateInstructions}
+      // 分析モードの場合は警告を表示して処理を終了
+      if (isAnalysisMode) {
+        alert("分析モードは現在利用できません。通常の再生成を行ってください。");
+        setLoading(false);
+        return;
+      }
 
-HTML (maintain this structure and elements):
+      // 分析モードと修正モードで異なるプロンプトを構築
+      let regeneratePrompt;
+
+      if (isAnalysisMode) {
+        // 分析モード用プロンプト
+        regeneratePrompt = `
+# コード分析リクエスト
+
+現在のHTMLとCSSコードを分析し、問題点や改善点を指摘してください。
+
+## 分析の観点:
+1. デザイン再現性: HTMLとCSSがデザイン要件を適切に実装しているか
+2. コード品質: FLOCSSの命名規則に従っているか、セマンティックなマークアップがされているか
+3. パフォーマンス: 不要なネストや冗長なコード、非効率な実装がないか
+4. アクセシビリティ: a11yの観点で問題はないか
+5. モバイル対応: レスポンシブデザインが適切に実装されているか
+6. SCSS構造: フラットな構造になっているか、ネストが適切か
+
+## 分析対象のコード:
+
+### HTML:
 \`\`\`html
 ${editingHTML}
 \`\`\`
 
-SCSS (maintain this style structure):
+### SCSS:
 \`\`\`scss
 ${editingCSS}
 \`\`\`
 
-## Guidelines:
-1. Maintain original HTML elements and class names
-2. Maintain original CSS selectors and basic structure
-3. Don't add new elements or classes unless specified
-4. Only change what's requested, keep everything else the same
-5. Apply display: block; to all image (img) elements
-6. Wrap inline elements like anchor tags (a) with div tags
-7. Use single class names for component elements (buttons, etc.) and avoid multiple class combinations
+## ユーザーからの分析リクエスト:
+${regenerateInstructions}
 
-## SCSS Rules:
-- **❌ NO NESTING IN SCSS! ❌** - Critical requirement
-- **⚠️ WARNING: No nested selectors using & operator**
-- **✅ ONLY exception: @include mq() media queries**
+## レポート形式:
+1. 全体評価（概要）
+2. 良い点
+3. 問題点と改善提案（具体的なコード例を含む）
+4. 推奨される修正アプローチ
 
-### Correct SCSS structure (follow this):
+注意: コード全体を書き換えずに、問題点と改善案を具体的に指摘してください。
+`;
+      } else {
+        // 修正モード用プロンプト（より詳細な指示とコード構造の理解を促進）
+        regeneratePrompt = `
+# コード修正リクエスト
+
+以下のHTMLとSCSSコードを修正してください。元のコードの構造と命名規則を維持しながら、指定された変更を適用します。
+
+## 修正指示:
+${regenerateInstructions}
+
+## 現在のコード:
+
+### HTML:
+\`\`\`html
+${editingHTML}
+\`\`\`
+
+### SCSS:
+\`\`\`scss
+${editingCSS}
+\`\`\`
+
+## 修正ガイドライン:
+
+### 一般ガイドライン:
+1. 元のHTML構造とクラス名をできるだけ維持する
+2. 元のSCSSセレクタと基本構造を維持する
+3. 指示されていない限り、新しい要素やクラスを追加しない
+4. 指定された部分のみを変更し、それ以外はそのままにする
+5. すべての画像要素(img)にdisplay: block;を適用する
+6. インライン要素（特にaタグ）はdivでラップする
+7. コンポーネント要素（ボタンなど）には単一のクラス名を使用し、複数のクラスの組み合わせを避ける
+
+### SCSS規則:
+- **❌ SCSSでのネストは絶対に使用しない ❌** - 最重要要件
+- **⚠️ 警告: &演算子を使用したネストセレクタを使用しない**
+- **✅ 唯一の例外: @include mq()メディアクエリ**
+
+### 正しいSCSS構造（これに従ってください）:
 
 \`\`\`scss
-/* Correct: Each selector written individually */
+/* 正しい: 各セレクタが個別に記述されている */
 .c-card {
   background-color: white;
   padding: 20px;
@@ -1182,35 +1241,38 @@ ${editingCSS}
 }
 \`\`\`
 
-### Incorrect SCSS structure (avoid):
+### 誤ったSCSS構造（避けてください）:
 
 \`\`\`scss
-/* Incorrect: Using & operator for nesting */
+/* 誤り: &演算子を使用したネスト */
 .c-card {
   background-color: white;
 
-  &__title {  /* Never do this! */
+  &__title {  /* これは絶対にしないでください！ */
     font-size: 1.25rem;
   }
 
-  &__content {  /* Never do this! */
+  &__content {  /* これは絶対にしないでください！ */
     font-size: 1rem;
   }
 
-  &:hover {  /* Never do this! */
+  &:hover {  /* これは絶対にしないでください！ */
     background-color: #f9f9f9;
   }
 }
 \`\`\`
 
-Include both HTML and SCSS parts in your response.
-Output in \`\`\`html\` and \`\`\`scss\` format.
-Always use flat SCSS structure without nesting.
+## 出力形式:
+1. 変更内容の要約（何を変更したか、なぜそのように変更したか）
+2. 更新されたHTMLコード（\`\`\`html\`\`\`形式）
+3. 更新されたSCSSコード（\`\`\`scss\`\`\`形式）
+
+必ずフラットなSCSS構造を使用し、ネストを避けてください。
 `;
+      }
 
       console.log("window.api:", window.api ? "存在します" : "存在しません");
       console.log("generateCode関数を呼び出し中...");
-
       // electron APIを使用して再生成する
       const result = await window.api.generateCode({
         prompt: regeneratePrompt,
@@ -2282,23 +2344,28 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             </div>
           </div>
 
-          <div className="regenerate-form">
-            <h3>コードの再生成</h3>
-            <textarea
-              value={regenerateInstructions}
-              onChange={(e) => setRegenerateInstructions(e.target.value)}
-              className="regenerate-textarea"
-              placeholder="コードの修正指示を入力してください"
-              rows={6}
-            />
-            <button
-              className={`regenerate-button ${loading ? 'loading' : ''}`}
-              onClick={handleRegenerate}
-              disabled={loading || !regenerateInstructions.trim()}
-            >
-              {loading ? "" : "再生成"}
-            </button>
-          </div>
+          {showGeneratedCode && (
+            <div className="regenerate-form">
+              <h3>コードの再生成</h3>
+              <p className="regenerate-info">
+                生成されたコードに対して具体的な指示を入力してください。曖昧な表現はAIが理解できません。
+              </p>
+              <textarea
+                value={regenerateInstructions}
+                onChange={(e) => setRegenerateInstructions(e.target.value)}
+                className="regenerate-textarea"
+                placeholder="例: ボタンの色を青に変更してください / 背景色をもっと明るくしてください / 要素間の余白を増やしてください"
+                rows={6}
+              ></textarea>
+              <button
+                className={`regenerate-button ${loading ? 'loading' : ''}`}
+                onClick={handleRegenerate}
+                disabled={loading || !regenerateInstructions.trim()}
+              >
+                {loading ? "処理中..." : "再生成"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

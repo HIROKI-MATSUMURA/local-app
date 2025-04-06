@@ -1129,60 +1129,8 @@ const AICodeGenerator = () => {
 
       console.log("再生成開始", regenerateInstructions);
 
-      // 分析モードかどうかを確認 - 特定のキーワードが含まれている場合
-      const isAnalysisMode = /分析|解析|問題点|診断|チェック|確認|レビュー|analyze|review|check|issues/i.test(regenerateInstructions);
-
-      // 分析モードの場合は警告を表示して処理を終了
-      if (isAnalysisMode) {
-        alert("分析モードは現在利用できません。通常の再生成を行ってください。");
-        setLoading(false);
-        return;
-      }
-
-      // 分析モードと修正モードで異なるプロンプトを構築
-      let regeneratePrompt;
-
-      if (isAnalysisMode) {
-        // 分析モード用プロンプト
-        regeneratePrompt = `
-# コード分析リクエスト
-
-現在のHTMLとCSSコードを分析し、問題点や改善点を指摘してください。
-
-## 分析の観点:
-1. デザイン再現性: HTMLとCSSがデザイン要件を適切に実装しているか
-2. コード品質: FLOCSSの命名規則に従っているか、セマンティックなマークアップがされているか
-3. パフォーマンス: 不要なネストや冗長なコード、非効率な実装がないか
-4. アクセシビリティ: a11yの観点で問題はないか
-5. モバイル対応: レスポンシブデザインが適切に実装されているか
-6. SCSS構造: フラットな構造になっているか、ネストが適切か
-
-## 分析対象のコード:
-
-### HTML:
-\`\`\`html
-${editingHTML}
-\`\`\`
-
-### SCSS:
-\`\`\`scss
-${editingCSS}
-\`\`\`
-
-## ユーザーからの分析リクエスト:
-${regenerateInstructions}
-
-## レポート形式:
-1. 全体評価（概要）
-2. 良い点
-3. 問題点と改善提案（具体的なコード例を含む）
-4. 推奨される修正アプローチ
-
-注意: コード全体を書き換えずに、問題点と改善案を具体的に指摘してください。
-`;
-      } else {
-        // 修正モード用プロンプト（より詳細な指示とコード構造の理解を促進）
-        regeneratePrompt = `
+      // 修正モード用プロンプト（より詳細な指示とコード構造の理解を促進）
+      const regeneratePrompt = `
 # コード修正リクエスト
 
 以下のHTMLとSCSSコードを修正してください。元のコードの構造と命名規則を維持しながら、指定された変更を適用します。
@@ -1269,7 +1217,6 @@ ${editingCSS}
 
 必ずフラットなSCSS構造を使用し、ネストを避けてください。
 `;
-      }
 
       console.log("window.api:", window.api ? "存在します" : "存在しません");
       console.log("generateCode関数を呼び出し中...");
@@ -1286,16 +1233,6 @@ ${editingCSS}
       const generatedCode = result.generatedCode;
       console.log("再生成されたコード:", generatedCode.substring(0, 100) + "...");
 
-
-      // 分析モードの場合は結果をそのまま表示
-      if (isAnalysisMode) {
-        // 分析結果を保存
-        setGeneratedCode(generatedCode);
-
-        // ロード状態を解除
-        setLoading(false);
-        return;
-      }
       // より柔軟なHTML抽出パターン - <html>タグが含まれていない場合も考慮
       let htmlMatch = generatedCode.match(/<html>[\s\S]*?<\/html>/i);
       if (!htmlMatch) {
@@ -2356,15 +2293,15 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
           {showGeneratedCode && (
             <div className="regenerate-form">
-              <h3>コードの再生成</h3>
+              <h3>コードの再生成・分析</h3>
               <p className="regenerate-info">
-                生成されたコードに対して修正指示を入力してください。AIがコードを更新します。
+                生成されたコードに対して修正指示や分析依頼ができます。「分析」「確認」などの単語を含めると分析モードになります。
               </p>
               <textarea
                 value={regenerateInstructions}
                 onChange={(e) => setRegenerateInstructions(e.target.value)}
                 className="regenerate-textarea"
-                placeholder="例: ボタンの色を青に変更してください / 背景色をもっと明るくしてください / 要素間の余白を増やしてください"
+                placeholder="例: ボタンの色を青に変更してください / 分析: このコードの問題点を指摘してください"
                 rows={6}
               ></textarea>
               <button
@@ -2372,10 +2309,48 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 onClick={handleRegenerate}
                 disabled={loading || !regenerateInstructions.trim()}
               >
-                {loading ? "処理中..." : "再生成"}
+                {loading ? "処理中..." : "AI処理実行"}
               </button>
             </div>
           )}
+        </div>
+      )}
+      {/* コード分析結果表示モーダル */}
+      {showAnalysisModal && (
+        <div className="analysis-modal-overlay">
+          <div className="analysis-modal">
+            <div className="analysis-modal-header">
+              <h2>コード分析結果</h2>
+              <button
+                className="close-modal-button"
+                onClick={() => setShowAnalysisModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="analysis-modal-content">
+              <pre className="analysis-content">
+                {analysisResult}
+              </pre>
+            </div>
+            <div className="analysis-modal-footer">
+              <button
+                className="copy-analysis-button"
+                onClick={() => {
+                  navigator.clipboard.writeText(analysisResult);
+                  alert("分析結果をクリップボードにコピーしました");
+                }}
+              >
+                クリップボードにコピー
+              </button>
+              <button
+                className="close-analysis-button"
+                onClick={() => setShowAnalysisModal(false)}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
