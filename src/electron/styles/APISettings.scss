@@ -1,0 +1,271 @@
+@use "sass:color";
+@import "./global.scss";
+
+.api-settings {
+  padding: $spacing-xl;
+  background: linear-gradient(145deg, #ffffff, #f5f7fa);
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+  max-width: 600px;
+  margin: 0 auto;
+
+  .page-header {
+    margin-bottom: $spacing-xl;
+    text-align: center;
+
+    h1 {
+      font-size: 2rem;
+      color: $text-primary;
+      margin-bottom: $spacing-sm;
+      font-weight: 600;
+    }
+
+    p {
+      color: $text-secondary;
+      font-size: 1.1rem;
+    }
+  }
+
+  .provider-selection {
+    margin-bottom: $spacing-lg;
+
+    .section-title {
+      font-weight: 600;
+      color: $text-primary;
+      margin-bottom: $spacing-md;
+      font-size: 1.1rem;
+      display: block;
+    }
+
+    .provider-options {
+      display: flex;
+      gap: $spacing-md;
+      margin-bottom: $spacing-lg;
+
+      .provider-option {
+        flex: 1;
+        position: relative;
+
+        input[type="radio"] {
+          position: absolute;
+          opacity: 0;
+          width: 0;
+          height: 0;
+
+          &:checked + .provider-card {
+            border-color: $primary-color;
+            background-color: rgba($primary-color, 0.05);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba($primary-color, 0.15);
+
+            .provider-check {
+              opacity: 1;
+              transform: scale(1);
+            }
+
+            .provider-name {
+              color: $primary-color;
+              font-weight: 600;
+            }
+          }
+
+          &:focus + .provider-card {
+            box-shadow: 0 0 0 3px rgba($primary-color, 0.2);
+          }
+        }
+
+        .provider-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: $spacing-lg;
+          border-radius: $radius-lg;
+          border: 2px solid $border-color;
+          background-color: white;
+          transition: all 0.2s ease;
+          cursor: pointer;
+          position: relative;
+
+          &:hover {
+            border-color: rgba($primary-color, 0.5);
+            transform: translateY(-1px);
+          }
+
+          .provider-icon {
+            font-size: 2rem;
+            margin-bottom: $spacing-sm;
+            color: $text-secondary;
+          }
+
+          .provider-name {
+            font-weight: 500;
+            color: $text-primary;
+            transition: all 0.2s ease;
+          }
+
+          .provider-check {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: $primary-color;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.2s ease;
+          }
+        }
+      }
+    }
+  }
+
+  .api-form {
+    .api-field {
+      margin-bottom: $spacing-lg;
+      background-color: white;
+      border-radius: $radius-md;
+      padding: $spacing-md;
+      box-shadow: $shadow-sm;
+      transition: all 0.2s ease;
+
+      &.active {
+        box-shadow: $shadow-md;
+        border-left: 3px solid $primary-color;
+      }
+
+      &.inactive {
+        opacity: 0.7;
+      }
+
+      .field-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: $spacing-sm;
+
+        .api-label {
+          font-weight: 600;
+          color: $text-primary;
+        }
+      }
+
+      .api-input {
+        width: 100%;
+        padding: $spacing-md;
+        border: 1px solid $border-color;
+        border-radius: $radius-md;
+        font-family: "Fira Code", monospace;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+
+        &:focus {
+          outline: none;
+          border-color: $primary-color;
+          box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+        }
+
+        &.disabled {
+          background-color: $background-color;
+          color: $text-secondary;
+        }
+      }
+
+      .field-info {
+        margin-top: $spacing-xs;
+        color: $text-secondary;
+        font-size: 0.8rem;
+
+        a {
+          color: $primary-color;
+          text-decoration: none;
+          &:hover {
+            text-decoration: underline;
+          }
+        }
+      }
+    }
+
+    .show-api-toggle {
+      display: flex;
+      align-items: center;
+      margin-bottom: $spacing-lg;
+
+      input[type="checkbox"] {
+        margin-right: $spacing-sm;
+      }
+
+      label {
+        color: $text-secondary;
+        cursor: pointer;
+      }
+    }
+  }
+
+  .action-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: $spacing-xl;
+
+    .save-button,
+    .delete-button {
+      padding: $spacing-sm $spacing-lg;
+      border-radius: $radius-md;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: $spacing-xs;
+
+      &:hover {
+        transform: translateY(-1px);
+      }
+
+      &:active {
+        transform: translateY(0);
+      }
+    }
+
+    .save-button {
+      background-color: $primary-color;
+      color: white;
+
+      &:hover {
+        background-color: color.adjust($primary-color, $lightness: -5%);
+        box-shadow: 0 4px 8px rgba($primary-color, 0.3);
+      }
+    }
+
+    .delete-button {
+      background-color: rgba($error-color, 0.1);
+      color: $error-color;
+      border: 1px solid rgba($error-color, 0.3);
+
+      &:hover {
+        background-color: rgba($error-color, 0.15);
+        box-shadow: 0 4px 8px rgba($error-color, 0.2);
+      }
+    }
+  }
+
+  .loader {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba($primary-color, 0.2);
+      border-radius: 50%;
+      border-top-color: $primary-color;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  }
+}

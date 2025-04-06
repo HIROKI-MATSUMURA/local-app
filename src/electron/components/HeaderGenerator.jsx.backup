@@ -1,0 +1,2763 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Controlled as CodeMirror } from 'react-codemirror2';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/material.css';
+import 'codemirror/mode/htmlmixed/htmlmixed';
+import 'codemirror/mode/css/css';
+import 'codemirror/addon/edit/matchbrackets';
+import 'codemirror/addon/edit/closebrackets';
+import 'codemirror/addon/comment/comment';
+import 'codemirror/addon/fold/foldcode';
+import 'codemirror/addon/fold/foldgutter';
+import 'codemirror/addon/fold/foldgutter.css';
+import 'codemirror/addon/fold/brace-fold';
+import 'codemirror/addon/fold/xml-fold';
+import '../styles/HeaderGenerator.css';
+import 'highlight.js/styles/github.css';
+import Header from './Header';
+import CodeDisplay from './CodeDisplay';
+import CodeGenerationSettings from './CodeGenerationSettings';
+import { generateHeaderPrompt } from "../utils/headerPromptGenerator";
+import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
+import "../styles/AICodeGenerator.scss";
+
+const LOCAL_STORAGE_KEY = "header_generator_state";
+
+// SCSSのネスト構造を平坦化する関数
+const flattenSCSS = (scss) => {
+  if (!scss) return scss;
+
+  // 結果を格納する配列
+  const lines = scss.split('\n');
+  const result = [];
+
+  // 現在の親セレクタとインデントレベルを追跡
+  let parentSelector = null;
+  let currentIndent = 0;
+  let inComment = false;
+  let inMediaQuery = false;
+  let mediaQueryBlock = '';
+  let mediaQueryIndent = 0;
+
+  // 各行を処理
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    // コメント処理
+    if (trimmedLine.startsWith('/*')) inComment = true;
+    if (trimmedLine.endsWith('*/')) {
+      inComment = false;
+      result.push(line);
+      continue;
+    }
+    if (inComment) {
+      result.push(line);
+      continue;
+    }
+
+    // 空行の場合はそのまま追加
+    if (trimmedLine === '') {
+      result.push('');
+      continue;
+    }
+
+    // インデントレベルを計算
+    const indentMatch = line.match(/^(\s+)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
+
+    // メディアクエリ処理
+    if (trimmedLine.startsWith('@include mq(') && !inMediaQuery) {
+      inMediaQuery = true;
+      mediaQueryBlock = line;
+      mediaQueryIndent = indent;
+      continue;
+    }
+
+    if (inMediaQuery) {
+      mediaQueryBlock += '\n' + line;
+      if (trimmedLine === '}') {
+        inMediaQuery = false;
+        result.push(mediaQueryBlock);
+        mediaQueryBlock = '';
+      }
+      continue;
+    }
+
+    // セレクタ行の検出
+    if (trimmedLine.includes('{') && !trimmedLine.includes('}')) {
+      // インデントレベルが下がった場合、親セレクタをリセット
+      if (indent <= currentIndent) {
+        parentSelector = null;
+      }
+
+      // 親セレクタを記録
+      parentSelector = trimmedLine.split('{')[0].trim();
+      currentIndent = indent;
+      result.push(line);
+    }
+    // ネストされたセレクタの検出 (&__)
+    else if (trimmedLine.startsWith('&') && parentSelector) {
+      const nestedPart = trimmedLine.split('{')[0].trim();
+      // &__title { のようなパターンを.parent__titleに変換
+      if (nestedPart.startsWith('&__')) {
+        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
+        // インデントを親と同じレベルに調整
+        const spaces = ' '.repeat(currentIndent);
+        result.push(`${spaces}${newSelector}`);
+      }
+      // &:hover { のようなパターンを.parent:hoverに変換
+      else if (nestedPart.startsWith('&:')) {
+        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
+        const spaces = ' '.repeat(currentIndent);
+        result.push(`${spaces}${newSelector}`);
+      }
+    }
+    // 通常の行はそのまま追加
+    else {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+};
+
+// pxをremに変換する関数
+const convertPxToRem = (scss) => {
+  if (!scss) return scss;
+
+  // base font-size: 16px
+  const ROOT_FONT_SIZE = 16;
+
+  // 行ごとに処理
+  const lines = scss.split('\n');
+  const result = [];
+
+  // メディアクエリ内かどうかのフラグ
+  let inMediaQuery = false;
+
+  for (const line of lines) {
+    // メディアクエリの開始と終了を検出
+    if (line.includes('@include mq(')) {
+      inMediaQuery = true;
+    }
+    if (inMediaQuery && line.trim() === '}') {
+      inMediaQuery = false;
+    }
+
+    // メディアクエリ内またはborderの1pxはそのまま残す
+    if (inMediaQuery ||
+      line.includes('border') && line.includes('1px') ||
+      line.includes('box-shadow') && line.includes('px')) {
+      result.push(line);
+      continue;
+    }
+
+    // pxをremに変換（数値とpxの間にスペースがあってもマッチ）
+    let processedLine = line;
+    const pxRegex = /(\d*\.?\d+)\s*px/g;
+
+    processedLine = processedLine.replace(pxRegex, (match, pixelValue) => {
+      // 小数点第3位までの精度で変換
+      const remValue = (parseFloat(pixelValue) / ROOT_FONT_SIZE).toFixed(3);
+      // 末尾の0を削除（例：1.500rem → 1.5rem、1.000rem → 1rem）
+      const trimmedRemValue = parseFloat(remValue);
+      return `${trimmedRemValue}rem`;
+    });
+
+    result.push(processedLine);
+  }
+
+  return result.join('\n');
+};
+
+// 2つのHEX色の類似度を計算する関数
+const getColorSimilarity = (hex1, hex2) => {
+  // HEX値からRGB値に変換
+  const getRGB = (hex) => {
+    hex = hex.replace('#', '');
+
+    // 3桁のHEX値を6桁に変換
+    if (hex.length === 3) {
+      hex = hex.split('').map(h => h + h).join('');
+    }
+
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return [r, g, b];
+  };
+
+  // 両方のHEX値からRGB値を取得
+  const [r1, g1, b1] = getRGB(hex1);
+  const [r2, g2, b2] = getRGB(hex2);
+
+  // ユークリッド距離を計算（色の近さを表す）
+  const distance = Math.sqrt(
+    Math.pow(r1 - r2, 2) +
+    Math.pow(g1 - g2, 2) +
+    Math.pow(b1 - b2, 2)
+  );
+
+  return distance;
+};
+
+// RGB値やHEX値を変数に変換する
+const convertColorValuesToVariables = (cssCode, colorValues) => {
+  if (!cssCode) return cssCode;
+
+  console.log("色値を変数に変換処理を開始");
+  let modifiedCss = cssCode;
+
+  // 変数とHEX値のマッピングを生成（逆方向のマッピング）
+  const hexToVarMap = new Map();
+  Object.entries(colorValues).forEach(([varName, hexValue]) => {
+    // 大文字に統一して保存
+    if (hexValue.startsWith('#')) {
+      hexToVarMap.set(hexValue.toUpperCase(), varName);
+
+      // HEX値をRGB値に変換し、それも登録
+      if (hexValue.length === 7) {
+        const r = parseInt(hexValue.substring(1, 3), 16);
+        const g = parseInt(hexValue.substring(3, 5), 16);
+        const b = parseInt(hexValue.substring(5, 7), 16);
+        const rgbValue = `rgb(${r}, ${g}, ${b})`;
+        hexToVarMap.set(rgbValue, varName);
+        console.log(`変換マッピング追加: ${hexValue.toUpperCase()} / ${rgbValue} → ${varName}`);
+      }
+    }
+  });
+
+  // 色プロパティを持つCSSルールを検出して変換
+  // カラーに関連するCSSプロパティのリスト
+  const colorProperties = [
+    'color',
+    'background-color',
+    'border-color',
+    'box-shadow',
+    'text-shadow',
+    'outline-color',
+    'fill',
+    'stroke'
+  ];
+
+  // CSSルールを解析して、色プロパティの値のみを置換
+  const cssRules = modifiedCss.split(/}\s*(?=[\w\.\#])/);
+  const processedRules = cssRules.map(rule => {
+    // セレクタと宣言ブロックを分離
+    const parts = rule.split('{');
+    if (parts.length < 2) return rule;
+
+    const selector = parts[0].trim();
+    const declarations = parts[1];
+
+    // 宣言を一行ずつ処理
+    const processedDeclarations = declarations.split(';').map(declaration => {
+      const colonPos = declaration.indexOf(':');
+      if (colonPos === -1) return declaration;
+
+      const property = declaration.substring(0, colonPos).trim();
+      const value = declaration.substring(colonPos + 1).trim();
+
+      // 色関連のプロパティの場合のみ値を変換
+      if (colorProperties.some(prop => property.includes(prop))) {
+        // HEX値のパターンを検出
+        const hexMatch = value.match(/#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])/);
+        if (hexMatch) {
+          const hexValue = hexMatch[0];
+          const normalizedHex = hexValue.toUpperCase();
+
+          if (hexToVarMap.has(normalizedHex)) {
+            const varName = hexToVarMap.get(normalizedHex);
+            console.log(`HEX値を変数に変換: ${hexValue} → ${varName} (${selector} の ${property})`);
+            return `${property}: ${varName}`;
+          }
+
+          // 類似色の検索
+          let closestVar = null;
+          let minDistance = 20; // 類似と判断する最大距離
+
+          for (const [hex, varName] of hexToVarMap.entries()) {
+            if (hex.startsWith('#')) {
+              const distance = getColorSimilarity(normalizedHex, hex);
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestVar = varName;
+              }
+            }
+          }
+
+          if (closestVar) {
+            console.log(`類似HEX値を変数に変換: ${hexValue} → ${closestVar} (類似度: ${minDistance}, ${selector} の ${property})`);
+            return `${property}: ${closestVar}`;
+          }
+        }
+
+        // RGB値のパターンを検出
+        const rgbMatch = value.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+        if (rgbMatch) {
+          const rgbValue = rgbMatch[0];
+
+          if (hexToVarMap.has(rgbValue)) {
+            const varName = hexToVarMap.get(rgbValue);
+            console.log(`RGB値を変数に変換: ${rgbValue} → ${varName} (${selector} の ${property})`);
+            return `${property}: ${varName}`;
+          }
+        }
+      }
+
+      return declaration;
+    }).join(';');
+
+    return `${selector} {${processedDeclarations}`;
+  });
+
+  modifiedCss = processedRules.join('}\n\n') + '}';
+
+  // 重複するセレクタを削除
+  // 例: .c-button が2回定義されている場合、後の定義を優先
+  const cleanDuplicateSelectors = (css) => {
+    const cssBlocks = css.split(/}\s*(?=[\w\.\#])/);
+    const selectors = new Map();
+
+    // 後の定義ほど優先される（上書きされる）
+    cssBlocks.forEach(block => {
+      const selectorMatch = block.match(/^([^{]+)\s*{/);
+      if (selectorMatch) {
+        const selector = selectorMatch[1].trim();
+        selectors.set(selector, block);
+      }
+    });
+
+    return Array.from(selectors.values()).join('}\n\n') + '}';
+  };
+
+  modifiedCss = cleanDuplicateSelectors(modifiedCss);
+
+  return modifiedCss;
+};
+
+const HeaderGenerator = () => {
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [generatedHTML, setGeneratedHTML] = useState("");
+  const [generatedCSS, setGeneratedCSS] = useState("");
+  const [generatedJS, setGeneratedJS] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showGeneratedCode, setShowGeneratedCode] = useState(false);
+  const generatedCodeRef = useRef(null);
+
+  // レスポンシブ設定
+  const [responsiveMode, setResponsiveMode] = useState("sp");
+  const [breakpoints, setBreakpoints] = useState([]);
+  const [aiBreakpoints, setAiBreakpoints] = useState([]);
+
+  // ドロワー表示設定
+  const [drawerLayout, setDrawerLayout] = useState("sp-only"); // "sp-only" または "both"
+  const [drawerDirection, setDrawerDirection] = useState("right"); // "right", "left", "bottom", "top", "fade"
+
+  // 画像アップロード用
+  const [pcImage, setPcImage] = useState(null);
+  const [spImage, setSpImage] = useState(null);
+  const [drawerImage, setDrawerImage] = useState(null);  // ドロワー画像を追加
+  const [pcImageBase64, setPcImageBase64] = useState("");
+  const [spImageBase64, setSpImageBase64] = useState("");
+  const [drawerImageBase64, setDrawerImageBase64] = useState("");  // ドロワー画像のBase64を追加
+  const [pcColors, setPcColors] = useState([]);
+  const [spColors, setSpColors] = useState([]);
+  const [drawerColors, setDrawerColors] = useState([]);  // ドロワー画像の色情報を追加
+  const [pcText, setPcText] = useState("");
+  const [spText, setSpText] = useState("");
+  const [drawerText, setDrawerText] = useState("");  // ドロワー画像のテキスト情報を追加
+
+  // 生成コード修正用のステート
+  const [editingHTML, setEditingHTML] = useState("");
+  const [editingCSS, setEditingCSS] = useState("");
+  const [editingJS, setEditingJS] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const previewRef = useRef(null);
+
+  // プレビューサイズの状態
+  const [previewWidth, setPreviewWidth] = useState(375);
+  const [isDragging, setIsDragging] = useState(false);
+  const previewContainerRef = useRef(null);
+  const [customSizeInput, setCustomSizeInput] = useState("");
+  const [showCustomSizeInput, setShowCustomSizeInput] = useState(false);
+  const [scaleRatio, setScaleRatio] = useState(1);
+
+  // iframeの高さを制御する状態
+  const [iframeHeight, setIframeHeight] = useState(400);
+
+  // ファイル入力の参照
+  const fileInputRef = useRef(null);
+
+  // 再生成処理用のステート
+  const [regenerateInstructions, setRegenerateInstructions] = useState("");
+
+  // ローカルストレージからデータをロードする関数
+  const loadFromLocalStorage = () => {
+    try {
+      const savedState = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedState) {
+        const parsedState = JSON.parse(savedState);
+
+        // 画像データをロード
+        if (parsedState.pcImageBase64) setPcImageBase64(parsedState.pcImageBase64);
+        if (parsedState.spImageBase64) setSpImageBase64(parsedState.spImageBase64);
+        if (parsedState.drawerImageBase64) setDrawerImageBase64(parsedState.drawerImageBase64);
+
+        // 画像オブジェクトを再構築
+        if (parsedState.pcImageBase64) {
+          setPcImage({
+            fileName: parsedState.pcImageFileName || "pc-image.jpg",
+            preview: parsedState.pcImageBase64,
+            mimeType: parsedState.pcImageMimeType || "image/jpeg"
+          });
+        }
+
+        if (parsedState.spImageBase64) {
+          setSpImage({
+            fileName: parsedState.spImageFileName || "sp-image.jpg",
+            preview: parsedState.spImageBase64,
+            mimeType: parsedState.spImageMimeType || "image/jpeg"
+          });
+        }
+
+        if (parsedState.drawerImageBase64) {
+          setDrawerImage({
+            fileName: parsedState.drawerImageFileName || "drawer-image.jpg",
+            preview: parsedState.drawerImageBase64,
+            mimeType: parsedState.drawerImageMimeType || "image/jpeg"
+          });
+        }
+
+        // 画像解析結果をロード
+        if (parsedState.pcColors) setPcColors(parsedState.pcColors);
+        if (parsedState.spColors) setSpColors(parsedState.spColors);
+        if (parsedState.drawerColors) setDrawerColors(parsedState.drawerColors);
+        if (parsedState.pcText) setPcText(parsedState.pcText);
+        if (parsedState.spText) setSpText(parsedState.spText);
+        if (parsedState.drawerText) setDrawerText(parsedState.drawerText);
+
+        // 生成コード関連の状態をロード
+        if (parsedState.generatedHTML) setGeneratedHTML(parsedState.generatedHTML);
+        if (parsedState.generatedCSS) setGeneratedCSS(parsedState.generatedCSS);
+        if (parsedState.generatedJS) setGeneratedJS(parsedState.generatedJS);
+        if (parsedState.editingHTML) setEditingHTML(parsedState.editingHTML);
+        if (parsedState.editingCSS) setEditingCSS(parsedState.editingCSS);
+        if (parsedState.editingJS) setEditingJS(parsedState.editingJS);
+        if (parsedState.generatedCode) setGeneratedCode(parsedState.generatedCode);
+        if (parsedState.showGeneratedCode) setShowGeneratedCode(parsedState.showGeneratedCode);
+
+        // プレビュー設定をロード
+        if (parsedState.previewWidth) setPreviewWidth(parsedState.previewWidth);
+        if (parsedState.isEditing !== undefined) setIsEditing(parsedState.isEditing);
+
+        // レスポンシブ設定をロード
+        if (parsedState.responsiveMode) setResponsiveMode(parsedState.responsiveMode);
+        if (parsedState.aiBreakpoints && parsedState.aiBreakpoints.length > 0) {
+          setAiBreakpoints(parsedState.aiBreakpoints);
+        }
+
+        // ドロワー設定をロード
+        if (parsedState.drawerLayout) setDrawerLayout(parsedState.drawerLayout);
+        if (parsedState.drawerDirection) setDrawerDirection(parsedState.drawerDirection);
+
+        // 再生成指示をロード
+        if (parsedState.regenerateInstructions) {
+          setRegenerateInstructions(parsedState.regenerateInstructions);
+        }
+
+        console.log("ローカルストレージからデータをロードしました");
+      }
+    } catch (error) {
+      console.error("ローカルストレージからのデータロードエラー:", error);
+    }
+  };
+
+  // ローカルストレージにデータを保存する関数
+  const saveToLocalStorage = () => {
+    try {
+      const stateToSave = {
+        // 画像データ
+        pcImageBase64: pcImageBase64,
+        spImageBase64: spImageBase64,
+        drawerImageBase64: drawerImageBase64,
+        pcImageFileName: pcImage?.fileName,
+        spImageFileName: spImage?.fileName,
+        drawerImageFileName: drawerImage?.fileName,
+        pcImageMimeType: pcImage?.mimeType,
+        spImageMimeType: spImage?.mimeType,
+        drawerImageMimeType: drawerImage?.mimeType,
+
+        // 画像解析結果
+        pcColors,
+        spColors,
+        drawerColors,
+        pcText,
+        spText,
+        drawerText,
+
+        // 生成コード関連
+        generatedHTML,
+        generatedCSS,
+        generatedJS,
+        editingHTML,
+        editingCSS,
+        editingJS,
+        generatedCode,
+        showGeneratedCode,
+
+        // プレビュー設定
+        previewWidth,
+        isEditing,
+
+        // レスポンシブ設定
+        responsiveMode,
+        aiBreakpoints,
+
+        // ドロワー設定
+        drawerLayout,
+        drawerDirection,
+
+        // 再生成指示
+        regenerateInstructions,
+
+        // 保存日時
+        lastSaved: new Date().toISOString()
+      };
+
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+      console.log("状態をローカルストレージに保存しました");
+    } catch (error) {
+      console.error("ローカルストレージへの保存エラー:", error);
+    }
+  };
+
+  // useEffectを追加してブレークポイントを初期化
+  useEffect(() => {
+    // ローカルストレージからデータをロード
+    loadFromLocalStorage();
+
+    // ブレークポイント設定
+    try {
+      const savedBreakpointsString = localStorage.getItem('breakpoints');
+      if (savedBreakpointsString) {
+        const savedBreakpoints = JSON.parse(savedBreakpointsString);
+        setBreakpoints(savedBreakpoints);
+
+        // AIブレークポイントがすでにロードされていない場合のみ設定
+        if (!aiBreakpoints || aiBreakpoints.length === 0) {
+          const initialAiBreakpoints = savedBreakpoints.map(bp => ({
+            ...bp,
+            aiActive: true // デフォルトですべて有効に
+          }));
+          setAiBreakpoints(initialAiBreakpoints);
+        }
+      } else {
+        // デフォルトのブレークポイント設定
+        const defaultBreakpoints = [
+          { name: 'sm', value: 600 },
+          { name: 'md', value: 768 },
+          { name: 'lg', value: 1024 }
+        ];
+        setBreakpoints(defaultBreakpoints);
+        if (!aiBreakpoints || aiBreakpoints.length === 0) {
+          setAiBreakpoints(defaultBreakpoints.map(bp => ({ ...bp, aiActive: true })));
+        }
+      }
+    } catch (error) {
+      console.error('ブレークポイント設定の読み込みエラー:', error);
+      // エラー時のデフォルト設定
+      const fallbackBreakpoints = [
+        { name: 'sm', value: 600 },
+        { name: 'md', value: 768 },
+        { name: 'lg', value: 1024 }
+      ];
+      setBreakpoints(fallbackBreakpoints);
+      if (!aiBreakpoints || aiBreakpoints.length === 0) {
+        setAiBreakpoints(fallbackBreakpoints.map(bp => ({ ...bp, aiActive: true })));
+      }
+    }
+  }, []);
+
+  // 状態が変更されたらローカルストレージに保存
+  useEffect(() => {
+    if (pcImage || spImage || drawerImage || generatedHTML || generatedCSS || generatedJS) {
+      saveToLocalStorage();
+    }
+  }, [
+    pcImage, spImage, drawerImage,
+    pcImageBase64, spImageBase64, drawerImageBase64,
+    pcColors, spColors, drawerColors,
+    pcText, spText, drawerText,
+    generatedHTML, generatedCSS, generatedJS,
+    editingHTML, editingCSS, editingJS,
+    generatedCode, showGeneratedCode,
+    previewWidth, isEditing,
+    responsiveMode, aiBreakpoints,
+    drawerLayout, drawerDirection,
+    regenerateInstructions
+  ]);
+  // iframeのDOM変更を監視して高さを自動調整する
+  useEffect(() => {
+    // すでにプレビューが表示されていて、かつiframeが存在する場合のみ実行
+    if (showGeneratedCode && previewRef.current) {
+      try {
+        const iframe = previewRef.current;
+        const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
+
+        // MutationObserverを作成
+        const observer = new MutationObserver(() => {
+          console.log('iframeのDOM変更を検出しました');
+          // DOM変更時に高さを調整
+          adjustIframeHeight();
+        });
+
+        // ドキュメント全体の変更を監視
+        observer.observe(iframeDocument.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true
+        });
+
+        // 初期表示時に高さを調整
+        adjustIframeHeight();
+
+        // クリーンアップ関数
+        return () => {
+          // コンポーネントのアンマウント時にObserverを停止
+          observer.disconnect();
+        };
+      } catch (error) {
+        console.error('MutationObserver設定エラー:', error);
+      }
+    }
+  }, [showGeneratedCode, generatedHTML, generatedCSS, generatedJS]);
+
+  // iframeのコンテンツの高さに基づいてiframeの高さを調整する関数
+  const adjustIframeHeight = () => {
+    try {
+      if (!previewRef.current) return;
+
+      const iframe = previewRef.current;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      const body = doc.body;
+      const html = doc.documentElement;
+
+      // 高さを計算（最大値を取得）- AICodeGeneratorと同様の計算方法に変更
+      const contentHeight = Math.max(
+        body.scrollHeight, body.offsetHeight,
+        html.clientHeight, html.scrollHeight, html.offsetHeight
+      );
+
+      // 高さの変化が一定値（5px）以上の場合のみ更新する
+      // 以前は30pxだったが、より細かな変更も検知するため5pxに変更
+      const heightWithMargin = Math.ceil(contentHeight);
+
+      // 現在の高さと比較
+      if (Math.abs(heightWithMargin - iframeHeight) > 5) {
+        // 最小高さを400pxにする
+        const newHeight = Math.max(400, heightWithMargin);
+
+        // 高さを更新
+        setIframeHeight(newHeight);
+
+        // 高さ変更のデバッグ情報
+        console.log(`iframe高さを更新: ${iframeHeight}px → ${newHeight}px (コンテンツ高さ: ${contentHeight}px)`);
+      }
+    } catch (error) {
+      console.error('iframe高さ調整エラー:', error);
+    }
+  };
+
+  // プレビューの更新
+  const updatePreview = () => {
+    if (!previewRef.current) {
+      console.warn('プレビュー用のiframeがまだ初期化されていません');
+      return;
+    }
+
+    try {
+      const adjustHeightWithDelay = () => {
+        // 即時に高さを調整
+        adjustIframeHeight();
+
+        // スタイルの適用が完了するまで複数回高さを調整する
+        // より細かなタイムポイントで調整を実行し、変化を見逃さないようにする
+        setTimeout(adjustIframeHeight, 100);
+        setTimeout(adjustIframeHeight, 300);
+        setTimeout(adjustIframeHeight, 600);
+        setTimeout(adjustIframeHeight, 1000);
+        setTimeout(adjustIframeHeight, 1500);
+      };
+
+      const updateContent = () => {
+        try {
+          // CSSを処理する（色変数を実際の色に置換、メディアクエリ変換など）
+          let processedCSS = editingCSS || '';
+
+          // 色変数の処理
+          // cssVariablesからSCSS変数を抽出
+          const cssVariables = localStorage.getItem('cssVariables') || '';
+          const defaultColors = {};
+
+          // 変数の抽出
+          const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+          let match;
+          while ((match = varRegex.exec(cssVariables)) !== null) {
+            const [_, varName, varValue] = match;
+            defaultColors[`$${varName}`] = varValue.trim();
+          }
+
+          // _setting.scssに変数がない場合のフォールバック
+          if (Object.keys(defaultColors).length === 0) {
+            defaultColors['$primary-color'] = '#DDF0F1';
+            defaultColors['$blue'] = '#408F95';
+          }
+
+          // ローカルストレージから保存されている色を読み込み
+          const colorValues = { ...defaultColors };
+
+          // デバッグのためにローカルストレージのすべての値を表示
+          console.log("ローカルストレージの値:", Object.fromEntries(
+            Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])
+          ));
+
+          // これらの色変数をプレビュー時に使用
+          console.log("プレビューに使用する色変数:", colorValues);
+
+          // SCSS変数を実際の色値に置換
+          Object.entries(colorValues).forEach(([variable, value]) => {
+            const regex = new RegExp(variable.replace('$', '\\$'), 'g');
+            processedCSS = processedCSS.replace(regex, value);
+          });
+
+          // SCSS関数の処理（darken, lightenなど）
+          // darken($secondary-color, 10%)のようなパターンを処理
+          const processDarkenFunction = (css) => {
+            const darkenPattern = /darken\(([^,]+),\s*(\d+(?:\.\d+)?)%\)/g;
+            return css.replace(darkenPattern, (match, colorVar, percent) => {
+              // 色変数または色値を取得
+              let baseColor = colorVar.trim();
+              // 変数の場合は実際の色に置換
+              if (baseColor.startsWith('$')) {
+                const varName = baseColor;
+                baseColor = colorValues[varName] || baseColor;
+              }
+
+              // 色がHEX形式の場合のみ処理
+              if (baseColor.startsWith('#')) {
+                try {
+                  // HEXからRGBに変換
+                  const r = parseInt(baseColor.substring(1, 3), 16);
+                  const g = parseInt(baseColor.substring(3, 5), 16);
+                  const b = parseInt(baseColor.substring(5, 7), 16);
+
+                  // 暗くする量（パーセント）
+                  const amount = parseFloat(percent) / 100;
+
+                  // RGB値を暗くする（シンプルな実装）
+                  const newR = Math.max(0, Math.floor(r * (1 - amount)));
+                  const newG = Math.max(0, Math.floor(g * (1 - amount)));
+                  const newB = Math.max(0, Math.floor(b * (1 - amount)));
+
+                  // 新しいHEX値を生成
+                  const newHex = `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+                  return newHex;
+                } catch (e) {
+                  console.error('色変換エラー:', e);
+                  return baseColor; // エラー時は元の色を返す
+                }
+              }
+              return match; // 処理できない場合は元のテキストを返す
+            });
+          };
+
+          // lightenも同様に処理
+          const processLightenFunction = (css) => {
+            const lightenPattern = /lighten\(([^,]+),\s*(\d+(?:\.\d+)?)%\)/g;
+            return css.replace(lightenPattern, (match, colorVar, percent) => {
+              // 色変数または色値を取得
+              let baseColor = colorVar.trim();
+              // 変数の場合は実際の色に置換
+              if (baseColor.startsWith('$')) {
+                const varName = baseColor;
+                baseColor = colorValues[varName] || baseColor;
+              }
+
+              // 色がHEX形式の場合のみ処理
+              if (baseColor.startsWith('#')) {
+                try {
+                  // HEXからRGBに変換
+                  const r = parseInt(baseColor.substring(1, 3), 16);
+                  const g = parseInt(baseColor.substring(3, 5), 16);
+                  const b = parseInt(baseColor.substring(5, 7), 16);
+
+                  // 明るくする量（パーセント）
+                  const amount = parseFloat(percent) / 100;
+
+                  // RGB値を明るくする
+                  const newR = Math.min(255, Math.floor(r + (255 - r) * amount));
+                  const newG = Math.min(255, Math.floor(g + (255 - g) * amount));
+                  const newB = Math.min(255, Math.floor(b + (255 - b) * amount));
+
+                  // 新しいHEX値を生成
+                  const newHex = `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+                  return newHex;
+                } catch (e) {
+                  console.error('色変換エラー:', e);
+                  return baseColor; // エラー時は元の色を返す
+                }
+              }
+              return match; // 処理できない場合は元のテキストを返す
+            });
+          };
+
+          // SCSS関数を処理
+          processedCSS = processDarkenFunction(processedCSS);
+          processedCSS = processLightenFunction(processedCSS);
+
+          // 通常のプレビューでは、HEX値を変数に変換する処理はスキップする
+          // プレビューでは変数を実際の色値に変換する処理だけが必要
+          // processedCSS = convertColorValuesToVariables(processedCSS, colorValues);
+
+          // 色値の確認 - デバッグログ
+          console.log("実際に使用する色値:", {
+            primary: colorValues['$primary-color'],
+            blue: colorValues['$blue']
+          });
+
+          // RGB値からHEX値へのマッピングを生成
+          // 定義されている色変数からRGB値とHEX値のマッピングを動的に作成
+          const RGB_TO_HEX = {};
+
+          // よく使われるRGB値の対応を動的に生成
+          const commonRgbValues = {};
+
+          // 現在の色変数から動的にRGB値の対応表を生成
+          Object.entries(colorValues).forEach(([varName, hexValue]) => {
+            if (hexValue.startsWith('#') && hexValue.length === 7) {
+              const r = parseInt(hexValue.substring(1, 3), 16);
+              const g = parseInt(hexValue.substring(3, 5), 16);
+              const b = parseInt(hexValue.substring(5, 7), 16);
+
+              // その変数用のRGB値配列を初期化（存在しなければ）
+              if (!commonRgbValues[varName]) {
+                commonRgbValues[varName] = [];
+              }
+
+              // 計算したRGB値を追加
+              commonRgbValues[varName].push({ r, g, b });
+
+              // ログに出力
+              console.log(`${varName}のRGB値を計算: rgb(${r}, ${g}, ${b}) <- ${hexValue}`);
+            }
+          });
+
+          // 各変数に対応するRGB値を登録
+          Object.entries(colorValues).forEach(([varName, hexValue]) => {
+            if (commonRgbValues[varName]) {
+              commonRgbValues[varName].forEach(rgb => {
+                // スペースありバージョン
+                RGB_TO_HEX[`rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`] = hexValue;
+                // スペースなしバージョン
+                RGB_TO_HEX[`rgb(${rgb.r},${rgb.g},${rgb.b})`] = hexValue;
+              });
+            }
+
+            // hexValueからRGB値を計算して追加
+            if (hexValue.startsWith('#') && hexValue.length === 7) {
+              const r = parseInt(hexValue.substring(1, 3), 16);
+              const g = parseInt(hexValue.substring(3, 5), 16);
+              const b = parseInt(hexValue.substring(5, 7), 16);
+
+              // 計算したRGB値でもマッピングを登録
+              RGB_TO_HEX[`rgb(${r}, ${g}, ${b})`] = hexValue;
+              RGB_TO_HEX[`rgb(${r},${g},${b})`] = hexValue;
+            }
+          });
+
+          // デバッグ用：置換前のCSS内の全RGB値を確認
+          const allRgbBefore = (processedCSS.match(/rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/g) || []);
+          console.log("置換前の全RGB値:", allRgbBefore);
+
+          // CSS内の全RGB値を強制的に処理する別のアプローチ
+          allRgbBefore.forEach(rgbStr => {
+            // RGB値からRGB数値を抽出
+            const rgbNums = rgbStr.match(/\d+/g);
+            if (rgbNums && rgbNums.length === 3) {
+              const [r, g, b] = rgbNums.map(Number);
+
+              // RGB値に基づいて適切なカラー変数を選択
+              let hexColor;
+              let minDistance = Infinity;
+              let closestVar = null;
+
+              // 各色変数とのユークリッド距離を計算し、最も近い色を選択
+              Object.entries(colorValues).forEach(([varName, hexVal]) => {
+                if (hexVal.startsWith('#') && hexVal.length === 7) {
+                  const hr = parseInt(hexVal.substring(1, 3), 16);
+                  const hg = parseInt(hexVal.substring(3, 5), 16);
+                  const hb = parseInt(hexVal.substring(5, 7), 16);
+
+                  const distance = Math.sqrt(
+                    Math.pow(r - hr, 2) +
+                    Math.pow(g - hg, 2) +
+                    Math.pow(b - hb, 2)
+                  );
+
+                  if (distance < minDistance) {
+                    minDistance = distance;
+                    closestVar = varName;
+                  }
+                }
+              });
+
+              // 閾値以内ならその変数の値を使う、そうでなければ直接HEX値に変換
+              if (minDistance < 50 && closestVar) {
+                hexColor = colorValues[closestVar];
+              } else {
+                // RGB値からHEX値に直接変換
+                hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+              }
+
+              // hexColorがRGB形式の場合はHEX形式に変換
+              if (hexColor.startsWith('rgb')) {
+                const hexRgbNums = hexColor.match(/\d+/g).map(Number);
+                if (hexRgbNums && hexRgbNums.length === 3) {
+                  const [hr, hg, hb] = hexRgbNums;
+                  hexColor = `#${hr.toString(16).padStart(2, '0')}${hg.toString(16).padStart(2, '0')}${hb.toString(16).padStart(2, '0')}`;
+                }
+              }
+
+              // CSS内のRGB値をHEX値で置換
+              const escapedRgb = rgbStr.replace(/[()]/g, '\\$&').replace(/\s*,\s*/g, '\\s*,\\s*');
+              const rgbRegex = new RegExp(escapedRgb, 'g');
+              processedCSS = processedCSS.replace(rgbRegex, hexColor);
+
+              console.log(`強制RGB→HEX変換: ${rgbStr} → ${hexColor}`);
+            }
+          });
+
+          // 残りのRGB値の全体的なチェック
+          const remainingRgbMatches = (processedCSS.match(/rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/g) || []);
+          if (remainingRgbMatches.length > 0) {
+            console.log("変換されなかったRGB値:", remainingRgbMatches);
+
+            // 残った全てのRGB値を強制的にHEX値に変換
+            remainingRgbMatches.forEach(rgbStr => {
+              const rgbNums = rgbStr.match(/\d+/g);
+              if (rgbNums && rgbNums.length === 3) {
+                const [r, g, b] = rgbNums.map(Number);
+                const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+
+                // 置換
+                processedCSS = processedCSS.replace(rgbStr, hexColor);
+                console.log(`最終RGB→HEX変換: ${rgbStr} → ${hexColor}`);
+              }
+            });
+          }
+
+          // ブレークポイントを確認
+          console.log("設定済みブレークポイント:", breakpoints);
+
+          // 最終的なCSSをデバッグ出力
+          console.log("最終的なCSS（先頭300文字）:", processedCSS.substring(0, 300));
+
+          // メディアクエリの変換処理
+          if (breakpoints && breakpoints.length > 0) {
+            // アクティブなブレークポイントのマップを作成
+            const bpMap = {};
+            breakpoints.forEach(bp => {
+              if (bp.active) {
+                bpMap[bp.name] = bp.value;
+                console.log(`ブレークポイント "${bp.name}" (${bp.value}px) を使用します`);
+              }
+            });
+
+            // メディアクエリのパターンを修正
+            const processMediaQueries = (css) => {
+              // セレクタとその中身を含むパターン
+              const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]+)}/g;
+              let processedCss = css;
+              let match;
+
+              while ((match = mqBlockPattern.exec(css)) !== null) {
+                const [fullMatch, bpName, content] = match;
+                // 設定されているブレークポイントのみを処理
+                if (bpMap[bpName]) {
+                  const mediaQueryStart = responsiveMode === "sp"
+                    ? `@media (min-width: ${bpMap[bpName]}px)`
+                    : `@media (max-width: ${bpMap[bpName]}px)`;
+
+                  // セレクタと中身を抽出
+                  const contentLines = content.trim().split('\n');
+                  const processedContent = contentLines
+                    .map(line => line.trim())
+                    .filter(line => line)
+                    .join('\n  ');
+
+                  const replacement = `${mediaQueryStart} {\n  ${processedContent}\n}`;
+                  processedCss = processedCss.replace(fullMatch, replacement);
+
+                  console.log(`メディアクエリを変換: ${bpName} → ${mediaQueryStart}`);
+                } else {
+                  // 未設定のブレークポイントは削除
+                  processedCss = processedCss.replace(fullMatch, '');
+                  console.warn(`未設定のブレークポイント "${bpName}" をスキップします`);
+                }
+              }
+
+              return processedCss;
+            };
+
+            // メディアクエリの変換を適用
+            processedCSS = processMediaQueries(processedCSS);
+            console.log("メディアクエリの変換が完了しました");
+          }
+
+          // より確実なレンダリングのためのベースCSSを追加
+          let baseCSS = `
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: "Noto Sans JP", Arial, sans-serif;
+              width: 100%;
+              min-height: 100vh;
+              overflow-x: hidden;
+            }
+            img[src^="path-to-"] {
+              background-color: #ccc;
+              min-height: 100px;
+              max-width: 100%;
+              object-fit: cover;
+            }
+            /* 横幅100%のコンポーネントがiframeの外にはみ出さないようにするため */
+            .c-information, .p-information {
+              box-sizing: border-box;
+              max-width: 100%;
+            }
+          `;
+
+          // より確実なレンダリングのため、DOCTYPE宣言を追加
+          const iframe = previewRef.current;
+          const doc = iframe.contentWindow.document;
+          doc.open();
+          doc.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  margin: 0;
+                  padding: 0;
+                  font-family: "Noto Sans JP", Arial, sans-serif;
+                }
+                .preview-container {
+                  width: 100%;
+                  max-width: ${previewWidth}px;
+                  margin: 0 auto;
+                  box-sizing: border-box;
+                  min-height: 100%; /* 余白を削除 */
+                  display: block;
+                  position: relative;
+                }
+                *,
+                *::before,
+                *::after {
+                  box-sizing: border-box;
+                }
+                /* すべての画像にブロック表示を適用 */
+                img {
+                  display: block;
+                  max-width: 100%;
+                }
+                /* 特に大きなプレビューサイズでの表示を改善 */
+                @media (min-width: 1440px) {
+                  .preview-container {
+                    min-height: 100%;
+                  }
+                }
+                ${processedCSS || ''}
+              </style>
+              <script>
+                // 親ウィンドウに高さを通知するシンプルなスクリプト
+                function updateHeight() {
+                  // コンテンツの高さを計算
+                  const previewContainer = document.querySelector('.preview-container');
+
+                  let contentHeight;
+                  if (previewContainer) {
+                    contentHeight = previewContainer.getBoundingClientRect().height;
+                  } else {
+                    contentHeight = Math.max(
+                      document.body.scrollHeight,
+                      document.documentElement.scrollHeight,
+                      document.body.offsetHeight,
+                      document.documentElement.offsetHeight
+                    );
+                  }
+
+                  // 余裕を持たせる
+                  const heightWithMargin = Math.ceil(contentHeight);
+
+                  // 親ウィンドウに通知
+                  if (window.parent) {
+                    window.parent.postMessage({
+                      type: 'resize',
+                      height: heightWithMargin
+                    }, '*');
+                  }
+                }
+
+                // 画像の読み込み完了時に高さを更新
+                window.addEventListener('load', function() {
+                  // 初期実行
+                  updateHeight();
+
+                  // 少し遅延して再実行（CSS適用後）
+                  setTimeout(updateHeight, 300);
+
+                  // 画像の読み込み完了時にも高さを更新
+                  document.querySelectorAll('img').forEach(img => {
+                    if (!img.complete) {
+                      img.addEventListener('load', updateHeight);
+                    }
+                  });
+                });
+
+                // リサイズ時に高さを更新
+                window.addEventListener('resize', function() {
+                  clearTimeout(window.resizeTimer);
+                  window.resizeTimer = setTimeout(updateHeight, 100);
+                });
+              </script>
+            </head>
+            <body>
+              <div class="preview-container">
+                ${generatedHTML || editingHTML || ''}
+              </div>
+            </body>
+            </html>
+          `);
+          doc.close();
+
+          adjustHeightWithDelay();
+        } catch (error) {
+          console.error('プレビュー更新中にエラーが発生しました:', error);
+        }
+      };
+
+      updateContent();
+    } catch (error) {
+      console.error('プレビュー更新エラー:', error);
+    }
+  };
+
+  // 画像をリサイズする関数
+  const resizeImage = (base64Image, maxWidth) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // 画像のメディアタイプを保持
+        const mediaTypeMatch = base64Image.match(/^data:([^;]+);base64,/);
+        const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/jpeg';
+
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+
+          // 画像のアスペクト比を維持したまま、指定した幅に合わせる
+          const aspectRatio = img.width / img.height;
+          const newWidth = Math.min(img.width, maxWidth);
+          const newHeight = newWidth / aspectRatio;
+
+          canvas.width = newWidth;
+          canvas.height = newHeight;
+
+          const ctx = canvas.getContext('2d');
+
+          // 透過背景がある場合（PNGなど）は白背景を適用
+          if (mediaType === 'image/png' || mediaType === 'image/webp') {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, newWidth, newHeight);
+          }
+
+          // 画像を描画
+          ctx.drawImage(img, 0, 0, newWidth, newHeight);
+
+          // 元のメディアタイプを維持して出力
+          const newBase64 = canvas.toDataURL(mediaType, 0.92);
+          console.log(`画像をリサイズしました: ${newWidth}x${newHeight}px, 形式: ${mediaType}`);
+          resolve(newBase64);
+        };
+
+        img.onerror = (err) => {
+          console.error('画像の読み込みエラー:', err);
+          reject(err);
+        };
+
+        img.src = base64Image;
+      } catch (err) {
+        console.error('リサイズエラー:', err);
+        reject(err);
+      }
+    });
+  };
+
+  // 画像を処理する関数
+  const processImage = (base64Image) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (!base64Image) {
+          resolve(null);
+          return;
+        }
+
+        // リサイズなしで元画像を返す場合
+        // resolve(base64Image);
+
+        // 大きな画像の場合は自動でリサイズする
+        const isLarge = base64Image.length > 4 * 1024 * 1024; // 4MB以上
+        if (isLarge) {
+          const resized = await resizeImage(base64Image, 1200); // 最大幅1200pxに縮小
+          resolve(resized);
+        } else {
+          resolve(base64Image);
+        }
+      } catch (error) {
+        console.error('画像処理エラー:', error);
+        reject(error);
+      }
+    });
+  };
+
+  // JPEGに変換する関数
+  const convertToJpeg = (base64Image) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+
+          const ctx = canvas.getContext('2d');
+          // 白背景を適用（透過PNG対策）
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, img.width, img.height);
+          // 画像を描画
+          ctx.drawImage(img, 0, 0);
+
+          // JPEG形式で出力
+          const jpegBase64 = canvas.toDataURL('image/jpeg', 0.95);
+          console.log(`画像をJPEG形式に変換しました: ${img.width}x${img.height}px`);
+          resolve(jpegBase64);
+        };
+
+        img.onerror = (err) => {
+          console.error('画像変換エラー:', err);
+          reject(err);
+        };
+
+        img.src = base64Image;
+      } catch (err) {
+        console.error('画像変換エラー:', err);
+        reject(err);
+      }
+    });
+  };
+
+  // 画像アップロード時の処理
+  const handleImageUpload = async (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    console.log(`画像アップロード開始: ${file.name}, タイプ: ${type}, サイズ: ${Math.round(file.size / 1024)}KB`);
+
+    try {
+      // FileReaderを使用してデータURLを作成
+      const reader = new FileReader();
+
+      reader.onload = async (event) => {
+        const dataUrl = event.target.result;
+        console.log(`画像をデータURLに変換しました: ${dataUrl.substring(0, 50)}...`);
+
+        // プレビュー用の状態を更新
+        if (type === "pc") {
+          console.log("PC画像プレビューを設定中...");
+          setPcImage({
+            fileName: file.name,
+            preview: dataUrl,
+            mimeType: file.type
+          });
+
+          // Base64データを設定
+          const base64 = dataUrl.split(',')[1];
+          setPcImageBase64(base64);
+
+          // 画像解析を実行（実装されている場合）
+          try {
+            if (typeof extractColorsFromImage === 'function') {
+              const colors = await extractColorsFromImage(dataUrl);
+              setPcColors(colors);
+              console.log("PC画像の色を抽出しました:", colors);
+            }
+
+            if (typeof extractTextFromImage === 'function') {
+              const text = await extractTextFromImage(dataUrl);
+              setPcText(text);
+              console.log("PC画像のテキストを抽出しました:", text);
+            }
+          } catch (analyzeError) {
+            console.error("画像解析エラー:", analyzeError);
+          }
+        } else if (type === "sp") {
+          console.log("SP画像プレビューを設定中...");
+          setSpImage({
+            fileName: file.name,
+            preview: dataUrl,
+            mimeType: file.type
+          });
+
+          // Base64データを設定
+          const base64 = dataUrl.split(',')[1];
+          setSpImageBase64(base64);
+
+          // 画像解析を実行（実装されている場合）
+          try {
+            if (typeof extractColorsFromImage === 'function') {
+              const colors = await extractColorsFromImage(dataUrl);
+              setSpColors(colors);
+              console.log("SP画像の色を抽出しました:", colors);
+            }
+
+            if (typeof extractTextFromImage === 'function') {
+              const text = await extractTextFromImage(dataUrl);
+              setSpText(text);
+              console.log("SP画像のテキストを抽出しました:", text);
+            }
+          } catch (analyzeError) {
+            console.error("画像解析エラー:", analyzeError);
+          }
+        } else if (type === "drawer") {
+          console.log("ドロワー画像プレビューを設定中...");
+          setDrawerImage({
+            fileName: file.name,
+            preview: dataUrl,
+            mimeType: file.type
+          });
+
+          // Base64データを設定
+          const base64 = dataUrl.split(',')[1];
+          setDrawerImageBase64(base64);
+
+          // 画像解析を実行（実装されている場合）
+          try {
+            if (typeof extractColorsFromImage === 'function') {
+              const colors = await extractColorsFromImage(dataUrl);
+              setDrawerColors(colors);
+              console.log("ドロワー画像の色を抽出しました:", colors);
+            }
+
+            if (typeof extractTextFromImage === 'function') {
+              const text = await extractTextFromImage(dataUrl);
+              setDrawerText(text);
+              console.log("ドロワー画像のテキストを抽出しました:", text);
+            }
+          } catch (analyzeError) {
+            console.error("画像解析エラー:", analyzeError);
+          }
+        }
+      };
+
+      reader.onerror = (error) => {
+        console.error('ファイル読み込みエラー:', error);
+        alert('画像の読み込み中にエラーが発生しました。');
+      };
+
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('画像アップロードエラー:', error);
+      alert('画像のアップロード処理中にエラーが発生しました。');
+    }
+  };
+
+  // 画像削除の処理
+  const handleRemovePcImage = () => {
+    setPcImage(null);
+    setPcImageBase64("");
+    setPcColors([]);
+    setPcText("");
+
+    // 画像入力をリセット
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    console.log("PC画像を削除しました");
+  };
+
+  const handleRemoveSpImage = () => {
+    setSpImage(null);
+    setSpImageBase64("");
+    setSpColors([]);
+    setSpText("");
+
+    console.log("SP画像を削除しました");
+  };
+
+  const handleRemoveDrawerImage = () => {
+    setDrawerImage(null);
+    setDrawerImageBase64("");
+    setDrawerColors([]);
+    setDrawerText("");
+
+    console.log("ドロワー画像を削除しました");
+  };
+
+  // ドラッグ＆ドロップ関連の処理
+  const handleDragOver = (e, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.match('image.*')) {
+        // 画像ファイルの場合、アップロード処理を実行
+        const dummyEvent = { target: { files: [file] } };
+        handleImageUpload(dummyEvent, type);
+      } else {
+        alert('アップロードできるのは画像ファイルのみです。');
+      }
+    }
+  };
+
+  // コード更新ハンドラー
+  const handleUpdateCode = () => {
+    // 編集された内容を保存
+    setGeneratedHTML(editingHTML);
+    setGeneratedCSS(editingCSS);
+
+    // 表示モードに切り替え
+    setIsEditing(false);
+
+    // プレビューを更新
+    updatePreview();
+  };
+
+  // コード生成処理
+  const handleGenerateCode = async () => {
+    if (!pcImage && !spImage && !drawerImage) {
+      alert('少なくとも1つの画像をアップロードしてください');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // ヘッダー専用のプロンプトを生成
+      const prompt = await generateHeaderPrompt({
+        responsiveMode,
+        aiBreakpoints,
+        pcImageBase64: pcImage?.preview,
+        spImageBase64: spImage?.preview,
+        drawerImageBase64: drawerImage?.preview,
+        pcColors,
+        spColors,
+        drawerColors,
+        pcImageText: pcText,
+        spImageText: spText,
+        drawerImageText: drawerText,
+        drawerLayout,
+        drawerDirection
+      });
+
+      console.log("生成されたプロンプト:", prompt);
+
+      // 空のプロンプトを送らないようチェック
+      if (!prompt || prompt.trim() === "") {
+        console.error("エラー: 送信するプロンプトが空です");
+        alert("プロンプトが空のため、コードを生成できません。");
+        setLoading(false);
+        return;
+      }
+
+      // 画像データの処理
+      let uploadedImage = null;
+      if (pcImage) {
+        try {
+          // 画像データの最適化
+          console.log("画像の前処理を実行します");
+
+          let processedImageData = pcImage.preview;
+
+          // 画像のメディアタイプを確認
+          const mediaTypeMatch = processedImageData.match(/^data:([^;]+);base64,/);
+          const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : pcImage.mimeType;
+
+          console.log(`画像のメディアタイプ: ${mediaType}`);
+
+          // サイズが大きい場合はリサイズ（メディアタイプを保持）
+          if (processedImageData && processedImageData.length > 10000000) { // 10MB以上なら
+            console.log("画像サイズが大きいため、画像を最適化します（元サイズ: " + processedImageData.length + " bytes）");
+            processedImageData = await resizeImage(processedImageData, 1200); // 最大幅1200pxに縮小
+            console.log("画像を最適化しました（新サイズ: " + processedImageData.length + " bytes）");
+          }
+
+          // 画像データの準備
+          uploadedImage = {
+            name: pcImage.fileName || "image.jpg",
+            path: pcImage.preview,
+            data: processedImageData,
+            mimeType: mediaType
+          };
+
+          console.log("画像情報を送信:", uploadedImage.name);
+          console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
+        } catch (imgErr) {
+          console.error("画像最適化エラー:", imgErr);
+          alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
+          uploadedImage = null;
+        }
+      }
+
+      console.log("window.api:", window.api ? "存在します" : "存在しません");
+
+      try {
+        // APIを呼び出してコード生成
+        console.log("generateCode関数を呼び出し中...");
+        const result = await window.api.generateCode({
+          prompt: prompt,
+          uploadedImage: uploadedImage
+        });
+        console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
+
+        if (!result || !result.generatedCode) {
+          throw new Error("コード生成に失敗しました");
+        }
+
+        const generatedCode = result.generatedCode;
+        console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
+
+        // 生成されたコードをHTMLとCSSに分割
+        const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
+        const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
+
+        console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
+        console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
+
+        const html = htmlMatch ? htmlMatch[1].trim() : "";
+        const css = cssMatch ? cssMatch[1].trim() : "";
+
+        if (!html || !css) {
+          console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
+          console.log("HTML:", html);
+          console.log("CSS:", css);
+          alert("生成されたコードの形式が正しくありません。");
+          setLoading(false);
+          return;
+        }
+
+        // SCSSのネスト構造を検出してフラット化
+        const flattenedCSS = flattenSCSS(css);
+
+        // ネスト構造が検出されたかどうかチェック
+        if (flattenedCSS !== css) {
+          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
+        }
+
+        // pxをremに変換
+        const remCSS = convertPxToRem(flattenedCSS);
+
+        // 生成されたコードをステートに設定
+        setGeneratedCode(generatedCode);
+        setGeneratedHTML(html);
+        setGeneratedCSS(remCSS);
+        setEditingHTML(html);
+        setEditingCSS(remCSS);
+        setShowGeneratedCode(true);
+
+        // 画面を生成されたコードセクションまでスクロール
+        setTimeout(() => {
+          if (generatedCodeRef.current) {
+            generatedCodeRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }
+          updatePreview();
+        }, 500);
+      } catch (error) {
+        console.error("コード生成エラー:", error);
+
+        // エラーメッセージを解析して表示
+        let errorMessage = error.message;
+
+        // Claude APIの画像エラーをより分かりやすく表示
+        if (errorMessage.includes("Image does not match the provided media type")) {
+          errorMessage = "画像形式エラー: アップロードされた画像の形式が一致しません。\n別の画像を試すか、他の形式（JPG/PNG）に変換してみてください。";
+        } else if (errorMessage.includes("media_type")) {
+          errorMessage = "画像メディアタイプエラー: APIがサポートしていない画像形式です。\nJPEG、PNG、GIF、WEBPのいずれかの形式をご利用ください。";
+        }
+
+        alert(`コード生成エラー: ${errorMessage}`);
+      } finally {
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('コード生成中にエラーが発生しました:', error);
+      alert('コードの生成中にエラーが発生しました。もう一度お試しください。');
+      setLoading(false);
+    }
+  };
+
+  // 再生成処理
+  const handleRegenerate = async () => {
+    if (!regenerateInstructions.trim()) {
+      alert('再生成の指示を入力してください');
+      return;
+    }
+
+    if (!generatedHTML || !generatedCSS) {
+      alert('先にコードを生成してください');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // ヘッダー専用のプロンプトを生成
+      const prompt = await generateHeaderPrompt({
+        responsiveMode,
+        aiBreakpoints,
+        pcImageBase64: pcImage?.preview,
+        spImageBase64: spImage?.preview,
+        drawerImageBase64: drawerImage?.preview,
+        pcColors,
+        spColors,
+        drawerColors,
+        pcImageText: pcText,
+        spImageText: spText,
+        drawerImageText: drawerText,
+        drawerLayout,
+        drawerDirection
+      });
+
+      console.log("生成されたプロンプト:", prompt);
+
+      // 空のプロンプトを送らないようチェック
+      if (!prompt || prompt.trim() === "") {
+        console.error("エラー: 送信するプロンプトが空です");
+        alert("プロンプトが空のため、コードを生成できません。");
+        setLoading(false);
+        return;
+      }
+
+      // 画像データの処理
+      let uploadedImage = null;
+      if (pcImage) {
+        try {
+          // 画像データの最適化
+          console.log("画像の前処理を実行します");
+
+          let processedImageData = pcImage.preview;
+
+          // 画像のメディアタイプを確認
+          const mediaTypeMatch = processedImageData.match(/^data:([^;]+);base64,/);
+          const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : pcImage.mimeType;
+
+          console.log(`画像のメディアタイプ: ${mediaType}`);
+
+          // サイズが大きい場合はリサイズ（メディアタイプを保持）
+          if (processedImageData && processedImageData.length > 10000000) { // 10MB以上なら
+            console.log("画像サイズが大きいため、画像を最適化します（元サイズ: " + processedImageData.length + " bytes）");
+            processedImageData = await resizeImage(processedImageData, 1200); // 最大幅1200pxに縮小
+            console.log("画像を最適化しました（新サイズ: " + processedImageData.length + " bytes）");
+          }
+
+          // 画像データの準備
+          uploadedImage = {
+            name: pcImage.fileName || "image.jpg",
+            path: pcImage.preview,
+            data: processedImageData,
+            mimeType: mediaType
+          };
+
+          console.log("画像情報を送信:", uploadedImage.name);
+          console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
+        } catch (imgErr) {
+          console.error("画像最適化エラー:", imgErr);
+          alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
+          uploadedImage = null;
+        }
+      }
+
+      console.log("window.api:", window.api ? "存在します" : "存在しません");
+
+      try {
+        // APIを呼び出してコード生成
+        console.log("generateCode関数を呼び出し中...");
+        const result = await window.api.generateCode({
+          prompt: prompt,
+          uploadedImage: uploadedImage
+        });
+        console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
+
+        if (!result || !result.generatedCode) {
+          throw new Error("コード生成に失敗しました");
+        }
+
+        const generatedCode = result.generatedCode;
+        console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
+
+        // 生成されたコードをHTMLとCSSに分割
+        const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
+        const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
+
+        console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
+        console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
+
+        const html = htmlMatch ? htmlMatch[1].trim() : "";
+        const css = cssMatch ? cssMatch[1].trim() : "";
+
+        if (!html || !css) {
+          console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
+          console.log("HTML:", html);
+          console.log("CSS:", css);
+          alert("生成されたコードの形式が正しくありません。");
+          setLoading(false);
+          return;
+        }
+
+        // SCSSのネスト構造を検出してフラット化
+        const flattenedCSS = flattenSCSS(css);
+
+        // ネスト構造が検出されたかどうかチェック
+        if (flattenedCSS !== css) {
+          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
+        }
+
+        // pxをremに変換
+        const remCSS = convertPxToRem(flattenedCSS);
+
+        // 生成されたコードをステートに設定
+        setGeneratedCode(generatedCode);
+        setGeneratedHTML(html);
+        setGeneratedCSS(remCSS);
+        setEditingHTML(html);
+        setEditingCSS(remCSS);
+        setShowGeneratedCode(true);
+
+        // 画面を生成されたコードセクションまでスクロール
+        setTimeout(() => {
+          if (generatedCodeRef.current) {
+            generatedCodeRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }
+          updatePreview();
+        }, 500);
+      } catch (error) {
+        console.error("コード生成エラー:", error);
+
+        // エラーメッセージを解析して表示
+        let errorMessage = error.message;
+
+        // Claude APIの画像エラーをより分かりやすく表示
+        if (errorMessage.includes("Image does not match the provided media type")) {
+          errorMessage = "画像形式エラー: アップロードされた画像の形式が一致しません。\n別の画像を試すか、他の形式（JPG/PNG）に変換してみてください。";
+        } else if (errorMessage.includes("media_type")) {
+          errorMessage = "画像メディアタイプエラー: APIがサポートしていない画像形式です。\nJPEG、PNG、GIF、WEBPのいずれかの形式をご利用ください。";
+        }
+
+        alert(`コード生成エラー: ${errorMessage}`);
+      } finally {
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('コード生成中にエラーが発生しました:', error);
+      alert('コードの生成中にエラーが発生しました。もう一度お試しください。');
+    }
+  };
+
+  // コードのみリセット処理
+  const handleResetCode = () => {
+    // 生成されたコードをクリア
+    setGeneratedCode("");
+    setGeneratedHTML("");
+    setGeneratedCSS("");
+    setEditingHTML("");
+    setEditingCSS("");
+    setShowGeneratedCode(false);
+
+    // 再生成指示をクリア
+    setRegenerateInstructions("");
+
+    // ローカルストレージの一部をクリア
+    try {
+      const savedState = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedState) {
+        const parsedState = JSON.parse(savedState);
+
+        // コード関連の項目を削除
+        delete parsedState.generatedHTML;
+        delete parsedState.generatedCSS;
+        delete parsedState.editingHTML;
+        delete parsedState.editingCSS;
+        delete parsedState.generatedCode;
+        delete parsedState.showGeneratedCode;
+        delete parsedState.regenerateInstructions;
+
+        // 更新した状態を保存
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsedState));
+      }
+    } catch (error) {
+      console.error("ローカルストレージ部分クリアエラー:", error);
+    }
+  };
+
+  // 全てリセット処理
+  const handleResetAll = () => {
+    // 生成されたコードをクリア
+    setGeneratedCode("");
+    setGeneratedHTML("");
+    setGeneratedCSS("");
+    setEditingHTML("");
+    setEditingCSS("");
+    setShowGeneratedCode(false);
+
+    // 画像をクリア
+    setPcImage(null);
+    setSpImage(null);
+    setDrawerImage(null);
+    setPcImageBase64("");
+    setSpImageBase64("");
+    setDrawerImageBase64("");
+
+    // 画像解析結果をクリア
+    setPcColors([]);
+    setSpColors([]);
+    setDrawerColors([]);
+    setPcText("");
+    setSpText("");
+    setDrawerText("");
+
+    // 再生成指示をクリア
+    setRegenerateInstructions("");
+
+    // ローカルストレージからヘッダー生成のデータを削除
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+
+    console.log("全てのデータをリセットしました");
+  };
+
+  // iframeからのメッセージを受け取るイベントリスナー
+  useEffect(() => {
+    // iframeからの高さ更新メッセージをリスン
+    const handleMessage = (event) => {
+      if (event.data && event.data.type === 'resize' && typeof event.data.height === 'number') {
+        const newHeight = Math.max(event.data.height, 400); // 最小高さは400px
+        console.log(`iframeから高さ通知を受信: ${newHeight}px`);
+        setIframeHeight(newHeight);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    // クリーンアップ
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
+
+  // スケールの計算
+  const calculateScale = () => {
+    // 大きいプレビューサイズの場合のみスケール計算
+    if (previewWidth > 1000) {
+      // 固定コンテナ幅1022pxに対する縮小率を計算
+      const scale = 1022 / previewWidth;
+      console.log(`スケール計算: 1022px / ${previewWidth}px = ${scale.toFixed(6)}`);
+      setScaleRatio(scale);
+    } else {
+      // 1000px以下ではスケールしない
+      setScaleRatio(1);
+    }
+  };
+
+  // ウィンドウサイズが変わった時にスケールを再計算
+  useEffect(() => {
+    calculateScale();
+    const handleResize = () => {
+      calculateScale();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [previewWidth]);
+
+  // プレビュー幅が変わった時にスケールを更新
+  useEffect(() => {
+    calculateScale();
+  }, [previewWidth]);
+
+  // iframeの高さが変わったときにプレビューコンテナの高さも更新
+  useEffect(() => {
+    if (previewWidth > 1000 && previewContainerRef.current) {
+      // スケール率を計算
+      const scale = 1022 / previewWidth;
+
+      // iframeの元の高さを取得
+      const originalHeight = iframeHeight;
+
+      // プレビューヘッダーの高さを考慮（およそ100px）
+      const headerHeight = 100;
+
+      // プレビューコンテナの上下パディングを考慮（およそ50px）
+      const paddingHeight = 50;
+
+      // スケールされた高さ + ヘッダー + パディング
+      const scaledTotalHeight = (originalHeight * scale) + headerHeight + paddingHeight;
+
+      // 最小高さを確保
+      const finalHeight = Math.max(500, scaledTotalHeight);
+
+      console.log(`プレビューコンテナの高さを調整: 元の高さ=${originalHeight}px, スケール=${scale}, 計算後の高さ=${finalHeight}px`);
+
+      // 高さを設定
+      previewContainerRef.current.style.height = `${finalHeight}px`;
+      previewContainerRef.current.style.minHeight = `${finalHeight}px`;
+    } else if (previewContainerRef.current) {
+      // 小さいサイズの場合はautoに戻す
+      previewContainerRef.current.style.height = 'auto';
+      previewContainerRef.current.style.minHeight = '500px';
+    }
+  }, [iframeHeight, previewWidth]);
+
+  // プレビュー幅が変更された時に自動的にプレビューを更新
+  useEffect(() => {
+    if (previewRef.current && editingHTML && editingCSS) {
+      setTimeout(() => {
+        updatePreview();
+      }, 100);
+    }
+  }, [previewWidth]);
+
+  // プレビューサイズのリセット
+  const resetPreviewSize = (size) => {
+    setPreviewWidth(size);
+    setShowCustomSizeInput(false);
+    // サイズ変更後にスケール計算と高さ調整を実行
+    setTimeout(() => {
+      calculateScale();
+      updatePreview();
+    }, 100);
+  };
+
+  // カスタムサイズの適用
+  const applyCustomSize = () => {
+    const size = parseInt(customSizeInput, 10);
+    if (!isNaN(size) && size >= 320 && size <= 2560) {
+      setPreviewWidth(size);
+      setShowCustomSizeInput(false);
+      // サイズ変更後にスケール計算と高さ調整を実行
+      setTimeout(() => {
+        calculateScale();
+        updatePreview();
+      }, 100);
+    } else {
+      alert("320px〜2560pxの間で入力してください。");
+    }
+  };
+
+  // カスタムサイズ入力フォームの表示
+  const showCustomSizeForm = () => {
+    setShowCustomSizeInput(true);
+    setCustomSizeInput(previewWidth.toString());
+  };
+
+  // HEX値を変数に変換するマップを作成する関数
+  const getHexToVariableMap = () => {
+    const colorVariables = getDefinedColorVariables();
+    const hexToVarMap = new Map();
+
+    console.group('🔍 定義済み色変数マップ');
+    console.log('定義されている変数リスト:', Array.from(colorVariables.entries()));
+
+    // 変数のマッピングを反転（HEX値 → 変数名）
+    colorVariables.forEach((value, name) => {
+      // 値が直接HEX値の場合
+      if (value.startsWith('#')) {
+        // 大文字に統一して保存（比較用）
+        hexToVarMap.set(value.toUpperCase(), name);
+        console.log(`マッピング追加: ${value.toUpperCase()} → ${name}`);
+      }
+      // RGB値の場合は近似のHEX値に変換
+      else if (value.includes('rgb') || value.includes('hsl')) {
+        try {
+          // RGB/HSL値からHEX値への変換（簡易的な実装）
+          const hexValue = rgbOrHslToHex(value);
+          if (hexValue) {
+            hexToVarMap.set(hexValue.toUpperCase(), name);
+            console.log(`RGB変換マッピング追加: ${value} → ${hexValue.toUpperCase()} → ${name}`);
+          }
+        } catch (e) {
+          console.error('RGB/HSL変換エラー:', e);
+        }
+      }
+    });
+
+    console.log('完成したHEX→変数マッピング:', Object.fromEntries(hexToVarMap));
+    console.groupEnd();
+
+    return hexToVarMap;
+  };
+
+  // AIが生成したHEX値を変数に置き換える関数
+  const replaceHexWithVariables = (cssCode) => {
+    if (!cssCode) return { modifiedCode: cssCode, replacedCount: 0 };
+
+    // マッピング情報を取得
+    const hexToVarMap = getHexToVariableMap();
+    console.group('🔄 HEX値を変数に置換');
+
+    if (hexToVarMap.size === 0) {
+      console.log("変数マッピングがありません。直接HEX値を使用します。");
+      console.groupEnd();
+      return { modifiedCode: cssCode, replacedCount: 0 };
+    }
+
+    // HEX値を検出して変数に変換
+    let modifiedCode = cssCode;
+    let replacedCount = 0;
+    const replacedItems = [];
+
+    // 正規表現でHEX値を検出（#後に3桁または6桁の16進数）
+    const hexRegex = /#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])/g;
+    const replacedHexValues = new Map(); // 置換済みHEX値を記録
+
+    // CSSコード内のすべてのHEX値を検出して表示
+    const allHexMatches = cssCode.match(hexRegex) || [];
+    console.log(`検出されたHEX値: ${allHexMatches.length}個`, allHexMatches);
+
+    modifiedCode = modifiedCode.replace(hexRegex, (match) => {
+      // 大文字に統一して比較
+      const normalizedHex = match.toUpperCase();
+
+      // 既に置換済みのHEX値はキャッシュから取得
+      if (replacedHexValues.has(normalizedHex)) {
+        return replacedHexValues.get(normalizedHex);
+      }
+
+      // 完全一致の変数を探す
+      if (hexToVarMap.has(normalizedHex)) {
+        const varName = hexToVarMap.get(normalizedHex);
+        replacedHexValues.set(normalizedHex, varName);
+        replacedCount++;
+        replacedItems.push({ hex: normalizedHex, var: varName, type: '完全一致' });
+        return varName;
+      }
+
+      // 完全一致がない場合、類似色を探す
+      let closestVar = null;
+      let minDistance = 20; // 類似と判断する最大距離（調整可能、小さいほど厳密）
+
+      for (const [hex, varName] of hexToVarMap.entries()) {
+        const distance = getColorSimilarity(normalizedHex, hex);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestVar = varName;
+        }
+      }
+
+      if (closestVar) {
+        replacedHexValues.set(normalizedHex, closestVar);
+        replacedCount++;
+        replacedItems.push({ hex: normalizedHex, var: closestVar, type: '類似一致', distance: minDistance });
+        return closestVar;
+      }
+
+      // 変換できない場合はそのまま
+      return match;
+    });
+
+    console.table(replacedItems);
+    console.log(`合計: ${replacedCount}個のHEX値を変数に変換しました`);
+
+    // 変換前と変換後のコードの違いを表示（概要）
+    if (replacedCount > 0) {
+      console.log('変換前（最初の200文字）:', cssCode.substring(0, 200));
+      console.log('変換後（最初の200文字）:', modifiedCode.substring(0, 200));
+    }
+
+    console.groupEnd();
+    return { modifiedCode, replacedCount };
+  };
+
+  // 未定義カラー変数を検出する関数
+  const detectUndefinedColorVariables = (scssCode) => {
+    const definedVariables = getDefinedColorVariables();
+    const varRegex = /\$([\w-]+)/g;
+    const undefinedVars = new Set();
+
+    console.group('🔍 未定義変数を検出');
+    console.log('定義済み変数リスト:', Array.from(definedVariables.keys()));
+
+    let match;
+    while ((match = varRegex.exec(scssCode)) !== null) {
+      const varName = match[0];
+      // @includeや制御構造は除外
+      if (!varName.includes('@include') &&
+        !varName.includes('mq(') &&
+        !definedVariables.has(varName)) {
+        undefinedVars.add(varName);
+        console.log(`未定義変数を検出: ${varName}`);
+      }
+    }
+
+    console.log(`検出された未定義変数: ${undefinedVars.size}個`, Array.from(undefinedVars));
+    console.groupEnd();
+
+    return Array.from(undefinedVars);
+  };
+
+  // 未定義カラー変数をHEX値に置換する関数
+  const replaceUndefinedColorVariables = (scssCode) => {
+    const definedVariables = getDefinedColorVariables();
+
+    console.group('🔄 未定義変数をHEX値に置換');
+
+    // 一般的なデフォルト値のマッピング
+    const defaultColors = {
+      '$primary-color': '#DDF0F1', // 既存のデフォルト値
+      '$blue': '#408F95',         // 既存のデフォルト値
+      '$accent-color': '#FF5500',  // 一般的なアクセントカラー
+      '$secondary-color': '#0066CC', // 一般的なセカンダリカラー
+      '$text-color': '#333333',    // 一般的なテキストカラー
+      '$background-color': '#FFFFFF', // 一般的な背景色
+      '$border-color': '#DDDDDD',  // 一般的なボーダーカラー
+      '$link-color': '#0000EE'     // 一般的なリンクカラー
+    };
+
+    console.log('デフォルトカラーマッピング:', defaultColors);
+
+    // 未定義変数を検出して置換
+    const undefinedVars = detectUndefinedColorVariables(scssCode);
+    let modifiedCode = scssCode;
+    const replacedItems = [];
+
+    undefinedVars.forEach(varName => {
+      // デフォルト値または汎用的な値を取得
+      const replacementColor = defaultColors[varName] || '#999999';
+
+      // 正規表現でその変数の出現箇所をすべて置換
+      const regex = new RegExp(varName.replace('$', '\\$'), 'g');
+      modifiedCode = modifiedCode.replace(regex, replacementColor);
+
+      replacedItems.push({
+        variable: varName,
+        replacement: replacementColor,
+        source: defaultColors[varName] ? 'デフォルトマッピング' : 'フォールバック値'
+      });
+    });
+
+    if (replacedItems.length > 0) {
+      console.table(replacedItems);
+      console.log('変換前（最初の200文字）:', scssCode.substring(0, 200));
+      console.log('変換後（最初の200文字）:', modifiedCode.substring(0, 200));
+    } else {
+      console.log('未定義変数は検出されませんでした');
+    }
+
+    console.groupEnd();
+
+    return {
+      modifiedCode,
+      replacedVars: undefinedVars
+    };
+  };
+
+  // 定義済みの色変数を取得する関数
+  const getDefinedColorVariables = () => {
+    // ローカルストレージから変数設定を取得
+    const cssVariables = localStorage.getItem('cssVariables') || '';
+    const definedVars = new Map();
+
+    console.group('🔎 ローカルストレージから色変数を取得');
+    console.log('ローカルストレージの生の内容:', cssVariables);
+
+    if (!cssVariables || cssVariables.trim() === '') {
+      console.log('ローカルストレージに色変数が定義されていません。デフォルト値を使用します。');
+      // 何も設定されていない場合はsetting.scssのデフォルト値を使用
+      definedVars.set('$primary-color', '#DDF0F1');
+      definedVars.set('$blue', '#408F95');
+      console.table(Object.fromEntries(definedVars));
+      console.groupEnd();
+      return definedVars;
+    }
+
+    // 変数の抽出
+    const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+    let match;
+    let count = 0;
+
+    console.log('変数抽出を開始...');
+
+    while ((match = varRegex.exec(cssVariables)) !== null) {
+      const [fullMatch, varName, varValue] = match;
+      const variableWithDollar = `$${varName}`;
+      definedVars.set(variableWithDollar, varValue.trim());
+      console.log(`抽出: ${fullMatch} → 変数名: ${variableWithDollar}, 値: ${varValue.trim()}`);
+      count++;
+    }
+
+    console.log(`合計 ${count} 個の変数を抽出しました`);
+
+    // 抽出結果の確認
+    if (definedVars.size === 0) {
+      console.warn('正規表現で変数を抽出できませんでした。フォーマットが正しいか確認してください。');
+      console.log('変数フォーマット例: $primary-color: #DDF0F1;');
+
+      // フォールバックとして手動でパース試行
+      try {
+        const lines = cssVariables.split('\n');
+        console.log('手動パース試行:', lines);
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine && trimmedLine.includes(':')) {
+            const parts = trimmedLine.split(':');
+            if (parts.length >= 2) {
+              const varName = parts[0].trim();
+              let varValue = parts[1].trim();
+
+              // 終端のセミコロンを削除
+              if (varValue.endsWith(';')) {
+                varValue = varValue.slice(0, -1);
+              }
+
+              if (varName.startsWith('$')) {
+                definedVars.set(varName, varValue);
+                console.log(`手動抽出: ${varName} = ${varValue}`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('手動パース中にエラーが発生しました:', e);
+      }
+    }
+
+    // 依然として変数が取得できない場合はデフォルト値を使用
+    if (definedVars.size === 0) {
+      console.warn('いずれの方法でも変数を抽出できませんでした。デフォルト値を使用します。');
+      definedVars.set('$primary-color', '#DDF0F1');
+      definedVars.set('$blue', '#408F95');
+    }
+
+    console.log('最終的な定義済み変数リスト:');
+    console.table(Object.fromEntries(definedVars));
+    console.groupEnd();
+
+    return definedVars;
+  };
+
+  // RGB値をHEX値に変換する関数
+  const rgbOrHslToHex = (colorStr) => {
+    // RGB値の場合
+    const rgbMatch = colorStr.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+    if (rgbMatch) {
+      const [_, r, g, b] = rgbMatch.map(Number);
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+    }
+
+    // HSL値の場合（簡易的な実装）
+    // 完全な変換はもっと複雑ですが、この例では省略
+    return null;
+  };
+
+  return (
+    <div className="ai-code-generator">
+      <Header
+        title="ヘッダー生成"
+        description="AIを活用してデザイン画像からヘッダーコンポーネントを自動生成します"
+      />
+
+      <div className="upload-section">
+        <div className="upload-container">
+          <div
+            className={`upload-area ${pcImage ? 'has-image' : ''}`}
+            onClick={() => document.getElementById('pc-image-input').click()}
+            onDrop={(e) => handleDrop(e, 'pc')}
+            onDragOver={(e) => handleDragOver(e, 'pc')}
+          >
+            {pcImage ? (
+              <div className="image-preview-container">
+                <img
+                  src={pcImage.preview}
+                  alt="PC Preview"
+                  className="preview-image"
+                  onError={(e) => {
+                    console.error("画像の読み込みに失敗しました", e);
+                    e.target.style.display = 'none';
+                  }}
+                />
+                <button
+                  className="remove-image-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemovePcImage();
+                  }}
+                >
+                  <span>×</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="upload-icon">🖥️</div>
+                <div className="upload-text">PC用ヘッダー画像をアップロード</div>
+                <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+              </>
+            )}
+            <input
+              type="file"
+              id="pc-image-input"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'pc')}
+              style={{ display: 'none' }}
+            />
+          </div>
+
+          <div
+            className={`upload-area ${spImage ? 'has-image' : ''}`}
+            onClick={() => document.getElementById('sp-image-input').click()}
+            onDrop={(e) => handleDrop(e, 'sp')}
+            onDragOver={(e) => handleDragOver(e, 'sp')}
+          >
+            {spImage ? (
+              <div className="image-preview-container">
+                <img
+                  src={spImage.preview}
+                  alt="SP Preview"
+                  className="preview-image"
+                  onError={(e) => {
+                    console.error("画像の読み込みに失敗しました", e);
+                    e.target.style.display = 'none';
+                  }}
+                />
+                <button
+                  className="remove-image-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveSpImage();
+                  }}
+                >
+                  <span>×</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="upload-icon">📱</div>
+                <div className="upload-text">SP用ヘッダー画像をアップロード</div>
+                <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+              </>
+            )}
+            <input
+              type="file"
+              id="sp-image-input"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'sp')}
+              style={{ display: 'none' }}
+            />
+          </div>
+
+          <div
+            className={`upload-area ${drawerImage ? 'has-image' : ''}`}
+            onClick={() => document.getElementById('drawer-image-input').click()}
+            onDrop={(e) => handleDrop(e, 'drawer')}
+            onDragOver={(e) => handleDragOver(e, 'drawer')}
+          >
+            {drawerImage ? (
+              <div className="image-preview-container">
+                <img
+                  src={drawerImage.preview}
+                  alt="Drawer Preview"
+                  className="preview-image"
+                  onError={(e) => {
+                    console.error("画像の読み込みに失敗しました", e);
+                    e.target.style.display = 'none';
+                  }}
+                />
+                <button
+                  className="remove-image-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveDrawerImage();
+                  }}
+                >
+                  <span>×</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="upload-icon">🔍</div>
+                <div className="upload-text">ドロワーメニュー画像をアップロード</div>
+                <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+              </>
+            )}
+            <input
+              type="file"
+              id="drawer-image-input"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'drawer')}
+              style={{ display: 'none' }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="upload-info">
+        <p>※ 画像の最大サイズ: 4MB</p>
+        <p>※ 対応フォーマット: JPG, PNG, WEBP</p>
+        <p>※ 4MB以上の画像は自動的にリサイズされます（最大幅1920px）</p>
+      </div>
+
+      <div className="settings-section">
+        <h2>生成設定</h2>
+        <div className="settings-grid">
+          <div className="setting-group">
+            <label className="setting-label">レスポンシブ設定</label>
+            <div className="responsive-settings-display">
+              <div className="responsive-settings-header">
+                <div className="responsive-mode">
+                  <span className="label">モード</span>
+                  <div className="mode-badge">
+                    <span className="mode-icon">{responsiveMode === "sp" ? "📱" : "🖥️"}</span>
+                    <span className="mode-text">{responsiveMode === "sp" ? "SP優先" : "PC優先"}</span>
+                  </div>
+                </div>
+                <div className="breakpoints-summary">
+                  <span className="label">適用ブレークポイント</span>
+                  <div className="breakpoint-list">
+                    {aiBreakpoints
+                      .filter(bp => bp.aiActive && bp.active)
+                      .sort((a, b) => a.value - b.value)
+                      .map(bp => (
+                        <div key={bp.name} className="breakpoint-item">
+                          <span className="bp-name">{bp.name}</span>
+                          <span className="bp-px">({bp.value}px)</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="setting-group">
+            <label className="setting-label">ドロワー表示設定</label>
+            <div className="drawer-settings-display">
+              <div className="setting-row">
+                <span className="setting-title">ドロワー実装:</span>
+                <div className="select-container">
+                  <select
+                    value={drawerLayout}
+                    onChange={(e) => setDrawerLayout(e.target.value)}
+                    className="setting-select"
+                  >
+                    <option value="both">ドロワー実装はSP/PC共通</option>
+                    <option value="sp-only">ドロワーはSPのみ</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <span className="setting-title">ドロワーの表示方法:</span>
+                <div className="select-container">
+                  <select
+                    value={drawerDirection}
+                    onChange={(e) => setDrawerDirection(e.target.value)}
+                    className="setting-select"
+                  >
+                    <option value="right">右から表示する</option>
+                    <option value="left">左から表示する</option>
+                    <option value="bottom">下から表示する</option>
+                    <option value="top">上から表示する</option>
+                    <option value="fade">フェードインで表示する</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button
+        className={`generate-button ${loading ? 'loading' : ''}`}
+        onClick={handleGenerateCode}
+        disabled={loading || (!pcImage && !spImage && !drawerImage)}
+      >
+        {loading ? "生成中..." : "コードを生成"}
+      </button>
+
+      {showGeneratedCode && (
+        <div className="reset-buttons-container">
+          <button
+            className="reset-code-button"
+            onClick={handleResetCode}
+            disabled={loading}
+            title="生成したコードのみをリセットします。アップロードした画像は保持されます。"
+          >
+            コードをリセット
+          </button>
+          <button
+            className="reset-all-button"
+            onClick={handleResetAll}
+            disabled={loading}
+            title="生成したコードとアップロードした画像を含むすべてのデータをリセットします。"
+          >
+            すべてリセット
+          </button>
+        </div>
+      )}
+
+      {showGeneratedCode && (
+        <div className="generated-code-container" ref={generatedCodeRef}>
+          <div className="tabs">
+            <button
+              onClick={() => setIsEditing(false)}
+              className={!isEditing ? "active" : ""}
+            >
+              表示
+            </button>
+            <button
+              onClick={() => setIsEditing(true)}
+              className={isEditing ? "active" : ""}
+            >
+              編集
+            </button>
+          </div>
+
+          {isEditing ? (
+            <div className="code-editor-container">
+              <div className="html-editor">
+                <h3>HTML</h3>
+                <CodeMirror
+                  value={editingHTML}
+                  options={{
+                    mode: 'text/html',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingHTML(value);
+                  }}
+                  className="code-editor-wrapper"
+                />
+              </div>
+
+              <div className="css-editor">
+                <h3>CSS</h3>
+                <CodeMirror
+                  value={editingCSS}
+                  options={{
+                    mode: 'text/x-scss',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingCSS(value);
+                  }}
+                  className="code-editor-wrapper"
+                />
+              </div>
+
+              <div className="editor-hint">
+                <p><span>💡</span> タブや自動インデント、シンタックスハイライトに対応</p>
+              </div>
+
+              <button className="update-button" onClick={handleUpdateCode}>
+                変更を適用
+              </button>
+            </div>
+          ) : (
+            <CodeDisplay htmlCode={generatedHTML} cssCode={generatedCSS} />
+          )}
+
+          <div className="preview-container" ref={previewContainerRef}>
+            <div className="preview-header">
+              <div className="preview-title">
+                <h3>コードプレビュー {previewWidth}px</h3>
+                {isDragging && <span className="preview-size">{previewWidth}px</span>}
+              </div>
+              <div className="preview-controls">
+                <div className="preview-size-buttons">
+                  <button
+                    onClick={() => resetPreviewSize(375)}
+                    className={previewWidth === 375 && !showCustomSizeInput ? "active" : ""}
+                  >
+                    SP (375px)
+                  </button>
+                  <button
+                    onClick={() => resetPreviewSize(768)}
+                    className={previewWidth === 768 && !showCustomSizeInput ? "active" : ""}
+                  >
+                    Tablet (768px)
+                  </button>
+                  <button
+                    onClick={() => resetPreviewSize(1440)}
+                    className={previewWidth === 1440 && !showCustomSizeInput ? "active" : ""}
+                  >
+                    PC (1440px)
+                  </button>
+                  <button
+                    onClick={() => resetPreviewSize(1920)}
+                    className={previewWidth === 1920 && !showCustomSizeInput ? "active" : ""}
+                  >
+                    PC (1920px)
+                  </button>
+                  <button
+                    onClick={showCustomSizeForm}
+                    className={showCustomSizeInput ? "active" : ""}
+                  >
+                    カスタム
+                  </button>
+                </div>
+                {showCustomSizeInput ? (
+                  <div className="custom-size-input">
+                    <input
+                      type="number"
+                      value={customSizeInput}
+                      onChange={(e) => setCustomSizeInput(e.target.value)}
+                      min="320"
+                      max="2560"
+                    />
+                    <span>px</span>
+                    <button className="apply-button" onClick={applyCustomSize}>
+                      適用
+                    </button>
+                  </div>
+                ) : (
+                  <div className="preview-size-display">
+                    {previewWidth}px
+                  </div>
+                )}
+              </div>
+            </div>
+            <div
+              className="preview-iframe-container"
+              style={{
+                width: `${previewWidth}px`,
+                transform: previewWidth > 1000 ? `scale(calc(1022/${previewWidth}))` : 'none',
+                transformOrigin: 'top left',
+                height: `${Number(iframeHeight) + 20}px`,
+                minHeight: `${(Math.max(400, iframeHeight) + 20) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px`
+              }}
+            >
+              <iframe
+                ref={previewRef}
+                className="preview-iframe"
+                srcDoc={`
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>プレビュー</title>
+                    <style>
+                      body {
+                        margin: 0;
+                        padding: 0;
+                        font-family: Arial, sans-serif;
+                      }
+                      ${generatedCSS || editingCSS || ''}
+                    </style>
+                  </head>
+                  <body>
+                    ${generatedHTML || editingHTML || ''}
+                  </body>
+                  </html>
+                `}
+                style={{ width: `${previewWidth}px`, height: `${iframeHeight}px`, overflow: 'auto' }}
+                scrolling="auto"
+                onLoad={updatePreview}
+              ></iframe>
+            </div>
+          </div>
+
+          <div className="regenerate-form">
+            <h3>コードの再生成</h3>
+            <textarea
+              value={regenerateInstructions}
+              onChange={(e) => setRegenerateInstructions(e.target.value)}
+              className="regenerate-textarea"
+              placeholder="コードの修正指示を入力してください"
+              rows={6}
+            />
+            <button
+              className={`regenerate-button ${loading ? 'loading' : ''}`}
+              onClick={handleRegenerate}
+              disabled={loading || !regenerateInstructions.trim()}
+            >
+              {loading ? "" : "再生成"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default HeaderGenerator;

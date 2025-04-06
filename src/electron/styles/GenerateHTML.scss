@@ -1,0 +1,333 @@
+@use "sass:color";
+@import "./global.scss";
+
+.generate-html-container {
+  padding: $spacing-xl;
+  background: linear-gradient(170deg, rgba($background-color, 0.8), rgba($surface-color, 0.9));
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+  max-width: 1000px;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 200px;
+    background: linear-gradient(135deg, rgba($primary-dark, 0.05), rgba($accent-color, 0.03));
+    z-index: -1;
+    border-radius: $radius-lg $radius-lg 50% 50%;
+    transform: scaleX(1.2);
+  }
+
+  .file-form {
+    background: linear-gradient(145deg, #ffffff, rgba($background-color, 0.5));
+    border-radius: $radius-lg;
+    padding: $spacing-xl;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+    border: 1px solid rgba($border-color, 0.5);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    margin-bottom: $spacing-lg;
+
+    &:hover {
+      box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+      transform: translateY(-3px);
+    }
+
+    input {
+      width: 100%;
+      max-width: 300px;
+      padding: $spacing-md;
+      border: 1px solid $border-color;
+      border-radius: $radius-md;
+      background-color: $surface-color;
+      color: $text-primary;
+      font-size: $font-size-md;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 5px rgba(15, 23, 42, 0.03);
+
+      &:focus {
+        outline: none;
+        border-color: $accent-color;
+        box-shadow: 0 0 0 3px rgba($accent-color, 0.1);
+        transform: translateY(-1px);
+      }
+    }
+
+    .add-button {
+      background: linear-gradient(135deg, $primary-color, $primary-dark);
+      color: white;
+      border: none;
+      border-radius: $radius-md;
+      padding: $spacing-md $spacing-lg;
+      font-size: $font-size-md;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba($primary-color, 0.2);
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 10px rgba($primary-color, 0.3);
+      }
+
+      &:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 3px rgba($primary-color, 0.2);
+      }
+    }
+
+    .error-message {
+      color: $error-color;
+      background-color: rgba($error-color, 0.1);
+      padding: $spacing-sm;
+      border-radius: $radius-md;
+      margin-top: $spacing-sm;
+      font-size: $font-size-sm;
+      font-weight: 500;
+    }
+  }
+
+  .file-list {
+    background: linear-gradient(145deg, #ffffff, rgba($background-color, 0.5));
+    border-radius: $radius-lg;
+    padding: $spacing-xl;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+    border: 1px solid rgba($border-color, 0.5);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    margin-bottom: $spacing-lg;
+
+    h3 {
+      font-size: $font-size-xl;
+      font-weight: 700;
+      margin-bottom: $spacing-lg;
+      color: $text-primary;
+      border-bottom: 1px solid $border-color;
+      padding-bottom: $spacing-md;
+      position: relative;
+      display: flex;
+      align-items: center;
+
+      &::before {
+        content: "📄";
+        margin-right: $spacing-md;
+        font-size: $font-size-md;
+      }
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      padding: $spacing-md $spacing-lg;
+      background-color: rgba($surface-color, 0.8);
+      border-radius: $radius-md;
+      margin-bottom: $spacing-sm;
+      border: 1px solid rgba($border-color, 0.7);
+      transition: all 0.3s ease;
+      position: relative;
+      box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04);
+
+      &:hover {
+        background-color: $surface-color;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(15, 23, 42, 0.06);
+        border-color: rgba($accent-color, 0.2);
+      }
+
+      .file-name {
+        flex: 1;
+        font-weight: 600;
+        font-size: $font-size-md;
+        color: $text-primary;
+
+        .saved-badge {
+          display: inline-block;
+          margin-left: $spacing-sm;
+          padding: $spacing-xs $spacing-sm;
+          font-size: $font-size-xs;
+          color: white;
+          background-color: $success-color;
+          border-radius: $radius-sm;
+          font-weight: 500;
+        }
+      }
+
+      .file-actions {
+        display: flex;
+        gap: $spacing-sm;
+      }
+
+      .delete-button {
+        background-color: rgba($error-color, 0.1);
+        color: $error-color;
+        border: none;
+        border-radius: $radius-md;
+        padding: $spacing-sm $spacing-md;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          background-color: $error-color;
+          color: white;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba($error-color, 0.3);
+        }
+      }
+
+      .edit-button {
+        background-color: rgba($primary-color, 0.1);
+        color: $primary-color;
+        border: none;
+        border-radius: $radius-md;
+        padding: $spacing-sm $spacing-md;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          background-color: $primary-color;
+          color: white;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba($primary-color, 0.3);
+        }
+      }
+    }
+
+    .file-edit-form {
+      display: flex;
+      align-items: center;
+      gap: $spacing-md;
+
+      input {
+        flex: 1;
+        padding: $spacing-sm;
+        border: 1px solid $border-color;
+        border-radius: $radius-md;
+        font-size: $font-size-md;
+      }
+
+      .save-button {
+        background: linear-gradient(135deg, $success-color, color.adjust($success-color, $lightness: -10%));
+        color: white;
+        border: none;
+        border-radius: $radius-md;
+        padding: $spacing-sm $spacing-md;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba($success-color, 0.3);
+        }
+      }
+    }
+  }
+
+  .save-all-button {
+    background: linear-gradient(135deg, #7c3aed, #4c1d95);
+    background-image: linear-gradient(135deg, #8b5cf6, #6d28d9, #4c1d95);
+    color: white;
+    border: none;
+    border-radius: $radius-md;
+    padding: $spacing-md $spacing-2xl;
+    font-size: $font-size-lg;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    box-shadow:
+      0 6px 15px rgba(124, 58, 237, 0.25),
+      0 1px 3px rgba(0, 0, 0, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: relative;
+    overflow: hidden;
+    z-index: 1;
+    min-width: 200px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 400px;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      z-index: -1;
+      transition: 0.5s ease;
+      transform: skewX(-15deg);
+    }
+
+    &::after {
+      content: "💾";
+      font-size: 1.2em;
+      margin-left: $spacing-md;
+      transition: all 0.3s ease;
+      opacity: 0.9;
+      transform: translateY(0);
+      filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+    }
+
+    &:hover {
+      transform: translateY(-4px) scale(1.01);
+      box-shadow:
+        0 12px 24px rgba(124, 58, 237, 0.4),
+        0 6px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      background-image: linear-gradient(135deg, #9f75ff, #7c3aed, #5b21b6);
+
+      &::before {
+        left: 100%;
+      }
+
+      &::after {
+        transform: translateY(-2px) rotate(10deg);
+        opacity: 1;
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
+      }
+    }
+
+    &:active {
+      transform: translateY(2px) scale(0.99);
+      box-shadow:
+        0 2px 5px rgba(124, 58, 237, 0.4),
+        0 1px 2px rgba(0, 0, 0, 0.1),
+        inset 0 1px 1px rgba(0, 0, 0, 0.15);
+      background-image: linear-gradient(135deg, #7c3aed, #6d28d9, #4c1d95);
+    }
+
+    &:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow:
+        0 4px 10px rgba(124, 58, 237, 0.2),
+        0 1px 2px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+      &::after {
+        opacity: 0.5;
+        transform: none;
+      }
+    }
+  }
+}

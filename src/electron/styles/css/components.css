@@ -1,0 +1,570 @@
+/* コンポーネント用CSS */
+
+/* 共通コンポーネントスタイル */
+.ai-code-generator,
+.api-settings,
+.variable-config,
+.stylex-converter,
+.generate-html-container,
+.reset-css,
+.responsive-config {
+  padding: var(--spacing-xl);
+  max-width: 1200px;
+  margin: 0 auto;
+  background: linear-gradient(145deg, #ffffff, #f8f9fe);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* AIコードジェネレーター */
+.ai-code-generator {
+  /* すでに共通スタイルが適用されます */
+}
+
+/* アップロードセクション */
+.ai-code-generator .upload-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.ai-code-generator .upload-area {
+  background: var(--surface-color);
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  min-height: 240px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.ai-code-generator .upload-area:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-4px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.ai-code-generator .upload-area:hover .upload-icon,
+.ai-code-generator .upload-area:hover .upload-text,
+.ai-code-generator .upload-area:hover .upload-hint {
+  color: var(--primary-color);
+}
+
+.ai-code-generator .upload-area.has-image {
+  border-style: solid;
+  border-color: var(--success-color);
+  background-color: rgba(54, 179, 126, 0.05);
+  position: relative;
+  padding: var(--spacing-sm);
+}
+
+.ai-code-generator .upload-area.has-image .upload-icon,
+.ai-code-generator .upload-area.has-image .upload-text,
+.ai-code-generator .upload-area.has-image .upload-hint {
+  display: none;
+}
+
+.ai-code-generator .upload-area.has-image:hover {
+  background-color: rgba(54, 179, 126, 0.08);
+  border-color: #2f9d6a;
+}
+
+.ai-code-generator .image-preview-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.ai-code-generator .upload-icon {
+  font-size: 3rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.ai-code-generator .upload-text {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+  transition: all 0.2s ease;
+}
+
+.ai-code-generator .upload-hint {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  transition: all 0.2s ease;
+}
+
+.ai-code-generator .preview-image {
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+  display: block;
+  margin: 0 auto;
+  position: relative;
+  z-index: 10;
+}
+
+/* 設定セクション */
+.ai-code-generator .settings-section {
+  background: var(--surface-color);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.ai-code-generator .settings-section h2 {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+}
+
+.ai-code-generator .responsive-settings-display {
+  background: linear-gradient(145deg, #ffffff, #f8f9fe);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ai-code-generator .responsive-settings-header {
+  display: flex;
+  gap: var(--spacing-xl);
+  align-items: flex-start;
+}
+
+.ai-code-generator .responsive-mode {
+  flex: 0 0 25%;
+}
+
+.ai-code-generator .responsive-mode .label {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-code-generator .mode-badge {
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 4px rgba(67, 97, 238, 0.3);
+  height: 40px;
+}
+
+.ai-code-generator .mode-icon {
+  font-size: 1.25rem;
+  margin-right: var(--spacing-sm);
+}
+
+.ai-code-generator .mode-text {
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.ai-code-generator .breakpoints-summary {
+  flex: 1;
+}
+
+.ai-code-generator .breakpoints-summary .label {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-code-generator .breakpoint-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.ai-code-generator .breakpoint-item {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+  height: 40px;
+  min-width: 110px;
+  justify-content: center;
+}
+
+.ai-code-generator .breakpoint-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-light);
+}
+
+.ai-code-generator .bp-name {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.ai-code-generator .bp-px {
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+}
+
+/* API設定 */
+.api-settings {
+  /* すでに共通スタイルが適用されます */
+}
+
+.api-settings .provider-selection {
+  margin-bottom: var(--spacing-xl);
+  background: white;
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+}
+
+.api-settings .section-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-md);
+  font-size: 1.25rem;
+  display: block;
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--primary-light);
+}
+
+.api-settings .provider-options {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.api-settings .provider-option {
+  flex: 1;
+  position: relative;
+}
+
+.api-settings .provider-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.api-settings .provider-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  background: linear-gradient(145deg, #ffffff, #f5f7fc);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  height: 150px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.api-settings .provider-option input[type="radio"]:checked + .provider-card {
+  border-color: var(--primary-color);
+  background: linear-gradient(145deg, #f0f7ff, #e6f0ff);
+  box-shadow: 0 5px 15px rgba(67, 97, 238, 0.15);
+  transform: translateY(-2px);
+}
+
+.api-settings .provider-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--spacing-md);
+  transition: all 0.3s ease;
+}
+
+.api-settings .provider-option input[type="radio"]:checked + .provider-card .provider-icon {
+  transform: scale(1.1);
+}
+
+.api-settings .provider-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.api-settings .provider-option input[type="radio"]:checked + .provider-card .provider-name {
+  color: var(--primary-color);
+}
+
+.api-settings .provider-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  opacity: 0;
+  transform: scale(0);
+  transition: all 0.3s ease;
+}
+
+.api-settings .provider-option input[type="radio"]:checked + .provider-card .provider-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.api-settings .api-form {
+  margin-bottom: var(--spacing-xl);
+}
+
+.api-settings .api-field {
+  margin-bottom: var(--spacing-lg);
+  background: white;
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.api-settings .api-field.active {
+  border-left-color: var(--primary-color);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.api-settings .api-field.inactive {
+  opacity: 0.7;
+}
+
+.api-settings .field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.api-settings .api-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.api-settings .api-input {
+  width: 100%;
+  padding: var(--spacing-md);
+  font-size: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: #f8f9ff;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.api-settings .api-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.2);
+  outline: none;
+}
+
+.api-settings .api-input.disabled {
+  background-color: #f0f0f5;
+  cursor: not-allowed;
+}
+
+.api-settings .field-info {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background-color: rgba(67, 97, 238, 0.05);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--info-color);
+}
+
+.api-settings .field-info p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: var(--spacing-xs) 0;
+  display: flex;
+  align-items: center;
+}
+
+.api-settings .field-info p::before {
+  content: "ℹ️";
+  margin-right: var(--spacing-xs);
+  font-size: 1rem;
+}
+
+.api-settings .field-info p:last-child::before {
+  content: "🔗";
+}
+
+.api-settings .field-info a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.api-settings .field-info a:hover {
+  color: var(--primary-dark);
+  text-decoration: none;
+}
+
+.api-settings .show-api-toggle {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+  background: white;
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.api-settings .show-api-toggle input[type="checkbox"] {
+  margin-right: var(--spacing-sm);
+  accent-color: var(--primary-color);
+  width: 18px;
+  height: 18px;
+}
+
+.api-settings .action-buttons {
+  display: flex;
+  gap: var(--spacing-md);
+  justify-content: center;
+}
+
+.api-settings .save-button,
+.api-settings .delete-button {
+  padding: var(--spacing-md) var(--spacing-xl);
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 140px;
+}
+
+.api-settings .save-button {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: white;
+  box-shadow: 0 4px 10px rgba(67, 97, 238, 0.3);
+}
+
+.api-settings .save-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(67, 97, 238, 0.4);
+}
+
+.api-settings .delete-button {
+  background: white;
+  color: var(--error-color);
+  border: 1px solid var(--error-color);
+}
+
+.api-settings .delete-button:hover {
+  background-color: rgba(255, 82, 82, 0.1);
+}
+
+.api-settings .loader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
+}
+
+.api-settings .spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(67, 97, 238, 0.1);
+  border-left-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .api-settings .provider-options {
+    flex-direction: column;
+  }
+
+  .api-settings .action-buttons {
+    flex-direction: column;
+  }
+}
+
+/* 変数設定 */
+.variable-config {
+  /* すでに共通スタイルが適用されます */
+}
+
+/* レスポンシブ設定 */
+.responsive-config {
+  /* すでに共通スタイルが適用されます */
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 768px) {
+  .ai-code-generator .responsive-settings-header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+}
+
+/* StyleXコンバーター */
+.stylex-converter {
+  /* すでに共通スタイルが適用されます */
+}
+
+/* HTMLファイル生成 */
+.generate-html-container {
+  /* すでに共通スタイルが適用されます */
+}
+
+/* リセットCSSの編集 */
+.reset-css {
+  /* すでに共通スタイルが適用されます */
+}
