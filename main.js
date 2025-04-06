@@ -70,7 +70,7 @@ function createSplashWindow() {
     }
   });
 
-  splashWindow.loadFile(path.join(__dirname, 'src/splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'src/electron/splash.html'));
 
   splashWindow.on('closed', () => {
     splashWindow = null;
