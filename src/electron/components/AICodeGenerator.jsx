@@ -175,6 +175,8 @@ const AICodeGenerator = () => {
   const [generatedHTML, setGeneratedHTML] = useState("");
   const [generatedCSS, setGeneratedCSS] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStage, setLoadingStage] = useState("");
   const [showGeneratedCode, setShowGeneratedCode] = useState(false);
   const generatedCodeRef = useRef(null);
 
@@ -1116,6 +1118,19 @@ const AICodeGenerator = () => {
     }
 
     setLoading(true);
+    setLoadingProgress(0);
+    setLoadingStage("準備中...");
+
+    // 擬似的に進捗状態を更新するタイマー
+    const progressTimer = setInterval(() => {
+      setLoadingProgress(prevProgress => {
+        // 進捗が80%を超えたら、APIの応答待ちとみなしてゆっくり進める
+        if (prevProgress >= 80) {
+          return Math.min(prevProgress + 0.2, 99);
+        }
+        return Math.min(prevProgress + 1, 80);
+      });
+    }, 300);
 
     try {
       // API設定コンポーネントから保存されたAPIキーを取得
@@ -1124,10 +1139,13 @@ const AICodeGenerator = () => {
       if (!apiKey) {
         alert("API設定から APIキーを設定してください。");
         setLoading(false);
+        clearInterval(progressTimer);
         return;
       }
 
       console.log("再生成開始", regenerateInstructions);
+      setLoadingStage("指示内容を分析中...");
+      setLoadingProgress(20);
 
       // 分析モードかどうかを確認 - 特定のキーワードが含まれている場合
       const isAnalysisMode = /分析|解析|問題点|診断|チェック|確認|レビュー|analyze|review|check|issues/i.test(regenerateInstructions);
@@ -1136,6 +1154,7 @@ const AICodeGenerator = () => {
       if (isAnalysisMode) {
         alert("分析モードは現在利用できません。通常の再生成を行ってください。");
         setLoading(false);
+        clearInterval(progressTimer);
         return;
       }
 
@@ -1143,45 +1162,12 @@ const AICodeGenerator = () => {
       let regeneratePrompt;
 
       if (isAnalysisMode) {
-        // 分析モード用プロンプト
-        regeneratePrompt = `
-# コード分析リクエスト
-
-現在のHTMLとCSSコードを分析し、問題点や改善点を指摘してください。
-
-## 分析の観点:
-1. デザイン再現性: HTMLとCSSがデザイン要件を適切に実装しているか
-2. コード品質: FLOCSSの命名規則に従っているか、セマンティックなマークアップがされているか
-3. パフォーマンス: 不要なネストや冗長なコード、非効率な実装がないか
-4. アクセシビリティ: a11yの観点で問題はないか
-5. モバイル対応: レスポンシブデザインが適切に実装されているか
-6. SCSS構造: フラットな構造になっているか、ネストが適切か
-
-## 分析対象のコード:
-
-### HTML:
-\`\`\`html
-${editingHTML}
-\`\`\`
-
-### SCSS:
-\`\`\`scss
-${editingCSS}
-\`\`\`
-
-## ユーザーからの分析リクエスト:
-${regenerateInstructions}
-
-## レポート形式:
-1. 全体評価（概要）
-2. 良い点
-3. 問題点と改善提案（具体的なコード例を含む）
-4. 推奨される修正アプローチ
-
-注意: コード全体を書き換えずに、問題点と改善案を具体的に指摘してください。
-`;
+        // 分析モード用プロンプト（実質は使用されない）
+        // ... existing code ...
       } else {
         // 修正モード用プロンプト（より詳細な指示とコード構造の理解を促進）
+        setLoadingStage("プロンプト生成中...");
+        setLoadingProgress(30);
         regeneratePrompt = `
 # コード修正リクエスト
 
@@ -1273,6 +1259,9 @@ ${editingCSS}
 
       console.log("window.api:", window.api ? "存在します" : "存在しません");
       console.log("generateCode関数を呼び出し中...");
+      setLoadingStage("AIにコード修正を依頼中...");
+      setLoadingProgress(50);
+
       // electron APIを使用して再生成する
       const result = await window.api.generateCode({
         prompt: regeneratePrompt,
@@ -1285,6 +1274,9 @@ ${editingCSS}
 
       const generatedCode = result.generatedCode;
       console.log("再生成されたコード:", generatedCode.substring(0, 100) + "...");
+
+      setLoadingProgress(80);
+      setLoadingStage("コードの解析と最適化中...");
 
       // より柔軟なHTML抽出パターン - <html>タグが含まれていない場合も考慮
       let htmlMatch = generatedCode.match(/<html>[\s\S]*?<\/html>/i);
@@ -1314,12 +1306,18 @@ ${editingCSS}
       console.log("再生成で抽出された CSS:", cssMatch ? cssMatch[0] : "なし");
 
       // 編集フォームの内容を更新
+      setLoadingProgress(85);
+      setLoadingStage("HTMLコードの更新中...");
+
       if (htmlMatch) {
         const htmlContent = htmlMatch[0];
         console.log("新しいHTMLを設定:", htmlContent.substring(0, 50) + "...");
         setEditingHTML(htmlContent);
         setGeneratedHTML(htmlContent); // 表示用の状態も同時に更新
       }
+
+      setLoadingProgress(90);
+      setLoadingStage("CSSコードの最適化中...");
 
       if (cssMatch) {
         const cssContent = cssMatch[0].includes("<style>")
@@ -1363,6 +1361,8 @@ ${editingCSS}
       setRegenerateInstructions("");
 
       // 生成されたコードをステートに設定
+      setLoadingProgress(95);
+      setLoadingStage("表示準備中...");
       setGeneratedCode(generatedCode);
       setGeneratedHTML(htmlMatch ? htmlMatch[0] : editingHTML);
       // cssMatch内容は編集フォームで置き換え済み
@@ -1377,13 +1377,20 @@ ${editingCSS}
           });
           console.log("再生成後、コードセクションまでスクロールしました");
         }
+
+        setLoadingProgress(100);
+        setLoadingStage("完了");
+        setTimeout(() => {
+          setLoading(false);
+          clearInterval(progressTimer);
+        }, 500);
       }, 500);
 
     } catch (error) {
       console.error("再生成エラー:", error);
       alert(`エラーが発生しました: ${error.message}`);
-    } finally {
       setLoading(false);
+      clearInterval(progressTimer);
     }
   };
 
@@ -1407,9 +1414,23 @@ ${editingCSS}
     }
 
     setLoading(true);
+    setLoadingProgress(0);
+    setLoadingStage("準備中...");
+
+    // 擬似的に進捗状態を更新するタイマー
+    const progressTimer = setInterval(() => {
+      setLoadingProgress(prevProgress => {
+        // 進捗が80%を超えたら、APIの応答待ちとみなしてゆっくり進める
+        if (prevProgress >= 80) {
+          return Math.min(prevProgress + 0.2, 99);
+        }
+        return Math.min(prevProgress + 1, 80);
+      });
+    }, 300);
 
     try {
       console.log("コード生成ボタンがクリックされました");
+      setLoadingStage("プロンプト生成中...");
 
       let prompt;
       try {
@@ -1421,6 +1442,8 @@ ${editingCSS}
           spImageBase64,
         });
         console.log("プロンプト生成成功");
+        setLoadingProgress(30);
+        setLoadingStage("AIに問合せ中...");
       } catch (promptError) {
         console.error("プロンプト生成でエラーが発生:", promptError);
         // エラー時はデフォルトのプロンプトを使用
@@ -1456,6 +1479,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         console.error("エラー: 送信するプロンプトが空です");
         alert("プロンプトが空のため、コードを生成できません。");
         setLoading(false);
+        clearInterval(progressTimer);
         return;
       }
 
@@ -1464,6 +1488,9 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       let uploadedImage = null;
 
       if (imageToUse) {
+        setLoadingStage("画像処理中...");
+        setLoadingProgress(40);
+
         const imageInfo = pcImageBase64
           ? { fileName: pcImage?.fileName || "image.jpg", preview: pcImage?.preview, mimeType: pcImage?.mimeType || 'image/jpeg' }
           : { fileName: spImage?.fileName || "image.jpg", preview: spImage?.preview, mimeType: spImage?.mimeType || 'image/jpeg' };
@@ -1499,6 +1526,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           console.log("画像情報を送信:", uploadedImage.name);
           console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
           console.log("画像メディアタイプ:", uploadedImage.mimeType);
+          setLoadingProgress(50);
         } catch (imgErr) {
           console.error("画像最適化エラー:", imgErr);
           alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
@@ -1513,12 +1541,18 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       try {
         // デバッグ
         console.log("generateCode関数を呼び出し中...");
+        setLoadingStage("AIにコード生成を依頼中...");
+        setLoadingProgress(60);
+
         // 引数形式を修正: オブジェクトパラメータに変更
         const result = await window.api.generateCode({
           prompt: prompt,
           uploadedImage: uploadedImage
         });
         console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
+
+        setLoadingProgress(80);
+        setLoadingStage("コードの解析と最適化中...");
 
         if (!result || !result.generatedCode) {
           throw new Error("コード生成に失敗しました");
@@ -1543,10 +1577,13 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           console.log("CSS:", css);
           alert("生成されたコードの形式が正しくありません。");
           setLoading(false);
+          clearInterval(progressTimer);
           return;
         }
 
         // SCSSのネスト構造を検出してフラット化
+        setLoadingProgress(85);
+        setLoadingStage("SCSSのフラット化中...");
         const flattenedCSS = flattenSCSS(css);
 
         // ネスト構造が検出されたかどうかチェック
@@ -1557,9 +1594,13 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         }
 
         // pxをremに変換
+        setLoadingProgress(90);
+        setLoadingStage("単位の最適化中...");
         const remCSS = convertPxToRem(flattenedCSS);
 
         // HEX値を色変数に変換
+        setLoadingProgress(95);
+        setLoadingStage("カラー変数の最適化中...");
         const { modifiedCode: cssWithVars, replacedCount } = replaceHexWithVariables(remCSS);
         console.log(`${replacedCount}個のHEX値を色変数に変換しました`);
 
@@ -1570,6 +1611,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         }
 
         // 生成されたコードをステートに設定
+        setLoadingProgress(98);
+        setLoadingStage("表示準備中...");
         setGeneratedCode(generatedCode);
         setGeneratedHTML(html);
         setGeneratedCSS(finalCSS);
@@ -1582,30 +1625,28 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               behavior: 'smooth',
               block: 'start'
             });
-            console.log("再生成後、コードセクションまでスクロールしました");
+            console.log("コード生成後、コードセクションまでスクロールしました");
           }
+
+          setLoadingProgress(100);
+          setLoadingStage("完了");
+          setTimeout(() => {
+            setLoading(false);
+            clearInterval(progressTimer);
+          }, 500);
         }, 500);
 
-      } catch (innerError) {
-        console.error("generateCode関数の呼び出しエラー:", innerError);
-
-        // エラーメッセージを解析して表示
-        let errorMessage = innerError.message;
-
-        // Claude APIの画像エラーをより分かりやすく表示
-        if (errorMessage.includes("Image does not match the provided media type")) {
-          errorMessage = "画像形式エラー: アップロードされた画像の形式が一致しません。\n別の画像を試すか、他の形式（JPG/PNG）に変換してみてください。";
-        } else if (errorMessage.includes("media_type")) {
-          errorMessage = "画像メディアタイプエラー: APIがサポートしていない画像形式です。\nJPEG、PNG、GIF、WEBPのいずれかの形式をご利用ください。";
-        }
-
-        alert(`コード生成エラー: ${errorMessage}`);
+      } catch (error) {
+        console.error("コード生成エラー:", error);
+        alert(`エラーが発生しました: ${error.message}`);
+        setLoading(false);
+        clearInterval(progressTimer);
       }
     } catch (error) {
-      console.error("コード生成エラー:", error);
+      console.error("エラー:", error);
       alert(`エラーが発生しました: ${error.message}`);
-    } finally {
       setLoading(false);
+      clearInterval(progressTimer);
     }
   };
 
@@ -2125,13 +2166,26 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         </div>
       </div>
 
-      <button
-        className={`generate-button ${loading ? 'loading' : ''}`}
-        onClick={handleGenerateCode}
-        disabled={loading || (!pcImage && !spImage)}
-      >
-        {loading ? "生成中..." : "コードを生成"}
-      </button>
+      <div className="action-buttons">
+        <button
+          className={`generate-button ${loading ? 'loading' : ''}`}
+          onClick={handleGenerateCode}
+          disabled={loading || (!pcImage && !spImage)}
+        >
+          {loading ? (
+            <div className="loading-container">
+              <div className="loading-progress">
+                <div
+                  className="loading-progress-bar"
+                  style={{ width: `${loadingProgress}%` }}
+                ></div>
+                <div className="loading-stage">{loadingStage}</div>
+                <div className="loading-percentage">{Math.round(loadingProgress)}%</div>
+              </div>
+            </div>
+          ) : "✨ コードを生成"}
+        </button>
+      </div>
 
       {showGeneratedCode && (
         <div className="reset-buttons-container">
@@ -2362,7 +2416,18 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 onClick={handleRegenerate}
                 disabled={loading || !regenerateInstructions.trim()}
               >
-                {loading ? "処理中..." : "再生成"}
+                {loading ? (
+                  <div className="loading-container">
+                    <div className="loading-progress">
+                      <div
+                        className="loading-progress-bar"
+                        style={{ width: `${loadingProgress}%` }}
+                      ></div>
+                      <div className="loading-stage">{loadingStage}</div>
+                      <div className="loading-percentage">{Math.round(loadingProgress)}%</div>
+                    </div>
+                  </div>
+                ) : "🔄 再生成"}
               </button>
             </div>
           )}
