@@ -2383,6 +2383,21 @@ $radius-xl: 16px;
       }
     }
   }
+
+  // 一般的なエラーメッセージ表示用のスタイル
+  .general-error-message {
+    background-color: rgba($error-color, 0.1);
+    border-left: 4px solid $error-color;
+    padding: $spacing-sm $spacing-md;
+    margin-bottom: $spacing-md;
+    border-radius: $radius-sm;
+
+    p {
+      color: darken($error-color, 10%);
+      margin: 0;
+      font-weight: 500;
+    }
+  }
 }
 
 .rename-dialog-actions {

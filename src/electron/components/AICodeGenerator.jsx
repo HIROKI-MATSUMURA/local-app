@@ -2328,6 +2328,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         setNewBlockName(blockName + '-new');
         setNewHtmlBlockName(blockName + '-new');
 
+        // 衝突エラーメッセージを設定
+        setBlockValidationErrors({
+          '_general': 'ファイル名が競合しています。新しい名前を入力するか、保存しないブロックのチェックを外してください。'
+        });
+
         // ダイアログを表示
         setShowRenameDialog(true);
         setProcessingStep("initial");
@@ -2350,8 +2355,25 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // 衝突していないブロックを保存する関数
   const saveNonConflictingBlocks = async (blocks, mainHtmlBlockName, htmlCode, targetHtmlFile) => {
     try {
+      // 保存対象のブロックを絞り込み（非衝突ブロックの場合、衝突時用のUIで選択されていない場合はスキップ）
+      // 通常モードで呼ばれた場合は、blockSaveMapが空なので全てのブロックが対象となる
+      const blocksToSave = blocks.filter(mainBlock => {
+        // 衝突処理中で、かつそのブロックが保存対象外にチェックされている場合はスキップ
+        if (Object.keys(blockSaveMap).length > 0 && blockSaveMap[mainBlock.name] === false) {
+          return false;
+        }
+        return true;
+      });
+
+      if (blocksToSave.length === 0) {
+        // 保存対象が0の場合は成功として扱う（ユーザーがすべてのチェックを外した場合）
+        setSaveSuccess(true);
+        setSaveError(`コードを保存しました！（SCSSファイル: 0個、HTMLファイル: 0個）`);
+        return;
+      }
+
       // 各メインブロックごとに処理
-      const savePromises = blocks.map(async (mainBlock) => {
+      const savePromises = blocksToSave.map(async (mainBlock) => {
         // メインブロックに関連するすべてのエレメントと擬似クラスを取得
         const relatedBlocks = detectedScssBlocks.filter(block => {
           // 除外されたブロックはスキップ
@@ -2418,11 +2440,24 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         setSaveSuccess(false);
         setSaveError(`保存中にエラーが発生しました: ${errorMessages}`);
+
+        // モーダル内にエラーを表示
+        setBlockValidationErrors(prev => ({
+          ...prev,
+          '_general': `保存中にエラーが発生しました: ${errorMessages}`
+        }));
       }
     } catch (error) {
       console.error("非衝突ブロックの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "保存中にエラーが発生しました");
+
+      // モーダル内にエラーを表示
+      setBlockValidationErrors(prev => ({
+        ...prev,
+        '_general': error.message || "保存中にエラーが発生しました"
+      }));
+
       throw error;
     }
   };
@@ -2531,6 +2566,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       console.error("リネームと保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "保存中にエラーが発生しました");
+
+      // エラーメッセージをモーダル内に表示
+      setBlockValidationErrors(prev => ({
+        ...prev,
+        '_general': error.message || "保存中にエラーが発生しました"
+      }));
     } finally {
       setIsRenaming(false);
     }
@@ -2539,7 +2580,17 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // 衝突しているブロックを保存する関数
   const saveConflictingBlocks = async (blocks, originalBlockName, scssCode, htmlCode, targetHtmlFile) => {
     try {
-      const savePromises = blocks.map(async (block) => {
+      // 保存対象のブロックを絞り込み（チェックボックスがオンのもののみ）
+      const blocksToSave = blocks.filter(block => blockSaveMap[block.name]);
+
+      if (blocksToSave.length === 0) {
+        // 保存対象が0の場合は成功として扱う（ユーザーがすべてのチェックを外した場合）
+        setSaveSuccess(true);
+        setSaveError(`コードを保存しました！（SCSSファイル: 0個、HTMLファイル: 0個）`);
+        return;
+      }
+
+      const savePromises = blocksToSave.map(async (block) => {
         const newName = blockRenameMap[block.name] || block.name;
         return await window.api.saveAIGeneratedCode(
           block.code,
@@ -2573,6 +2624,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           (result.success || result.partialSuccess) && result.savedFiles?.html
         ).length;
 
+        // グローバルステート変数に保存
+        setSavedScssFilesCount(savedScssFilesCount);
+        setSavedHtmlFilesCount(savedHtmlFilesCount);
+
         setSaveSuccess(true);
         setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
       } else if (hasAllFailed) {
@@ -2584,11 +2639,24 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         setSaveSuccess(false);
         setSaveError(`保存中にエラーが発生しました: ${errorMessages}`);
+
+        // モーダル内にエラーを表示
+        setBlockValidationErrors(prev => ({
+          ...prev,
+          '_general': `保存中にエラーが発生しました: ${errorMessages}`
+        }));
       }
     } catch (error) {
       console.error("衝突ブロックの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "保存中にエラーが発生しました");
+
+      // モーダル内にエラーを表示
+      setBlockValidationErrors(prev => ({
+        ...prev,
+        '_general': error.message || "保存中にエラーが発生しました"
+      }));
+
       throw error;
     }
   };
@@ -3340,9 +3408,19 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           <div className="rename-dialog-content">
             <h3>ファイル名の競合</h3>
 
-            <div className="conflict-message">
-              <p>同名のファイルが既に存在します。保存する場合はリネームしてください。</p>
-            </div>
+            {/* 一般的なエラーメッセージ */}
+            {blockValidationErrors['_general'] && (
+              <div className="general-error-message">
+                <p className="validation-error">{blockValidationErrors['_general']}</p>
+              </div>
+            )}
+
+            {/* 標準の競合メッセージ */}
+            {!blockValidationErrors['_general'] && (
+              <div className="conflict-message">
+                <p>同名のファイルが既に存在します。保存する場合はリネームしてください。</p>
+              </div>
+            )}
 
             {/* プロセスステップ表示 */}
             {processingStep === "processing" && (
