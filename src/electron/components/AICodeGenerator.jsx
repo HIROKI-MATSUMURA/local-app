@@ -2063,6 +2063,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   const [saveSuccess, setSaveSuccess] = useState(null);
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [savedScssFilesCount, setSavedScssFilesCount] = useState(0);
+  const [savedHtmlFilesCount, setSavedHtmlFilesCount] = useState(0);
 
   // リネームダイアログ用の状態
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -2401,8 +2403,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           (result.success || result.partialSuccess) && result.savedFiles?.html
         ).length;
 
+        // グローバルステート変数に保存
+        setSavedScssFilesCount(savedScssFilesCount);
+        setSavedHtmlFilesCount(savedHtmlFilesCount);
+
         setSaveSuccess(true);
-        setSaveError(`コードが正常に保存されました！検出された${detectedScssBlocks.length}個のブロックのうち、${savedBlocksCount}個を保存しました。（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+        setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
       } else if (hasAllFailed) {
         // すべての保存が失敗した場合
         const errorMessages = results
@@ -2568,7 +2574,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         ).length;
 
         setSaveSuccess(true);
-        setSaveError(`コードが正常に保存されました！検出された${blocks.length}個のブロックのうち、${savedBlocksCount}個を保存しました。（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+        setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
       } else if (hasAllFailed) {
         // すべての保存が失敗した場合
         const errorMessages = results
@@ -2700,6 +2706,18 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setBlockValidationErrors({});
     setProcessingStep("initial");
   };
+
+  // 保存処理が完了したら、savedCountを表示用のstate変数にも反映
+  useEffect(() => {
+    if (saveSuccess === true) {
+      // 通知メッセージで使用されている値を明示的にステートにセット
+      const match = saveError?.match(/SCSSファイル: (\d+)個、HTMLファイル: (\d+)個/);
+      if (match) {
+        setSavedScssFilesCount(parseInt(match[1], 10));
+        setSavedHtmlFilesCount(parseInt(match[2], 10));
+      }
+    }
+  }, [saveSuccess, saveError]);
 
   // HTMLファイルを保存せずにSCSSのみ保存する処理
   // ...
@@ -3046,7 +3064,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               {saveSuccess !== null && (
                 <div className={`save-status ${saveSuccess ? 'success' : 'error'}`}>
                   {saveSuccess
-                    ? `コードが正常に保存されました！検出された${detectedScssBlocks.length}個のブロックを保存しました。`
+                    ? `コードを保存しました！（SCSSファイル: ${savedScssFilesCount || 0}個、HTMLファイル: ${savedHtmlFilesCount || 0}個）`
                     : `エラー: ${saveError}`}
                 </div>
               )}
