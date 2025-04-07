@@ -1,0 +1,70 @@
+@use "../../global" as *;
+
+.p-information {
+  background-color: $primary-color;
+  padding: 2rem;
+}
+
+.p-information__title {
+  color: $text-color;
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.p-information__subtitle {
+  color: $blue;
+  text-align: center;
+  font-size: 1rem;
+  margin-bottom: 2rem;
+}
+
+.l-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: center;
+
+  @include mq(md) {
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+}
+
+.p-information__image {
+  width: 100%;
+  aspect-ratio: 3/2;
+  overflow: hidden;
+}
+
+.p-information__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.p-information__section-title {
+  color: $blue;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.p-information__description {
+  color: $text-color;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.c-button {
+  display: inline-block;
+  background-color: $blue;
+  color: #FFFFFF;
+  padding: 0.75rem 1.5rem;
+  text-decoration: none;
+  border-radius: 0.25rem;
+  transition: background-color 0.3s ease;
+}
+
+.c-button:hover {
+  background-color: #2c6369;
+}

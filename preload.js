@@ -195,13 +195,14 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // リネームして保存する関数
-  renameAndSaveAICode: async (scssCode, htmlCode, originalBlockName, newBlockName, targetHtmlFile) => {
+  renameAndSaveAICode: async (scssCode, htmlCode, originalBlockName, newScssBlockName, newHtmlBlockName, targetHtmlFile) => {
     try {
       return await ipcRenderer.invoke('rename-and-save-ai-code', {
         scssCode,
         htmlCode,
         originalBlockName,
-        newBlockName,
+        newScssBlockName,
+        newHtmlBlockName,
         targetHtmlFile
       });
     } catch (error) {
@@ -226,7 +227,7 @@ contextBridge.exposeInMainWorld('api', {
       return await ipcRenderer.invoke('check-file-exists', blockName);
     } catch (error) {
       console.error('ファイル存在チェック中にエラーが発生しました:', error);
-      return { exists: false, fileExists: { scss: false, html: false } };
+      return { fileExists: { scss: false, html: false }, error: error.message };
     }
   },
 });

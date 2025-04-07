@@ -378,29 +378,25 @@ function setupIPCHandlers() {
   ipcMain.handle('check-file-exists', async (event, blockName) => {
     try {
       console.log('check-file-exists ハンドラーが呼び出されました:', blockName);
+
       const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
       const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
 
-      // SCSSファイルパスの作成
       const scssFilePath = path.join(scssDir, `_${blockName}.scss`);
+      const htmlFilePath = path.join(htmlPartsDir, `${blockName}.html`);
 
-      // HTMLパーツファイルパスの作成
-      const htmlPartsFilePath = path.join(htmlPartsDir, `${blockName}.html`);
-
-      // ファイル名の衝突チェック
-      const fileExists = {
-        scss: fs.existsSync(scssFilePath),
-        html: fs.existsSync(htmlPartsFilePath)
-      };
-
-      console.log('ファイル存在チェック結果:', fileExists);
       return {
-        exists: fileExists.scss || fileExists.html,
-        fileExists
+        fileExists: {
+          scss: fs.existsSync(scssFilePath),
+          html: fs.existsSync(htmlFilePath)
+        }
       };
     } catch (error) {
       console.error('ファイル存在確認中にエラーが発生しました:', error);
-      return { exists: false, fileExists: { scss: false, html: false } };
+      return {
+        fileExists: { scss: false, html: false },
+        error: error.message
+      };
     }
   });
 
@@ -732,7 +728,8 @@ $mediaquerys: (
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01'
-          }
+          },
+          timeout: 120000 // タイムアウトを120秒に設定
         });
 
         console.log(`Claude APIレスポンス: HTTP ${response.status}`);
@@ -781,27 +778,46 @@ $mediaquerys: (
         html: htmlCode && fs.existsSync(htmlPartsFilePath)
       };
 
-      // 既存ファイルがある場合の処理
-      if (fileExists.scss || fileExists.html) {
-        console.log('ファイルが既に存在します:', { scssFileName, htmlFileName });
+      // 既存ファイルがある場合は何を保存できるか確認
+      const scssNeedsRename = fileExists.scss;
+      const htmlNeedsRename = htmlCode && fileExists.html;
+      const anyRenameNeeded = scssNeedsRename || htmlNeedsRename;
+
+      // 保存結果のステータス
+      const result = {
+        success: false,
+        savedFiles: {
+          scss: null,
+          html: null
+        }
+      };
+
+      // 両方のファイルでリネームが必要な場合
+      if (scssNeedsRename && htmlNeedsRename) {
+        console.log('SCSSファイルとHTMLファイルが両方存在します:', { scssFileName, htmlFileName });
         return {
           success: false,
-          error: `ファイルが既に存在します: ${fileExists.scss ? scssFileName : ''} ${fileExists.html ? htmlFileName : ''}`,
+          error: `ファイルが既に存在します: ${scssFileName} ${htmlFileName}`,
           needsRename: true,
           fileExists
         };
       }
 
-      // SCSSファイルの保存
-      const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+      // SCSSファイルを保存（衝突がなければ）
+      if (!scssNeedsRename) {
+        const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+        await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
+        console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
+        result.savedFiles.scss = scssFileName;
+        result.success = true;
+      }
 
-      await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
-      console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
-
-      // HTMLパーツファイルの保存（HTMLコードがある場合のみ）
-      if (htmlCode) {
+      // HTMLパーツファイルを保存（HTMLコードがあり、衝突がなければ）
+      if (htmlCode && !htmlNeedsRename) {
         await fs.promises.writeFile(htmlPartsFilePath, htmlCode, 'utf8');
         console.log(`HTMLパーツファイルを保存しました: ${htmlPartsFilePath}`);
+        result.savedFiles.html = htmlFileName;
+        result.success = true;
 
         // 対象のHTMLファイルにインクルード文を追加
         if (targetHtmlFile) {
@@ -825,21 +841,38 @@ $mediaquerys: (
               }
             } else {
               console.log(`対象HTMLファイルに</main>タグが見つかりません: ${targetFilePath}`);
-              return { success: false, error: 'ターゲットHTMLファイルに</main>タグが見つかりません' };
+              return {
+                success: false,
+                error: 'ターゲットHTMLファイルに</main>タグが見つかりません',
+                savedFiles: result.savedFiles
+              };
             }
           } else {
             console.log(`対象HTMLファイルが存在しません: ${targetFilePath}`);
-            return { success: false, error: 'ターゲットHTMLファイルが存在しません' };
+            return {
+              success: false,
+              error: 'ターゲットHTMLファイルが存在しません',
+              savedFiles: result.savedFiles
+            };
           }
         }
       }
 
+      // 一部のファイルでリネームが必要な場合
+      if (anyRenameNeeded) {
+        return {
+          success: result.success,
+          partialSuccess: true,
+          needsRename: true,
+          fileExists,
+          savedFiles: result.savedFiles,
+          error: `一部のファイルが既に存在します: ${scssNeedsRename ? scssFileName : ''} ${htmlNeedsRename ? htmlFileName : ''}`
+        };
+      }
+
       return {
         success: true,
-        savedFiles: {
-          scss: scssFileName,
-          html: htmlCode ? htmlFileName : null
-        }
+        savedFiles: result.savedFiles
       };
     } catch (error) {
       console.error('AI生成コードの保存中にエラーが発生しました:', error);
@@ -854,15 +887,119 @@ $mediaquerys: (
   });
 
   // 既に存在するブロック名のリネーム処理
-  ipcMain.handle('rename-and-save-ai-code', async (event, { scssCode, htmlCode, originalBlockName, newBlockName, targetHtmlFile }) => {
+  ipcMain.handle('rename-and-save-ai-code', async (event, { scssCode, htmlCode, originalBlockName, newScssBlockName, newHtmlBlockName, targetHtmlFile }) => {
     try {
-      console.log('rename-and-save-ai-code ハンドラーが呼び出されました:', { originalBlockName, newBlockName });
-      return await saveAIGeneratedCode({
-        scssCode,
-        htmlCode,
-        blockName: newBlockName,
-        targetHtmlFile
+      console.log('rename-and-save-ai-code ハンドラーが呼び出されました:', {
+        originalBlockName,
+        newScssBlockName,
+        newHtmlBlockName
       });
+
+      // SCSSとHTMLで異なるブロック名を処理
+      const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
+      const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
+
+      if (!fs.existsSync(scssDir)) {
+        fs.mkdirSync(scssDir, { recursive: true });
+      }
+
+      if (!fs.existsSync(htmlPartsDir)) {
+        fs.mkdirSync(htmlPartsDir, { recursive: true });
+      }
+
+      // 保存結果のステータス
+      const result = {
+        success: false,
+        savedFiles: {
+          scss: null,
+          html: null
+        }
+      };
+
+      // SCSSファイルの保存
+      if (scssCode) {
+        const scssFileName = `_${newScssBlockName}.scss`;
+        const scssFilePath = path.join(scssDir, scssFileName);
+
+        try {
+          const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+          await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
+          console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
+          result.savedFiles.scss = scssFileName;
+          result.success = true;
+        } catch (err) {
+          console.error(`SCSSファイルの保存に失敗しました: ${err.message}`);
+          return { success: false, error: `SCSSファイルの保存に失敗しました: ${err.message}` };
+        }
+      }
+
+      // HTMLファイルの保存
+      if (htmlCode) {
+        const htmlFileName = `${newHtmlBlockName}.html`;
+        const htmlFilePath = path.join(htmlPartsDir, htmlFileName);
+
+        try {
+          await fs.promises.writeFile(htmlFilePath, htmlCode, 'utf8');
+          console.log(`HTMLパーツファイルを保存しました: ${htmlFilePath}`);
+          result.savedFiles.html = htmlFileName;
+          result.success = true;
+
+          // 対象のHTMLファイルにインクルード文を追加
+          if (targetHtmlFile) {
+            const targetFilePath = path.join(__dirname, 'src', targetHtmlFile);
+
+            if (fs.existsSync(targetFilePath)) {
+              let targetHtmlContent = await fs.promises.readFile(targetFilePath, 'utf8');
+
+              // </main>タグの直前にインクルード文を追加
+              const mainCloseTag = '</main>';
+              const includeStatement = `  {{> ${newHtmlBlockName} }}\n  `;
+
+              if (targetHtmlContent.includes(mainCloseTag)) {
+                // 既に同じインクルード文があるか確認
+                if (!targetHtmlContent.includes(`{{> ${newHtmlBlockName} }}`)) {
+                  targetHtmlContent = targetHtmlContent.replace(mainCloseTag, `${includeStatement}${mainCloseTag}`);
+                  await fs.promises.writeFile(targetFilePath, targetHtmlContent, 'utf8');
+                  console.log(`対象HTMLファイルにインクルード文を追加しました: ${targetFilePath}`);
+                } else {
+                  console.log(`インクルード文は既に存在しています: ${targetFilePath}`);
+                }
+              } else {
+                console.log(`対象HTMLファイルに</main>タグが見つかりません: ${targetFilePath}`);
+                return {
+                  success: false,
+                  error: 'ターゲットHTMLファイルに</main>タグが見つかりません',
+                  savedFiles: result.savedFiles
+                };
+              }
+            } else {
+              console.log(`対象HTMLファイルが存在しません: ${targetFilePath}`);
+              return {
+                success: false,
+                error: 'ターゲットHTMLファイルが存在しません',
+                savedFiles: result.savedFiles
+              };
+            }
+          }
+        } catch (err) {
+          console.error(`HTMLファイルの保存に失敗しました: ${err.message}`);
+          if (result.savedFiles.scss) {
+            return {
+              success: false,
+              partialSuccess: true,
+              error: `HTMLファイルの保存に失敗しましたが、SCSSファイルは保存されました: ${err.message}`,
+              savedFiles: result.savedFiles
+            };
+          } else {
+            return { success: false, error: `HTMLファイルの保存に失敗しました: ${err.message}` };
+          }
+        }
+      }
+
+      return {
+        success: true,
+        savedFiles: result.savedFiles
+      };
     } catch (error) {
       console.error('リネームして保存中にエラーが発生しました:', error);
       return { success: false, error: error.message };

@@ -1642,7 +1642,18 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       } catch (error) {
         console.error("コード生成エラー:", error);
-        alert(`エラーが発生しました: ${error.message}`);
+
+        // エラーメッセージをより具体的に
+        let errorMessage = `エラーが発生しました: ${error.message}`;
+
+        // ステータスコード529のエラー対応
+        if (error.message.includes('status code 529')) {
+          errorMessage = "サーバーが混雑しているか一時的に利用できません。しばらく待ってから再試行してください。(エラー529)";
+        } else if (error.message.includes('timeout')) {
+          errorMessage = "リクエストがタイムアウトしました。画像のサイズを小さくするか、複雑さを減らして再試行してください。";
+        }
+
+        alert(errorMessage);
         setLoading(false);
         clearInterval(progressTimer);
       }
@@ -2056,8 +2067,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // リネームダイアログ用の状態
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [newBlockName, setNewBlockName] = useState("");
+  const [newHtmlBlockName, setNewHtmlBlockName] = useState("");
   const [conflictInfo, setConflictInfo] = useState(null);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [saveHtmlFile, setSaveHtmlFile] = useState(true); // HTMLファイルを保存するかどうか
 
   // ブロック検出用の状態
   const [detectedScssBlocks, setDetectedScssBlocks] = useState([]);
@@ -2185,65 +2198,133 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setSaveSuccess(null);
 
     try {
-      // ファイル存在チェック
-      const result = await window.api.checkFileExists(blockName);
+      // 選択されたブロックのファイル存在チェック
+      const mainBlockFileCheck = await window.api.checkFileExists(blockName);
 
-      // ファイル存在チェックとリネームダイアログ表示
-      if (result.exists) {
-        // 衝突情報を設定
+      // SCSSとHTMLの両方、または片方が存在する場合はリネームダイアログを表示
+      if (mainBlockFileCheck.fileExists.scss || (mainBlockFileCheck.fileExists.html && editingHTML)) {
+        // リネームダイアログを表示
         setConflictInfo({
           originalBlockName: blockName,
           scssCode: editingCSS,
           htmlCode: editingHTML,
-          fileExists: result.fileExists
+          fileExists: mainBlockFileCheck.fileExists
         });
         setShowRenameDialog(true);
         setNewBlockName(blockName + '-new');
-        // スクロールをロック
+        setNewHtmlBlockName(blockName + '-new'); // HTMLブロック名も同様に初期化
         document.body.style.overflow = 'hidden';
         setIsSaving(false);
         return;
       }
 
-      // 除外されていないブロックのみをフィルタリング
-      const blocksToSave = detectedScssBlocks.filter(block =>
-        !excludedBlocks.includes(block.name)
-      );
+      // 除外されていないメインブロックを特定
+      const mainBlocks = detectedScssBlocks.filter(block => {
+        // ブロック名にアンダースコアがなく、コロンもない場合はメインブロック
+        return !block.name.includes('__') &&
+          !block.name.includes(':') &&
+          !excludedBlocks.includes(block.name);
+      });
 
-      if (blocksToSave.length === 0) {
+      if (mainBlocks.length === 0) {
         setSaveSuccess(false);
-        setSaveError("保存するブロックがありません。すべてのブロックが除外されています。");
+        setSaveError("保存するメインブロックがありません。すべてのブロックが除外されているか、メインブロックが検出されていません。");
         setIsSaving(false);
         return;
       }
 
-      // 各SCSSブロックを個別に保存（除外されたものを除く）
-      const savePromises = blocksToSave.map(async (block) => {
-        return await window.api.saveAIGeneratedCode(
-          block.code,           // そのブロックのSCSSコード
-          block.name === blockName ? editingHTML : "",  // 選択されたブロックのみHTMLを保存
-          block.name,           // ブロック名
-          block.name === blockName ? selectedHtmlFile : null  // 選択されたブロックのみHTMLファイルに追加
+      // 各メインブロックごとに処理
+      const savePromises = mainBlocks.map(async (mainBlock) => {
+        // メインブロックに関連するすべてのエレメントと擬似クラスを取得
+        const relatedBlocks = detectedScssBlocks.filter(block => {
+          // 除外されたブロックはスキップ
+          if (excludedBlocks.includes(block.name)) return false;
+
+          // メインブロックと同じか、メインブロックから派生したものか
+          return block.name === mainBlock.name ||
+            block.name.startsWith(mainBlock.name + '__') ||
+            (block.name.startsWith(mainBlock.name + ':') && !block.name.includes('__'));
+        });
+
+        // 全ブロックのコードを1つにまとめる
+        const combinedScssCode = relatedBlocks.map(block => block.code).join('\n\n');
+
+        // メインブロックのみHTMLを保存し、他のブロックではHTMLは空文字
+        const htmlToSave = mainBlock.name === blockName ? editingHTML : "";
+        const targetHtmlFileToUse = mainBlock.name === blockName ? selectedHtmlFile : null;
+
+        // 保存処理を実行（リネームチェックはmain.jsで行われる）
+        const saveResult = await window.api.saveAIGeneratedCode(
+          combinedScssCode,      // 統合されたSCSSコード
+          htmlToSave,            // 選択されたブロックのみHTMLを保存
+          mainBlock.name,        // メインブロック名
+          targetHtmlFileToUse    // 選択されたブロックのみHTMLファイルに追加
         );
+
+        // 部分的に成功した場合（HTMLやSCSSのどちらかが衝突した場合）
+        if (saveResult.partialSuccess && saveResult.needsRename && mainBlock.name === blockName) {
+          // 衝突情報を設定
+          setConflictInfo({
+            originalBlockName: blockName,
+            scssCode: combinedScssCode,
+            htmlCode: htmlToSave,
+            fileExists: saveResult.fileExists
+          });
+          setShowRenameDialog(true);
+          setNewBlockName(blockName + '-new');
+          // スクロールをロック
+          document.body.style.overflow = 'hidden';
+        }
+
+        return saveResult;
       });
 
       const results = await Promise.all(savePromises);
 
-      // エラーがあるか確認
-      const hasError = results.some(result => !result.success);
+      // 少なくとも1つの保存が成功したか
+      const hasAnySuccess = results.some(result => result.success || result.partialSuccess);
+      // すべての保存が失敗したか（リネームが必要な場合を除く）
+      const hasAllFailed = results.every(result => !result.success && !result.partialSuccess && !result.needsRename);
+      // リネームダイアログを表示する必要があるか
+      const hasRenameNeeded = results.some(result => result.needsRename);
 
-      if (!hasError) {
+      // 少なくとも1つの保存が成功した場合
+      if (hasAnySuccess) {
+        // 保存されたブロック数をカウント
+        const savedBlocksCount = results.filter(result =>
+          result.success ||
+          (result.partialSuccess && (result.savedFiles?.scss || result.savedFiles?.html))
+        ).length;
+
+        // 保存されたSCSSファイル数とHTMLファイル数を個別にカウント
+        const savedScssFilesCount = results.filter(result =>
+          (result.success || result.partialSuccess) && result.savedFiles?.scss
+        ).length;
+
+        const savedHtmlFilesCount = results.filter(result =>
+          (result.success || result.partialSuccess) && result.savedFiles?.html
+        ).length;
+
         setSaveSuccess(true);
-        setSaveError("");
-      } else {
+        setSaveError(`コードが正常に保存されました！検出された${detectedScssBlocks.length}個のブロックのうち、${savedBlocksCount}個を保存しました。（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+
+        // 部分的に成功した結果がある場合、追加のメッセージを表示
+        if (results.some(result => result.partialSuccess)) {
+          setTimeout(() => {
+            alert("一部のファイルは既に存在していたため保存されませんでした。必要に応じてリネームしてください。");
+          }, 100);
+        }
+      } else if (hasAllFailed && !hasRenameNeeded) {
+        // すべての保存が失敗した場合（リネームが必要な場合を除く）
         const errorMessages = results
-          .filter(result => !result.success)
+          .filter(result => result.error)
           .map(result => result.error)
           .join(", ");
 
         setSaveSuccess(false);
         setSaveError(`保存中にエラーが発生しました: ${errorMessages}`);
       }
+      // リネームが必要な場合は、上のsetShowRenameDialogですでに処理されている
     } catch (error) {
       console.error("AI生成コードの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
@@ -2257,8 +2338,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   const handleCloseRenameDialog = () => {
     setShowRenameDialog(false);
     setNewBlockName("");
+    setNewHtmlBlockName("");
     setConflictInfo(null);
     setIsRenaming(false);
+    setSaveHtmlFile(true); // HTMLファイル保存のチェックをリセット
     // スクロールロック解除
     document.body.style.overflow = 'auto';
   };
@@ -2276,15 +2359,46 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // リネームして保存処理
   const handleRenameAndSave = async () => {
-    if (!newBlockName.trim()) {
-      setSaveError("新しいブロック名を入力してください");
+    // HTMLファイルのみが衝突していて、保存しない場合はSCSSのみ保存処理へ
+    if (conflictInfo && conflictInfo.fileExists.html && !conflictInfo.fileExists.scss && !saveHtmlFile) {
+      handleSaveWithoutHtml();
       return;
     }
 
-    // リネーム用の名前チェック
-    const invalidChars = /[^a-zA-Z0-9-_]/g;
-    if (invalidChars.test(newBlockName)) {
-      setSaveError("ブロック名には英数字、ハイフン、アンダースコアのみ使用できます");
+    // 入力チェック
+    let hasValidationError = false;
+
+    // SCSSファイルが存在する場合はSCSSのブロック名をチェック
+    if (conflictInfo && conflictInfo.fileExists.scss) {
+      if (!newBlockName.trim()) {
+        setSaveError("SCSSファイルの新しいブロック名を入力してください");
+        hasValidationError = true;
+      } else {
+        // リネーム用の名前チェック
+        const invalidChars = /[^a-zA-Z0-9-_]/g;
+        if (invalidChars.test(newBlockName)) {
+          setSaveError("SCSSブロック名には英数字、ハイフン、アンダースコアのみ使用できます");
+          hasValidationError = true;
+        }
+      }
+    }
+
+    // HTMLファイルが存在し、保存する場合はHTMLのブロック名をチェック
+    if (conflictInfo && conflictInfo.fileExists.html && saveHtmlFile && !hasValidationError) {
+      if (!newHtmlBlockName.trim()) {
+        setSaveError("HTMLファイルの新しいブロック名を入力してください");
+        hasValidationError = true;
+      } else {
+        // リネーム用の名前チェック
+        const invalidChars = /[^a-zA-Z0-9-_]/g;
+        if (invalidChars.test(newHtmlBlockName)) {
+          setSaveError("HTMLブロック名には英数字、ハイフン、アンダースコアのみ使用できます");
+          hasValidationError = true;
+        }
+      }
+    }
+
+    if (hasValidationError) {
       return;
     }
 
@@ -2292,13 +2406,26 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setSaveError("");
 
     try {
+      // HTMLファイルのみが衝突していて、保存しない場合
+      if (conflictInfo && conflictInfo.fileExists.html && !conflictInfo.fileExists.scss && !saveHtmlFile) {
+        // SCSSのみ保存処理へ
+        await handleSaveWithoutHtml();
+        return;
+      }
+
+      // SCSSとHTMLで異なるブロック名を使用
+      const scssBlockName = conflictInfo.fileExists.scss ? newBlockName : conflictInfo.originalBlockName;
+      const htmlBlockName = (conflictInfo.fileExists.html && saveHtmlFile) ? newHtmlBlockName : conflictInfo.originalBlockName;
+
       // メインブロックをリネームして保存
+      // 注意: サーバー側で個別のブロック名を処理できるようにAPI関数を変更する必要があります
       const result = await window.api.renameAndSaveAICode(
         conflictInfo.scssCode,
-        conflictInfo.htmlCode,
+        saveHtmlFile ? conflictInfo.htmlCode : "", // HTMLを保存しない場合は空文字列を渡す
         conflictInfo.originalBlockName,
-        newBlockName,
-        selectedHtmlFile
+        scssBlockName,
+        htmlBlockName,
+        saveHtmlFile ? selectedHtmlFile : null // HTMLを保存しない場合はnullを渡す
       );
 
       // リネーム結果処理
@@ -2307,7 +2434,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         setConflictInfo(null);
         setSaveSuccess(true);
         setSaveError("");
-        setBlockName(newBlockName);
+        // SCSSのブロック名を更新（UIのためのメインブロック名として使用）
+        setBlockName(scssBlockName);
       } else {
         setSaveSuccess(false);
         setSaveError(`リネームして保存中にエラーが発生しました: ${result.error}`);
@@ -2316,6 +2444,55 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       console.error("リネームして保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "リネームして保存中にエラーが発生しました");
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  // HTMLファイルを保存せずにSCSSのみ保存する処理
+  const handleSaveWithoutHtml = async () => {
+    if (!conflictInfo) return;
+
+    setIsRenaming(true);
+    setSaveError("");
+
+    try {
+      // メインブロックに関連するすべてのエレメントと擬似クラスを取得
+      const mainBlock = conflictInfo.originalBlockName;
+      const relatedBlocks = detectedScssBlocks.filter(block => {
+        // 除外されたブロックはスキップ
+        if (excludedBlocks.includes(block.name)) return false;
+
+        // メインブロックと同じか、メインブロックから派生したものか
+        return block.name === mainBlock ||
+          block.name.startsWith(mainBlock + '__') ||
+          (block.name.startsWith(mainBlock + ':') && !block.name.includes('__'));
+      });
+
+      // 全ブロックのコードを1つにまとめる
+      const combinedScssCode = relatedBlocks.map(block => block.code).join('\n\n');
+
+      // HTMLは保存せず、SCSSのみ保存
+      const result = await window.api.saveAIGeneratedCode(
+        combinedScssCode,
+        "", // HTMLは空文字列（保存しない）
+        mainBlock,
+        null // HTMLファイルは指定しない
+      );
+
+      if (result.success || result.partialSuccess) {
+        setShowRenameDialog(false);
+        setConflictInfo(null);
+        setSaveSuccess(true);
+        setSaveError(`SCSSファイルが正常に保存されました（ファイル: _${mainBlock}.scss）`);
+      } else {
+        setSaveSuccess(false);
+        setSaveError(`保存中にエラーが発生しました: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("SCSSファイルの保存中にエラーが発生しました:", error);
+      setSaveSuccess(false);
+      setSaveError(error.message || "保存中にエラーが発生しました");
     } finally {
       setIsRenaming(false);
     }
@@ -2371,28 +2548,62 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 ) : "ファイルが既に存在します。"}
               </p>
 
-              <p>新しいブロック名を入力してください：</p>
-
-              <div className="rename-input-group">
-                <input
-                  type="text"
-                  value={newBlockName}
-                  onChange={(e) => setNewBlockName(e.target.value)}
-                  placeholder="新しいブロック名"
-                  disabled={isRenaming}
-                />
-
-                <div className="rename-preview">
-                  <div className="file-preview">
-                    <span className="file-icon">📄</span>
-                    <span className="file-name">_<strong>{newBlockName || "ブロック名"}</strong>.scss</span>
-                  </div>
-                  <div className="file-preview">
-                    <span className="file-icon">📄</span>
-                    <span className="file-name"><strong>{newBlockName || "ブロック名"}</strong>.html</span>
-                  </div>
+              {/* HTMLファイルの保存オプション - HTMLのみが衝突する場合と両方が衝突する場合の両方で表示 */}
+              {conflictInfo && conflictInfo.fileExists.html && (
+                <div className="html-file-options">
+                  <label className="checkbox-container">
+                    <input
+                      type="checkbox"
+                      checked={saveHtmlFile}
+                      onChange={(e) => setSaveHtmlFile(e.target.checked)}
+                    />
+                    <span className="checkbox-label">HTMLファイルを保存する</span>
+                  </label>
+                  <p className="option-description">
+                    チェックを外すと、HTMLファイルは保存されず、SCSSファイルのみ保存されます。
+                  </p>
                 </div>
-              </div>
+              )}
+
+              {/* SCSSファイルが存在する場合のリネームフィールド */}
+              {conflictInfo && conflictInfo.fileExists.scss && (
+                <>
+                  <p>SCSSファイルの新しいブロック名：</p>
+                  <div className="rename-input-group">
+                    <input
+                      type="text"
+                      value={newBlockName}
+                      onChange={(e) => setNewBlockName(e.target.value)}
+                      placeholder="新しいSCSSブロック名"
+                      disabled={isRenaming}
+                    />
+                    <div className="file-preview">
+                      <span className="file-icon">📄</span>
+                      <span className="file-name">_<strong>{newBlockName || "ブロック名"}</strong>.scss</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* HTMLファイルが存在し、保存する場合のリネームフィールド */}
+              {conflictInfo && conflictInfo.fileExists.html && saveHtmlFile && (
+                <>
+                  <p>HTMLファイルの新しいブロック名：</p>
+                  <div className="rename-input-group">
+                    <input
+                      type="text"
+                      value={newHtmlBlockName}
+                      onChange={(e) => setNewHtmlBlockName(e.target.value)}
+                      placeholder="新しいHTMLブロック名"
+                      disabled={isRenaming}
+                    />
+                    <div className="file-preview">
+                      <span className="file-icon">📄</span>
+                      <span className="file-name"><strong>{newHtmlBlockName || "ブロック名"}</strong>.html</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {saveError && (
                 <div className="rename-error">
@@ -2409,13 +2620,26 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               >
                 キャンセル
               </button>
-              <button
-                className={`rename-button ${isRenaming ? 'renaming' : ''}`}
-                onClick={handleRenameAndSave}
-                disabled={isRenaming || !newBlockName.trim()}
-              >
-                {isRenaming ? "処理中..." : "リネームして保存"}
-              </button>
+              {/* HTMLファイルのみが衝突していて、HTMLを保存しない場合 */}
+              {conflictInfo && conflictInfo.fileExists.html && !conflictInfo.fileExists.scss && !saveHtmlFile ? (
+                <button
+                  className={`save-button ${isRenaming ? 'saving' : ''}`}
+                  onClick={handleSaveWithoutHtml}
+                  disabled={isRenaming}
+                >
+                  {isRenaming ? "処理中..." : "SCSSのみ保存"}
+                </button>
+              ) : (
+                <button
+                  className={`rename-button ${isRenaming ? 'renaming' : ''}`}
+                  onClick={handleRenameAndSave}
+                  disabled={isRenaming ||
+                    (conflictInfo && conflictInfo.fileExists.scss && !newBlockName.trim()) ||
+                    (conflictInfo && conflictInfo.fileExists.html && saveHtmlFile && !newHtmlBlockName.trim())}
+                >
+                  {isRenaming ? "処理中..." : "リネームして保存"}
+                </button>
+              )}
             </div>
           </div>
         </div>
