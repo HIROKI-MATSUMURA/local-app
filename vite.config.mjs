@@ -13,6 +13,18 @@ export default defineConfig({
     port: 3000,
     open: true,
     strictPort: true,
+    hmr: process.env.ELECTRON_APP_DISABLE_HMR === 'true' ? false : {
+      // Electronアプリケーションへのリロード通知を制限
+      protocol: 'ws',
+      host: 'localhost',
+      clientPort: 3000,
+      // Electronアプリ専用のカスタム処理
+      overlay: false,
+    },
+    // Electronアプリではホットリロードを使わない
+    watch: {
+      ignored: process.env.ELECTRON_APP === 'true' ? ['**/*'] : null,
+    },
   },
   base: "./",
   plugins: [

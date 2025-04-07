@@ -24,6 +24,9 @@ let mainWindow;
 // グローバル変数としてスプラッシュウィンドウを宣言
 let splashWindow;
 
+// グローバル変数の宣言
+let isElectronAppReloadBlocked = true; // Electronアプリでのリロードをブロックするフラグ
+
 // 監視するディレクトリ
 const htmlDirectory = path.join(__dirname, 'src');
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
@@ -51,6 +54,32 @@ function watchDirectory() {
     // 今回のファイルリストを保存
     previousFiles = htmlFiles;
   });
+}
+
+// ファイル変更監視ハンドラー - Viteのリロードに頼らずElectronで独自に処理
+function setupFileWatcher() {
+  const htmlDirectory = path.join(__dirname, 'src');
+
+  // HTMLファイルの変更を監視
+  fs.watch(htmlDirectory, { recursive: true }, (eventType, filename) => {
+    if (!filename) return;
+
+    // HTMLファイルの変更のみを処理
+    if (filename.endsWith('.html')) {
+      console.log(`ファイル変更を検出: ${filename} - イベント: ${eventType}`);
+
+      // Electronの管理画面に変更を通知するが、ページ全体はリロードしない
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('file-changed', {
+          type: 'html',
+          filename: filename,
+          path: path.join(htmlDirectory, filename)
+        });
+      }
+    }
+  });
+
+  console.log('ファイル監視を設定しました');
 }
 
 // 監視を1秒ごとにチェック
@@ -162,6 +191,9 @@ function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      // ホットリロードの動作を制御するための設定を追加
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
     backgroundColor: '#f5f5f5',
     show: false,
@@ -175,17 +207,108 @@ function createMainWindow() {
     if (splashWindow) {
       splashWindow.close();
     }
+
+    // ファイル監視セットアップ
+    setupFileWatcher();
   });
 
   // 開発モードなら開発サーバーのURLを、そうでなければローカルのHTMLファイルを読み込む
   if (isDevelopment) {
     mainWindow.loadURL('http://localhost:3000/electron/index.html');
+
+    // Viteの開発サーバーによるホットリロードを防止
+    mainWindow.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['ws://localhost:3000/*', 'http://localhost:3000/__vite_hmr*'] },
+      (details, callback) => {
+        console.log('Viteホットリロードリクエストをブロックしました:', details.url);
+        callback({ cancel: true });
+      }
+    );
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
   }
 
   // リロードイベントをハンドリング
   mainWindow.webContents.on('did-finish-load', () => {
+    // リロードブロッカーの設定
+    if (isElectronAppReloadBlocked) {
+      console.log('Electronアプリでのリロードブロックを有効化しました');
+
+      // Viteの自動リロードをブロック
+      mainWindow.webContents.executeJavaScript(`
+        console.log('Electronアプリ用のカスタムリロード設定を適用しています');
+
+        // ViteのWebSocketエラーを抑制
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+          // WebSocket関連のエラーを抑制
+          const errorMsg = args.join(' ');
+          if (
+            errorMsg.includes('WebSocket') ||
+            errorMsg.includes('ws://localhost') ||
+            errorMsg.includes('[vite] failed to connect')
+          ) {
+            // WebSocketエラーを抑制
+            console.log('[抑制済み] Vite WebSocketエラー');
+            return;
+          }
+          // その他のエラーは通常通り表示
+          return originalConsoleError.apply(this, args);
+        };
+
+        // WebSocketのコンストラクタをオーバーライド
+        const OriginalWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+          // Viteの開発サーバーへの接続をブロック
+          if (url.includes('localhost:3000') || url.startsWith('ws://localhost:3000')) {
+            console.log('[ブロック済み] Vite WebSocket接続:', url);
+            // ダミーのWebSocketオブジェクトを返す
+            return {
+              addEventListener: () => {},
+              removeEventListener: () => {},
+              send: () => {},
+              close: () => {},
+              onopen: null,
+              onclose: null,
+              onmessage: null,
+              onerror: null
+            };
+          }
+          // その他のWebSocket接続は通常通り処理
+          return new OriginalWebSocket(url, protocols);
+        };
+
+        // ViteのHMRをオーバーライド
+        if (window.__vite_hmr) {
+          const originalSend = window.__vite_hmr.send;
+          window.__vite_hmr.send = function(type, ...args) {
+            if (type === 'update' || type === 'full-reload') {
+              console.log('Viteのリロードイベントをブロックしました:', type);
+              return; // リロードイベントを無視
+            }
+            return originalSend.call(this, type, ...args);
+          };
+          console.log('ViteのHMRハンドラーをオーバーライドしました');
+        }
+
+        // WebSocketのイベントリスナーを無効化
+        if (window.__original_addEventListener) {
+          console.log('既にWebSocketイベントリスナーを置き換えています');
+        } else {
+          window.__original_addEventListener = window.WebSocket.prototype.addEventListener;
+          window.WebSocket.prototype.addEventListener = function(type, listener, ...args) {
+            if (type === 'message' && window.location.href.includes('electron')) {
+              console.log('Electronアプリ内でのWebSocketイベントリスナーを無効化しました');
+              // メッセージイベントリスナーを登録しない
+              return;
+            }
+            return window.__original_addEventListener.call(this, type, listener, ...args);
+          };
+          console.log('WebSocketのイベントリスナーをオーバーライドしました');
+        }
+      `).catch(err => console.error('スクリプト実行エラー:', err));
+    }
+
     // webContents APIを使ってリロード後も正しく動作するようにする
     mainWindow.webContents.session.webRequest.onBeforeRequest(
       { urls: ['*://*/*'] },
@@ -198,6 +321,39 @@ function createMainWindow() {
         callback({ cancel: false });
       }
     );
+
+    // 自動リロードを防止するためのイベントハンドラー
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      const currentUrl = mainWindow.webContents.getURL();
+      // アプリ内ナビゲーション以外のリロードをブロック
+      if (url !== currentUrl && url.includes('localhost:3000')) {
+        console.log('外部からのリロードをブロックしました:', url);
+        event.preventDefault();
+      }
+    });
+
+    // Viteのホットリロードスクリプトを削除
+    if (isDevelopment) {
+      mainWindow.webContents.executeJavaScript(`
+        // Viteのホットリロードイベントリスナーを無効化
+        window.__vite_plugin_react_preamble_installed__ = true;
+        window.__vite_plugin_react_timeout = null;
+
+        // Viteのホットリロードスクリプトを削除
+        const viteHmrScript = document.querySelector('script[type="module"]');
+        if (viteHmrScript) {
+          viteHmrScript.remove();
+          console.log('Viteホットリロードスクリプトを削除しました');
+        }
+
+        // WebSocket接続を切断
+        if (window.__vite_ws) {
+          window.__vite_ws.close();
+          window.__vite_ws = null;
+          console.log('Vite WebSocket接続を切断しました');
+        }
+      `).catch(err => console.error('スクリプト実行エラー:', err));
+    }
   });
 
   // Cmd+Rが押された時の処理（macOS）
@@ -208,12 +364,12 @@ function createMainWindow() {
       // デフォルトのリロード動作を防止
       event.preventDefault();
 
-      // 手動で正しいリロードを実行
-      if (isDevelopment) {
-        mainWindow.loadURL('http://localhost:3000/electron/index.html');
-      } else {
-        mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
-      }
+      // 手動でリロードする場合は以下をコメント解除
+      // if (isDevelopment) {
+      //   mainWindow.loadURL('http://localhost:3000/electron/index.html');
+      // } else {
+      //   mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
+      // }
     }
   });
 
@@ -341,6 +497,23 @@ function setupIPCHandlers() {
 
   // 起動時にディレクトリを確認・作成
   ensureDirectories();
+
+  // カスタムリロード機能 - フロントエンドファイルのみをリロードし、Electron管理画面は維持する
+  ipcMain.on('reload-frontend-only', (event, { filePath }) => {
+    console.log('フロントエンドファイルのリロードリクエスト:', filePath);
+
+    // ここでフロントエンドのコンテンツだけを更新し、Electron管理画面はそのまま維持
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        console.error('ファイルの読み込みエラー:', err);
+        event.reply('reload-frontend-error', err.message);
+      } else {
+        // ファイルの内容をフロントエンドに送信
+        event.reply('frontend-content-updated', { filePath, content: data });
+        console.log('フロントエンドコンテンツを更新しました:', filePath);
+      }
+    });
+  });
 
   // 管理画面がファイルの内容をリクエストした際に、その内容を返す処理
   ipcMain.on('request-file-content', (event, filePath) => {

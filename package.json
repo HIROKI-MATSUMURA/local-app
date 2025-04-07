@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npx vite\" \"electron .\"",
+    "dev": "concurrently \"ELECTRON_APP=true npx vite\" \"ELECTRON_APP_DISABLE_HMR=true electron .\"",
+    "dev:win": "concurrently \"set ELECTRON_APP=true && npx vite\" \"set ELECTRON_APP_DISABLE_HMR=true && electron .\"",
     "build": "vite build",
     "package-mac": "electron-builder --mac",
     "package-win": "electron-builder --win",
