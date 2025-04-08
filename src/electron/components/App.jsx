@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import ChangeLog from "./ChangeLog";
 import ResetCSS from "./ResetCSS";
 import ResponsiveConfig from "./ResponsiveConfig";
@@ -8,6 +8,7 @@ import AICodeGenerator from "./AICodeGenerator";
 import HeaderGenerator from "./HeaderGenerator";
 // import APISettings from "./APISettings";
 import StyleXConverter from "./StyleXConverter";
+import PythonEnvironmentCheck from './PythonEnvironmentCheck';
 import "../styles/css/main.css";
 import "../styles/css/components.css";
 
@@ -15,6 +16,12 @@ const App = () => {
   const [activeTab, setActiveTab] = useState("generate-html");
   // VariableConfigの参照を保持
   const variableConfigRef = useRef(null);
+  // Python環境チェックの状態
+  const [pythonCheck, setPythonCheck] = useState({
+    showCheck: true,
+    isComplete: false,
+    isPythonAvailable: false
+  });
 
   const menuItems = [
     { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
@@ -44,6 +51,21 @@ const App = () => {
     setActiveTab(newTabId);
   };
 
+  // Python環境チェック完了時の処理
+  const handlePythonCheckComplete = (success) => {
+    setPythonCheck({
+      showCheck: false,
+      isComplete: true,
+      isPythonAvailable: success
+    });
+
+    // Pythonが利用できない場合は警告メッセージを表示
+    if (!success) {
+      console.warn('Python環境が利用できないため、一部の画像解析機能が制限されます。');
+      // ここでToastやアラートを表示してもよい
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case "changelog":
@@ -71,6 +93,10 @@ const App = () => {
 
   return (
     <div className="app-container">
+      {/* Python環境チェックモーダル */}
+      {pythonCheck.showCheck && (
+        <PythonEnvironmentCheck onComplete={handlePythonCheckComplete} />
+      )}
       <aside className="sidebar">
         <div className="sidebar-header">
           <h2>CreAIte Code</h2>

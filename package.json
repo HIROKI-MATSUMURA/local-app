@@ -11,7 +11,9 @@
     "package-mac": "electron-builder --mac",
     "package-win": "electron-builder --win",
     "package-linux": "electron-builder --linux",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder",
+    "check-python": "node -e \"require('./python_bridge').checkPythonEnvironment().then(console.log)\"",
+    "setup-python": "node -e \"require('./python_bridge').setupPythonEnvironment().then(console.log)\""
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -71,6 +73,17 @@
     "linux": {
       "icon": "public/icon.png",
       "category": "Development"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "./",
+        "to": ".",
+        "filter": [
+          "python_check.py",
+          "python_installer.py",
+          "image_analyzer.py"
+        ]
+      }
+    ]
   }
 }
