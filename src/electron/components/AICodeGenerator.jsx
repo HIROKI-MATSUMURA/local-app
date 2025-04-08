@@ -3024,10 +3024,41 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // コンポーネントの初期化時にファイル変更検出のリスナーを設定
   useEffect(() => {
+    // グローバルなデバウンス処理用変数
+    if (!window.__reactFileEventCache) {
+      window.__reactFileEventCache = {};
+    }
+
+    // ファイル変更リスナーのクリーンアップ用変数
+    let fileChangeListenerCleanup = null;
+
     // ファイル変更リスナーの設定
     if (window.api && window.api.onFileChanged) {
-      window.api.onFileChanged((data) => {
-        console.log('ファイル変更を検出:', data);
+      // リスナー関数を定義
+      const handleFileChange = (data) => {
+        // データ検証
+        if (!data || !data.filename || !data.type) return;
+
+        // イベントキーを生成
+        const eventKey = `${data.filename}_${data.type}`;
+
+        // グローバルなReactコンポーネント間でのデバウンス
+        if (window.__reactFileEventCache[eventKey]) {
+          return; // 他のコンポーネントで既に処理済みならスキップ
+        }
+
+        // このコンポーネントで処理済みとしてマーク
+        window.__reactFileEventCache[eventKey] = true;
+
+        // 一定時間後にキャッシュをクリア
+        setTimeout(() => {
+          delete window.__reactFileEventCache[eventKey];
+        }, 1000);
+
+        // ファイルタイプとフラグに関する詳細ログを出力
+        console.log(
+          `ファイル変更を検出: ${data.filename} - タイプ: ${data.type} - 保存処理中: ${isPreventingReload}`
+        );
 
         // 保存処理中はファイル変更イベントを無視
         if (isPreventingReload) {
@@ -3035,18 +3066,43 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           return;
         }
 
-        // 必要に応じてコンポーネントを更新する処理
-        // ...
-      });
+        // HTMLファイル変更時の処理
+        if (data.type === 'html') {
+          // 必要なコンポーネント更新処理があればここに記述
+          // 例: HTMLファイルのリストを再取得する等
+        }
+
+        // SCSSファイル変更時の処理
+        if (data.type === 'scss') {
+          // 必要なコンポーネント更新処理があればここに記述
+        }
+      };
+
+      // リスナーを登録し、クリーンアップ関数を保存
+      fileChangeListenerCleanup = () => {
+        // リスナー登録時に返されるクリーンアップ関数が存在すれば実行
+        if (window.__removeFileChangedListener) {
+          window.__removeFileChangedListener();
+          window.__removeFileChangedListener = null;
+        }
+      };
+
+      // リスナーを設定し、window.__removeFileChangedListenerにクリーンアップ関数を保存
+      window.__removeFileChangedListener = window.api.onFileChanged(handleFileChange);
     }
 
     return () => {
       // コンポーネントのアンマウント時のクリーンアップ
+      if (fileChangeListenerCleanup) {
+        fileChangeListenerCleanup();
+      }
+
       // APIの特性上、完全な解除は難しいが、フラグをリセットしておく
       if (window.api && window.api.setPreventReload) {
         window.api.setPreventReload(false);
       }
     };
+    // isPreventingReload のみを依存配列に入れることで不要な再登録を防止
   }, [isPreventingReload]);
 
   // renderRenameDialogが既に存在する場合は修正し、存在しない場合は追加の修正を行う

@@ -115,15 +115,138 @@ contextBridge.exposeInMainWorld('api', {
 
   // ファイル変更を監視（HTML変更など）
   onFileChanged: (callback) => {
-    ipcRenderer.on('file-changed', (event, data) => {
+    // 既存のリスナーを削除するためのIDを保存
+    const listenerId = `fileChanged_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // グローバルなリスナー管理オブジェクトを初期化
+    if (!window.__electronAppListeners) {
+      window.__electronAppListeners = {};
+    }
+
+    // グローバルなデバウンスタイマーを初期化
+    if (!window.__electronAppGlobalProcessedEvents) {
+      window.__electronAppGlobalProcessedEvents = {};
+    }
+
+    // より強力なデバウンス - 同一ファイルのイベントは全リスナーで時間単位で共有
+    if (!window.__electronAppLastEventTimes) {
+      window.__electronAppLastEventTimes = {};
+    }
+
+    // グローバルなデバウンスチェック - これにより全てのリスナー間で情報を共有
+    const isEventProcessedGlobally = (key) => {
+      return !!window.__electronAppGlobalProcessedEvents[key];
+    };
+
+    const markEventProcessedGlobally = (key, duration = 1000) => {
+      window.__electronAppGlobalProcessedEvents[key] = true;
+
+      // 既存のタイマーをクリア
+      if (window.__electronAppGlobalProcessedEvents[`timer_${key}`]) {
+        clearTimeout(window.__electronAppGlobalProcessedEvents[`timer_${key}`]);
+      }
+
+      // 新しいタイマーを設定
+      window.__electronAppGlobalProcessedEvents[`timer_${key}`] = setTimeout(() => {
+        delete window.__electronAppGlobalProcessedEvents[key];
+        delete window.__electronAppGlobalProcessedEvents[`timer_${key}`];
+      }, duration);
+    };
+
+    // 処理済みイベント管理用オブジェクトの初期化
+    if (!window.__electronAppProcessedEvents) {
+      window.__electronAppProcessedEvents = {};
+    }
+
+    // 1秒ごとに処理済みイベントをクリア（リセット用タイマー）
+    if (!window.__electronAppEventCleanupTimer) {
+      window.__electronAppEventCleanupTimer = setInterval(() => {
+        window.__electronAppProcessedEvents = {};
+      }, 2000); // 2秒ごとにリセット
+    }
+
+    // 既存のリスナーをクリーンアップ
+    if (window.__electronAppListeners[listenerId]) {
+      ipcRenderer.removeListener('file-changed', window.__electronAppListeners[listenerId]);
+      delete window.__electronAppListeners[listenerId];
+    }
+
+    // 新しいリスナー関数を定義
+    const listener = (event, data) => {
+      // データが正常かチェック
+      if (!data || !data.filename || !data.type) {
+        console.log('Preload: 不完全なファイル変更データを無視:', data);
+        return;
+      }
+
       console.log('Preload: File changed:', data);
-      // リロードを防止する特殊なフラグをチェック
+
+      // リロード防止フラグをチェック
       if (window.__electronAppPreventingReload) {
         console.log('Preload: ファイル変更通知を抑制しました（リロード防止中）');
         return;
       }
-      callback(data);
-    });
+
+      // 同一イベントの重複処理を防止
+      const eventKey = `${data.filename}_${data.type}`;
+      const fileKey = data.filename;
+
+      // 最後のイベント時間をチェック（ファイル単位）
+      const now = Date.now();
+      const lastProcessTime = window.__electronAppLastEventTimes[fileKey] || 0;
+
+      // 5秒以内のファイル変更は頻度を制限（異なるタイプでも）
+      if (now - lastProcessTime < 5000) {
+        console.log(`Preload: ファイル変更を時間制限によりスキップ: ${data.filename} (前回処理から ${now - lastProcessTime}ms)`);
+
+        // グローバルな処理フラグを設定して他のリスナーもブロック
+        markEventProcessedGlobally(eventKey, 5000);
+        return;
+      }
+
+      // グローバルなデバウンスチェック（全てのリスナー間で共有）
+      if (isEventProcessedGlobally(eventKey)) {
+        console.log(`Preload: ファイル変更イベントをスキップ（グローバルデバウンス中）: ${data.filename}`);
+        return;
+      }
+
+      // ローカルな処理済みチェック（このリスナー内のみ）
+      if (window.__electronAppProcessedEvents[eventKey]) {
+        console.log(`Preload: ファイル変更イベントをスキップ（デバウンス中）: ${data.filename}`);
+        return;
+      }
+
+      // イベントを処理済みとしてマーク（グローバルとローカル両方）
+      markEventProcessedGlobally(eventKey, 5000); // 5秒間グローバルにブロック
+      window.__electronAppProcessedEvents[eventKey] = true;
+
+      // 最後のイベント時間を更新
+      window.__electronAppLastEventTimes[fileKey] = now;
+
+      // このイベントのみをコールバックに渡す
+      console.log(`Preload: ファイル変更イベントを処理: ${data.filename}`);
+
+      try {
+        callback(data);
+      } catch (error) {
+        console.error('Preload: コールバック実行中にエラー:', error);
+      }
+    };
+
+    // リスナーを保存
+    window.__electronAppListeners[listenerId] = listener;
+
+    // 新しいリスナーを登録
+    ipcRenderer.on('file-changed', listener);
+
+    // リスナーを削除する関数を返す
+    return () => {
+      if (window.__electronAppListeners && window.__electronAppListeners[listenerId]) {
+        ipcRenderer.removeListener('file-changed', window.__electronAppListeners[listenerId]);
+        delete window.__electronAppListeners[listenerId];
+        console.log(`Preload: Removed file-changed listener ${listenerId}`);
+      }
+    };
   },
 
   // リロード防止フラグをセット
