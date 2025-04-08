@@ -26,6 +26,7 @@ let splashWindow;
 
 // グローバル変数の宣言
 let isElectronAppReloadBlocked = true; // Electronアプリでのリロードをブロックするフラグ
+let isAICodeSaving = false; // AIコード保存中のフラグ
 
 // 監視するディレクトリ
 const htmlDirectory = path.join(__dirname, 'src');
@@ -66,15 +67,17 @@ function setupFileWatcher() {
 
     // HTMLファイルの変更のみを処理
     if (filename.endsWith('.html')) {
-      console.log(`ファイル変更を検出: ${filename} - イベント: ${eventType}`);
+      console.log(`ファイル変更を検出: ${filename} - イベント: ${eventType} - AIコード保存フラグ: ${isAICodeSaving}`);
 
-      // Electronの管理画面に変更を通知するが、ページ全体はリロードしない
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      // AIコード保存中でない場合のみ通知を送信（保存中のリロードを防止）
+      if (mainWindow && !mainWindow.isDestroyed() && !isAICodeSaving) {
         mainWindow.webContents.send('file-changed', {
           type: 'html',
           filename: filename,
           path: path.join(htmlDirectory, filename)
         });
+      } else if (isAICodeSaving) {
+        console.log(`AIコード保存中のため、ファイル変更通知をスキップしました: ${filename}`);
       }
     }
   });
@@ -315,9 +318,15 @@ function createMainWindow() {
       (details, callback) => {
         // リロードやナビゲーションをハンドリング
         if (details.url.includes('index.html') && details.method === 'GET' && details.resourceType === 'mainFrame') {
-          console.log('メインフレームがリロードされました:', details.url);
+          console.log('メインフレームのリロードリクエストを検出:', details.url);
+
+          // AIコード保存中またはリロードブロックフラグがオンの場合はリロードをブロック
+          if (isElectronAppReloadBlocked || isAICodeSaving) {
+            console.log('メインフレームのリロードをブロックしました:', details.url);
+            return callback({ cancel: true });
+          }
         }
-        // リクエストをブロックせずに続行する
+        // 条件に合致しない通常のリクエストは続行する
         callback({ cancel: false });
       }
     );
@@ -325,9 +334,23 @@ function createMainWindow() {
     // 自動リロードを防止するためのイベントハンドラー
     mainWindow.webContents.on('will-navigate', (event, url) => {
       const currentUrl = mainWindow.webContents.getURL();
-      // アプリ内ナビゲーション以外のリロードをブロック
-      if (url !== currentUrl && url.includes('localhost:3000')) {
-        console.log('外部からのリロードをブロックしました:', url);
+      console.log('ナビゲーションを検出:', url);
+
+      // アプリ内の任意のリロード（同一URLを含む）をブロック
+      if (url.includes('localhost:3000')) {
+        console.log('リロードをブロックしました:', url);
+        event.preventDefault();
+      }
+    });
+
+    // will-redirectイベントも同様に処理
+    mainWindow.webContents.on('will-redirect', (event, url) => {
+      const currentUrl = mainWindow.webContents.getURL();
+      console.log('リダイレクトを検出:', url);
+
+      // アプリ内の任意のリダイレクトをブロック
+      if (url.includes('localhost:3000')) {
+        console.log('リダイレクトをブロックしました:', url);
         event.preventDefault();
       }
     });
@@ -1055,8 +1078,46 @@ $mediaquerys: (
 
   // AI生成コードの保存機能
   ipcMain.handle('save-ai-generated-code', async (event, params) => {
-    console.log('save-ai-generated-code ハンドラーが呼び出されました');
-    return await saveAIGeneratedCode(params);
+    console.log('save-ai-generated-code ハンドラーが呼び出されました', {
+      blockName: params.blockName,
+      hasHtmlCode: !!params.htmlCode,
+      hasScssCode: !!params.scssCode,
+      targetHtmlFile: params.targetHtmlFile
+    });
+
+    // AIコード保存フラグをオン
+    isAICodeSaving = true;
+
+    // 処理開始のタイムスタンプを記録
+    const startTime = Date.now();
+
+    try {
+      // 保存処理を実行
+      const result = await saveAIGeneratedCode(params);
+
+      // 処理完了のタイムスタンプと処理時間を計算
+      const endTime = Date.now();
+      const processingTime = endTime - startTime;
+
+      console.log(`save-ai-generated-code 処理完了: ${processingTime}ms`, {
+        success: result.success,
+        partialSuccess: result.partialSuccess,
+        savedFiles: result.savedFiles,
+        needsRename: result.needsRename
+      });
+
+      // 少し遅延してフラグをオフにする（ファイル変更検出の後にフラグをリセットするため）
+      setTimeout(() => {
+        isAICodeSaving = false;
+        console.log('AIコード保存フラグをリセットしました');
+      }, 1000);
+
+      return result;
+    } catch (error) {
+      console.error('AI生成コード保存中にエラーが発生:', error);
+      isAICodeSaving = false;
+      throw error;
+    }
   });
 
   // 既に存在するブロック名のリネーム処理

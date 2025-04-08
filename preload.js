@@ -101,11 +101,69 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('file-updated', (event, data) => {
       console.log('Preload: File updated:', data);
       if (data && data.file && data.content) {
+        // リロードを防止する特殊なフラグをチェック
+        if (window.__electronAppPreventingReload) {
+          console.log('Preload: ファイル更新通知を抑制しました（リロード防止中）');
+          return;
+        }
         callback(data); // ファイルデータをコールバックで返す
       } else {
         console.warn('Preload: Ignored incomplete file update data', data);
       }
     });
+  },
+
+  // ファイル変更を監視（HTML変更など）
+  onFileChanged: (callback) => {
+    ipcRenderer.on('file-changed', (event, data) => {
+      console.log('Preload: File changed:', data);
+      // リロードを防止する特殊なフラグをチェック
+      if (window.__electronAppPreventingReload) {
+        console.log('Preload: ファイル変更通知を抑制しました（リロード防止中）');
+        return;
+      }
+      callback(data);
+    });
+  },
+
+  // リロード防止フラグをセット
+  setPreventReload: (value) => {
+    console.log(`Preload: リロード防止フラグを${value ? 'オン' : 'オフ'}にしました`);
+    if (typeof window !== 'undefined') {
+      window.__electronAppPreventingReload = value;
+
+      // リロード防止フラグがオンの場合、追加の対策を適用
+      if (value) {
+        // 現在のURLを保存
+        window.__originalLocation = window.location.href;
+
+        // history APIのpushStateとreplaceStateをオーバーライド
+        if (!window.__originalPushState) {
+          window.__originalPushState = window.history.pushState;
+          window.history.pushState = function () {
+            console.log('Preload: pushStateをブロックしました');
+            return null;
+          };
+        }
+
+        if (!window.__originalReplaceState) {
+          window.__originalReplaceState = window.history.replaceState;
+          window.history.replaceState = function () {
+            console.log('Preload: replaceStateをブロックしました');
+            return null;
+          };
+        }
+      } else {
+        // リロード防止フラグがオフの場合、元の関数を復元
+        if (window.__originalPushState) {
+          window.history.pushState = window.__originalPushState;
+        }
+
+        if (window.__originalReplaceState) {
+          window.history.replaceState = window.__originalReplaceState;
+        }
+      }
+    }
   },
 
   // ファイル保存処理
@@ -182,14 +240,31 @@ contextBridge.exposeInMainWorld('api', {
   // AI生成コードを保存する関数
   saveAIGeneratedCode: async (scssCode, htmlCode, blockName, targetHtmlFile) => {
     try {
-      return await ipcRenderer.invoke('save-ai-generated-code', {
-        scssCode,
-        htmlCode,
-        blockName,
-        targetHtmlFile
+      // リロード防止フラグをオン
+      if (typeof window !== 'undefined') {
+        window.__electronAppPreventingReload = true;
+        console.log('Preload: AI生成コード保存のためリロード防止フラグをオンにしました');
+      }
+
+      const result = await ipcRenderer.invoke('save-ai-generated-code', {
+        scssCode, htmlCode, blockName, targetHtmlFile
       });
+
+      // 保存完了後もしばらくリロード防止を維持（ipcの完了後もファイル監視イベントが発生する可能性がある）
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.__electronAppPreventingReload = false;
+          console.log('Preload: リロード防止フラグをオフにしました');
+        }
+      }, 2000);
+
+      return result;
     } catch (error) {
       console.error('AI生成コードの保存中にエラーが発生しました:', error);
+      // エラー時はリロード防止フラグをオフ
+      if (typeof window !== 'undefined') {
+        window.__electronAppPreventingReload = false;
+      }
       throw error;
     }
   },

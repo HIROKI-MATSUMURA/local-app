@@ -179,6 +179,8 @@ const AICodeGenerator = () => {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStage, setLoadingStage] = useState("");
   const [showGeneratedCode, setShowGeneratedCode] = useState(false);
+  // リロード防止用のフラグを追加
+  const [isPreventingReload, setIsPreventingReload] = useState(false);
   const generatedCodeRef = useRef(null);
 
   // レスポンシブ設定
@@ -2114,7 +2116,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // コード生成完了時にブロック検出を実行
   useEffect(() => {
-    if (generatedCSS && generatedHTML) {
+    if (generatedCSS && generatedHTML && !isPreventingReload) {
       // SCSSブロックの検出
       const scssBlocks = detectScssBlocks(generatedCSS);
       setDetectedScssBlocks(scssBlocks);
@@ -2124,14 +2126,14 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       setDetectedHtmlBlocks(htmlBlocks);
 
       // 最初に検出されたHTMLブロックをデフォルトのブロック名に設定
-      if (htmlBlocks.length > 0) {
+      if (htmlBlocks.length > 0 && !blockName) {
         setBlockName(htmlBlocks[0].name);
       }
 
       console.log("検出されたSCSSブロック:", scssBlocks);
       console.log("検出されたHTMLブロック:", htmlBlocks);
     }
-  }, [generatedCSS, generatedHTML]);
+  }, [generatedCSS, generatedHTML, isPreventingReload, blockName]);
 
   // ブロック名が入力されたときの処理
   const handleBlockNameChange = (e) => {
@@ -2236,10 +2238,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // AI生成コードの保存処理
   const handleSaveCode = async () => {
-    // validateBlockName関数を使ってバリデーション
-    if (!validateBlockName(blockName)) {
-      // バリデーションエラーはvalidateBlockName内部で設定されるため、
-      // ここではSaveSuccessとSaveErrorのみ設定
+    if (!blockName.trim()) {
+      setSaveError("ブロック名を入力してください");
       setSaveSuccess(false);
       return;
     }
@@ -2253,6 +2253,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setIsSaving(true);
     setSaveError("");
     setSaveSuccess(null);
+    // リロード防止フラグを設定
+    setIsPreventingReload(true);
+    // preload.jsにも通知して全体的なリロード防止を有効にする
+    if (window.api && window.api.setPreventReload) {
+      window.api.setPreventReload(true);
+    }
 
     try {
       // 除外されていないメインブロックを特定
@@ -2267,6 +2273,15 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         setSaveSuccess(false);
         setSaveError("保存するメインブロックがありません。すべてのブロックが除外されているか、メインブロックが検出されていません。");
         setIsSaving(false);
+
+        // リロード防止フラグを解除（遅延して解除）
+        setTimeout(() => {
+          setIsPreventingReload(false);
+          if (window.api && window.api.setPreventReload) {
+            window.api.setPreventReload(false);
+          }
+        }, 500);
+
         return;
       }
 
@@ -2338,6 +2353,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         setProcessingStep("initial");
         document.body.style.overflow = 'hidden';
         setIsSaving(false);
+
+        // ダイアログを表示する場合は、リロード防止は継続
         return;
       }
 
@@ -2347,6 +2364,14 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       console.error("AI生成コードの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "保存中にエラーが発生しました");
+
+      // エラー時はリロード防止フラグを解除
+      setTimeout(() => {
+        setIsPreventingReload(false);
+        if (window.api && window.api.setPreventReload) {
+          window.api.setPreventReload(false);
+        }
+      }, 500);
     } finally {
       setIsSaving(false);
     }
@@ -2355,6 +2380,13 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // 衝突していないブロックを保存する関数
   const saveNonConflictingBlocks = async (blocks, mainHtmlBlockName, htmlCode, targetHtmlFile) => {
     try {
+      // リロード防止フラグを設定
+      setIsPreventingReload(true);
+      // preload.jsにも通知して全体的なリロード防止を有効にする
+      if (window.api && window.api.setPreventReload) {
+        window.api.setPreventReload(true);
+      }
+
       // 保存対象のブロックを絞り込み（非衝突ブロックの場合、衝突時用のUIで選択されていない場合はスキップ）
       // 通常モードで呼ばれた場合は、blockSaveMapが空なので全てのブロックが対象となる
       const blocksToSave = blocks.filter(mainBlock => {
@@ -2374,7 +2406,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       // 各メインブロックごとに処理
       const savePromises = blocksToSave.map(async (mainBlock) => {
-        // メインブロックに関連するすべてのエレメントと擬似クラスを取得
+        // メインブロックに関連するすべてのエレメントと擬似クラスを取得（ただし現在の検出結果を使用し、再検出はしない）
         const relatedBlocks = detectedScssBlocks.filter(block => {
           // 除外されたブロックはスキップ
           if (excludedBlocks.includes(block.name)) return false;
@@ -2459,19 +2491,203 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       }));
 
       throw error;
+    } finally {
+      // 保存処理完了後にフラグを解除（少し遅延させる）
+      setTimeout(() => {
+        setIsPreventingReload(false);
+        // preload.jsにも通知
+        if (window.api && window.api.setPreventReload) {
+          window.api.setPreventReload(false);
+        }
+      }, 1500);
     }
   };
 
   // リネームダイアログの処理
   const handleCloseRenameDialog = () => {
     setShowRenameDialog(false);
-    setNewBlockName("");
-    setNewHtmlBlockName("");
+    document.body.style.overflow = '';
+
+    // リロード防止フラグの解除（遅延して解除）
+    setTimeout(() => {
+      setIsPreventingReload(false);
+      if (window.api && window.api.setPreventReload) {
+        window.api.setPreventReload(false);
+      }
+    }, 500);
+
+    // 衝突情報をリセット
     setConflictInfo(null);
-    setIsRenaming(false);
-    setSaveHtmlFile(true); // HTMLファイル保存のチェックをリセット
-    // スクロールロック解除
-    document.body.style.overflow = 'auto';
+    setConflictingScssBlocks([]);
+    setNonConflictingScssBlocks([]);
+
+    resetFileConflictState();
+    setNewBlockName('');
+    setNewHtmlBlockName('');
+    setBlockValidationErrors({});
+  };
+
+  // リネームダイアログのレンダリング
+  const renderRenameDialog = () => {
+    if (!showRenameDialog) return null;
+
+    return (
+      <div className="rename-dialog-overlay" onClick={handleRenameDialogBackdropClick}>
+        <div className="rename-dialog">
+          <div className="rename-dialog-header">
+            <h3>ファイル競合の解決</h3>
+            <button
+              className="close-button"
+              onClick={() => {
+                handleCloseRenameDialog();
+                // ダイアログを閉じる際にリロード防止フラグを解除
+                setTimeout(() => {
+                  setIsPreventingReload(false);
+                  if (window.api && window.api.setPreventReload) {
+                    window.api.setPreventReload(false);
+                  }
+                }, 500);
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <div className="rename-dialog-content">
+            <div className="conflict-description">
+              <p>保存しようとしているファイル名が既に存在しています。以下の選択肢から選んでください：</p>
+              <ul>
+                <li>新しいファイル名を入力する</li>
+                <li>保存しないブロックのチェックを外す</li>
+              </ul>
+            </div>
+
+            {/* バリデーションエラーメッセージ */}
+            {Object.keys(blockValidationErrors).length > 0 && (
+              <div className="validation-errors">
+                {Object.entries(blockValidationErrors).map(([key, error]) => (
+                  <div key={key} className="validation-error">{error}</div>
+                ))}
+              </div>
+            )}
+
+            {/* SCSSファイルの衝突リスト */}
+            {conflictingScssBlocks.length > 0 && (
+              <div className="conflict-files-list">
+                <h4>SCSSファイルの競合</h4>
+                {conflictingScssBlocks.map((block) => (
+                  <div key={block.name} className="conflict-file-item">
+                    <div className="conflict-file-info">
+                      <div className="conflict-checkbox">
+                        <input
+                          type="checkbox"
+                          id={`save-${block.name}`}
+                          checked={blockSaveMap[block.name] || false}
+                          onChange={() => toggleBlockSave(block.name)}
+                        />
+                        <label htmlFor={`save-${block.name}`}>保存する</label>
+                      </div>
+
+                      <div className="conflict-details">
+                        <div className="conflict-file-name">
+                          <span className="label">現在のファイル名:</span>
+                          <code>{block.name}.scss</code>
+                        </div>
+
+                        {blockSaveMap[block.name] && (
+                          <div className="conflict-new-name">
+                            <span className="label">新しいファイル名:</span>
+                            <input
+                              type="text"
+                              value={blockRenameMap[block.name] || ''}
+                              onChange={(e) => updateBlockNewName(block.name, e.target.value)}
+                              placeholder="新しいブロック名"
+                              className={blockValidationErrors[block.name] ? 'has-error' : ''}
+                            />
+                            <span className="ext">.scss</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {blockValidationErrors[block.name] && (
+                      <div className="conflict-error">{blockValidationErrors[block.name]}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* HTMLファイルの衝突情報 */}
+            {conflictInfo && conflictInfo.fileExists && conflictInfo.fileExists.html && (
+              <div className="conflict-files-list">
+                <h4>HTMLファイルの競合</h4>
+                <div className="conflict-file-item">
+                  <div className="conflict-file-info">
+                    <div className="conflict-checkbox">
+                      <input
+                        type="checkbox"
+                        id="save-html-file"
+                        checked={saveHtmlFile}
+                        onChange={(e) => setSaveHtmlFile(e.target.checked)}
+                      />
+                      <label htmlFor="save-html-file">HTMLファイルを保存する</label>
+                    </div>
+
+                    <div className="conflict-details">
+                      <div className="conflict-file-name">
+                        <span className="label">現在のファイル名:</span>
+                        <code>{conflictInfo.originalBlockName}.html</code>
+                      </div>
+
+                      {saveHtmlFile && (
+                        <div className="conflict-new-name">
+                          <span className="label">新しいファイル名:</span>
+                          <input
+                            type="text"
+                            value={newHtmlBlockName}
+                            onChange={(e) => {
+                              setNewHtmlBlockName(e.target.value);
+                              // HTML入力時にエラーをクリア
+                              setBlockValidationErrors(prev => {
+                                const updated = { ...prev };
+                                delete updated['html'];
+                                return updated;
+                              });
+                            }}
+                            placeholder="新しいHTMLブロック名"
+                            className={blockValidationErrors['html'] ? 'has-error' : ''}
+                          />
+                          <span className="ext">.html</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {blockValidationErrors['html'] && (
+                    <div className="conflict-error">{blockValidationErrors['html']}</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rename-dialog-footer">
+            <button
+              className="cancel-button"
+              onClick={handleCloseRenameDialog}
+              disabled={isRenaming}
+            >
+              キャンセル
+            </button>
+            <button
+              className={`save-button ${isRenaming ? 'loading' : ''}`}
+              onClick={handleRenameAndSave}
+              disabled={isRenaming}
+            >
+              {isRenaming ? '保存中...' : '保存する'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // リネームダイアログ外クリック時の処理
@@ -2495,6 +2711,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
     setIsRenaming(true);
     setSaveError("");
+    // リロード防止フラグを設定
+    setIsPreventingReload(true);
+    // preload.jsにも通知
+    if (window.api && window.api.setPreventReload) {
+      window.api.setPreventReload(true);
+    }
 
     try {
       // 複数SCSSファイルの処理
@@ -2539,6 +2761,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         if (hasError) {
           setBlockValidationErrors(errors);
           setIsRenaming(false);
+
+          // バリデーションエラー時もリロード防止フラグを維持（ダイアログは表示したまま）
           return;
         }
 
@@ -2574,12 +2798,21 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       }));
     } finally {
       setIsRenaming(false);
+      // リロード防止フラグを解除
+      setIsPreventingReload(false);
     }
   };
 
   // 衝突しているブロックを保存する関数
   const saveConflictingBlocks = async (blocks, originalBlockName, scssCode, htmlCode, targetHtmlFile) => {
     try {
+      // リロード防止フラグを設定
+      setIsPreventingReload(true);
+      // preload.jsにも通知して全体的なリロード防止を有効にする
+      if (window.api && window.api.setPreventReload) {
+        window.api.setPreventReload(true);
+      }
+
       // 保存対象のブロックを絞り込み（チェックボックスがオンのもののみ）
       const blocksToSave = blocks.filter(block => blockSaveMap[block.name]);
 
@@ -2609,13 +2842,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       // 少なくとも1つの保存が成功した場合
       if (hasAnySuccess) {
-        // 保存されたブロック数をカウント
-        const savedBlocksCount = results.filter(result =>
-          result.success ||
-          (result.partialSuccess && (result.savedFiles?.scss || result.savedFiles?.html))
-        ).length;
-
-        // 保存されたSCSSファイル数とHTMLファイル数を個別にカウント
+        // 保存されたSCSSファイル数とHTMLファイル数をカウント
         const savedScssFilesCount = results.filter(result =>
           (result.success || result.partialSuccess) && result.savedFiles?.scss
         ).length;
@@ -2630,6 +2857,9 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         setSaveSuccess(true);
         setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+
+        // 全ての保存処理が終了したら、モーダルを閉じる
+        handleCloseRenameDialog();
       } else if (hasAllFailed) {
         // すべての保存が失敗した場合
         const errorMessages = results
@@ -2639,30 +2869,30 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         setSaveSuccess(false);
         setSaveError(`保存中にエラーが発生しました: ${errorMessages}`);
-
-        // モーダル内にエラーを表示
-        setBlockValidationErrors(prev => ({
-          ...prev,
-          '_general': `保存中にエラーが発生しました: ${errorMessages}`
-        }));
       }
     } catch (error) {
       console.error("衝突ブロックの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
       setSaveError(error.message || "保存中にエラーが発生しました");
-
-      // モーダル内にエラーを表示
-      setBlockValidationErrors(prev => ({
-        ...prev,
-        '_general': error.message || "保存中にエラーが発生しました"
-      }));
-
-      throw error;
+    } finally {
+      // 保存処理完了後にフラグを解除（少し遅延させる）
+      setTimeout(() => {
+        setIsPreventingReload(false);
+        // preload.jsにも通知
+        if (window.api && window.api.setPreventReload) {
+          window.api.setPreventReload(false);
+        }
+      }, 1500);
     }
   };
 
-  // 保存しない場合の処理
+  // HTMLファイルを保存せずにSCSSのみ保存する処理
   const handleSaveWithoutHtml = async () => {
+    setIsRenaming(true);
+    setSaveError("");
+    // リロード防止フラグを設定
+    setIsPreventingReload(true);
+
     try {
       // 除外されていないメインブロックを特定
       const mainBlocks = detectedScssBlocks.filter(block => {
@@ -2740,6 +2970,9 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       setSaveError(error.message || "保存中にエラーが発生しました");
     } finally {
       setIsSaving(false);
+      setIsRenaming(false);
+      // リロード防止フラグを解除
+      setIsPreventingReload(false);
     }
   };
 
@@ -2767,12 +3000,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // ファイル衝突状態をリセットする関数
   const resetFileConflictState = () => {
-    setConflictingScssBlocks([]);
-    setNonConflictingScssBlocks([]);
-    setBlockRenameMap({});
-    setBlockSaveMap({});
-    setBlockValidationErrors({});
-    setProcessingStep("initial");
+    setShowRenameDialog(false);
+    setNewBlockName("");
+    setNewHtmlBlockName("");
+    setConflictInfo(null);
+    setSaveHtmlFile(true);
   };
 
   // 保存処理が完了したら、savedCountを表示用のstate変数にも反映
@@ -2789,6 +3021,59 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // HTMLファイルを保存せずにSCSSのみ保存する処理
   // ...
+
+  // コンポーネントの初期化時にファイル変更検出のリスナーを設定
+  useEffect(() => {
+    // ファイル変更リスナーの設定
+    if (window.api && window.api.onFileChanged) {
+      window.api.onFileChanged((data) => {
+        console.log('ファイル変更を検出:', data);
+
+        // 保存処理中はファイル変更イベントを無視
+        if (isPreventingReload) {
+          console.log('保存処理中のため、ファイル変更イベントをスキップします');
+          return;
+        }
+
+        // 必要に応じてコンポーネントを更新する処理
+        // ...
+      });
+    }
+
+    return () => {
+      // コンポーネントのアンマウント時のクリーンアップ
+      // APIの特性上、完全な解除は難しいが、フラグをリセットしておく
+      if (window.api && window.api.setPreventReload) {
+        window.api.setPreventReload(false);
+      }
+    };
+  }, [isPreventingReload]);
+
+  // renderRenameDialogが既に存在する場合は修正し、存在しない場合は追加の修正を行う
+  // コードの他の部分で実際にこのダイアログを表示している箇所を確認
+  useEffect(() => {
+    // 画面が閉じられる前にリロード防止フラグをチェック
+    const handleBeforeUnload = (e) => {
+      if (isPreventingReload) {
+        e.preventDefault();
+        e.returnValue = '変更が保存されていません。このページを離れてもよろしいですか？';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isPreventingReload]);
+
+  // リロード防止状態を解除する関数
+  const resetPreventReload = () => {
+    setIsPreventingReload(false);
+    if (window.api && window.api.setPreventReload) {
+      window.api.setPreventReload(false);
+    }
+  };
 
   return (
     <div className="ai-code-generator">
