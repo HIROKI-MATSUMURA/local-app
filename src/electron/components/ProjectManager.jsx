@@ -221,6 +221,29 @@ const ProjectManager = ({ onProjectChange }) => {
             }
           }
 
+          // プロジェクトから使用中のすべてのタグを収集し、タグリストを更新
+          const projectTags = new Set();
+          updatedProjects.forEach(project => {
+            if (project.tags && Array.isArray(project.tags)) {
+              project.tags.forEach(tag => projectTags.add(tag));
+            }
+          });
+
+          // タグリストの更新が必要な場合
+          if (projectTags.size > 0) {
+            const allTags = [...new Set([...tags, ...projectTags])];
+            if (allTags.length > tags.length) {
+              console.log('プロジェクトから追加のタグを検出しました:', [...projectTags]);
+              setTags(allTags);
+              try {
+                await window.api.saveTags(allTags);
+                console.log('更新されたタグリストを保存しました:', allTags);
+              } catch (error) {
+                console.error('タグリストの保存に失敗:', error);
+              }
+            }
+          }
+
           setProjects(updatedProjects);
         } else {
           setProjects([]);
@@ -617,6 +640,7 @@ const ProjectManager = ({ onProjectChange }) => {
         lastModified: now
       };
 
+      // プロジェクトリストを更新
       const updatedProjects = projects.map(p =>
         p.id === projectToArchive.id ? archivedProject : p
       );
@@ -639,11 +663,11 @@ const ProjectManager = ({ onProjectChange }) => {
       // プロジェクト設定を保存
       await window.api.saveProjectSettings(archivedProject);
 
-      // 注意: window.api.saveProjectsConfigはAPIに存在しないため削除しました
-      // 各プロジェクトの設定はindividualに保存されています
-
       setShowArchiveDialog(false);
       setProjectToArchive(null);
+
+      // タブを自動的にアーカイブに切り替え
+      setShowArchived(true);
     } catch (error) {
       console.error('プロジェクトのアーカイブに失敗:', error);
       setError('プロジェクトのアーカイブに失敗しました');
@@ -667,6 +691,7 @@ const ProjectManager = ({ onProjectChange }) => {
         lastModified: new Date().toISOString()
       };
 
+      // プロジェクトリストを更新
       const updatedProjects = projects.map(p =>
         p.id === projectId ? restoredProject : p
       );
@@ -675,8 +700,8 @@ const ProjectManager = ({ onProjectChange }) => {
       // プロジェクト設定を保存
       await window.api.saveProjectSettings(restoredProject);
 
-      // 注意: window.api.saveProjectsConfigはAPIに存在しないため削除しました
-      // 各プロジェクトの設定はindividualに保存されています
+      // タブを自動的にアクティブに切り替え
+      setShowArchived(false);
     } catch (error) {
       console.error('プロジェクトの復元に失敗:', error);
       setError('プロジェクトの復元に失敗しました');
@@ -723,7 +748,7 @@ const ProjectManager = ({ onProjectChange }) => {
   };
 
   // プロジェクトの検索とソート
-  const filteredAndSortedProjects = projects
+  const filteredAndSortedProjects = filteredProjects
     .filter(project => {
       const searchLower = searchQuery.toLowerCase();
       return (
@@ -732,8 +757,16 @@ const ProjectManager = ({ onProjectChange }) => {
       );
     })
     .sort((a, b) => {
-      const aValue = a[sortBy]?.toLowerCase() || '';
-      const bValue = b[sortBy]?.toLowerCase() || '';
+      // 作成日やアクセス日などのソート
+      if (sortBy === 'created' || sortBy === 'lastModified' || sortBy === 'lastAccessed') {
+        const aDate = new Date(a[sortBy] || 0).getTime();
+        const bDate = new Date(b[sortBy] || 0).getTime();
+        return sortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+      }
+
+      // 文字列ベースのソート
+      const aValue = (a[sortBy] || '').toLowerCase();
+      const bValue = (b[sortBy] || '').toLowerCase();
       return sortOrder === 'asc'
         ? aValue.localeCompare(bValue)
         : bValue.localeCompare(aValue);
@@ -961,12 +994,12 @@ const ProjectManager = ({ onProjectChange }) => {
       await window.api.saveProjectSettings(updatedProject);
 
       // 新しいタグをグローバルタグリストに追加
-      const updatedTags = [...new Set([...tags, ...newTags])];
-      if (updatedTags.length !== tags.length) {
-        setTags(updatedTags);
-        await window.api.saveTags(updatedTags);
-        console.log('タグリストを保存しました:', updatedTags);
-      }
+      const allTags = [...new Set([...tags, ...newTags])];
+
+      // グローバルタグリストを更新
+      setTags(allTags);
+      await window.api.saveTags(allTags);
+      console.log('タグリストを保存しました:', allTags);
 
       setShowTagsDialog(false);
       setProjectForTags(null);
@@ -1113,13 +1146,19 @@ const ProjectManager = ({ onProjectChange }) => {
         <div className={styles['view-controls']}>
           <button
             className={`${styles['view-toggle']} ${!showArchived ? styles.active : ''}`}
-            onClick={() => setShowArchived(false)}
+            onClick={() => {
+              console.log('アクティブタブへの切り替え');
+              setShowArchived(false);
+            }}
           >
             アクティブ
           </button>
           <button
             className={`${styles['view-toggle']} ${showArchived ? styles.active : ''}`}
-            onClick={() => setShowArchived(true)}
+            onClick={() => {
+              console.log('アーカイブタブへの切り替え');
+              setShowArchived(true);
+            }}
           >
             アーカイブ済み
           </button>
@@ -1152,15 +1191,24 @@ const ProjectManager = ({ onProjectChange }) => {
             >
               すべて
             </button>
-            {categories.map(category => (
-              <button
-                key={category}
-                className={`${styles.category} ${selectedCategory === category ? styles.active : ''} ${styles[`category-${category}`] || ''}`}
-                onClick={() => setSelectedCategory(category)}
-              >
-                {category}
-              </button>
-            ))}
+            <button
+              className={`${styles.category} ${selectedCategory === 'uncategorized' ? styles.active : ''}`}
+              onClick={() => setSelectedCategory('uncategorized')}
+            >
+              未分類
+            </button>
+            {categories
+              .filter(category => category !== 'uncategorized')
+              .map(category => (
+                <button
+                  key={category}
+                  className={`${styles.category} ${selectedCategory === category ? styles.active : ''} ${styles[`category-${category}`] || ''}`}
+                  onClick={() => setSelectedCategory(category)}
+                >
+                  {category}
+                </button>
+              ))
+            }
           </div>
         </div>
 
