@@ -1,246 +1,218 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# coding: utf-8
 
 import os
 import sys
-import platform
 import subprocess
+import platform
 import json
-import tempfile
-import urllib.request
-import time
+import logging
+from pathlib import Path
+import datetime
 
-# インストールが必要なライブラリ
-REQUIRED_LIBRARIES = [
-    "numpy",
-    "opencv-python",
-    "scikit-image",
-    "pillow",
-    "tensorflow",
-    "matplotlib"
+# ロギング設定
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger('PythonInstaller')
+
+# 必要なパッケージのリスト
+REQUIRED_PACKAGES = [
+    'numpy',
+    'opencv-python',
+    'pillow',
+    'pytesseract',
+    'scikit-learn',
+    'scikit-image',
+    'scipy'
 ]
 
-# Pythonインストーラーの情報
-PYTHON_INSTALLERS = {
-    "Windows": {
-        "url": "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe",
-        "filename": "python-3.10.11-amd64.exe",
-        "command": "{} /quiet InstallAllUsers=1 PrependPath=1 Include_test=0"
-    },
-    "Darwin": {  # macOS
-        "url": "https://www.python.org/ftp/python/3.10.11/python-3.10.11-macos11.pkg",
-        "filename": "python-3.10.11-macos11.pkg",
-        "command": "installer -pkg {} -target /"
-    }
-}
+# TensorFlowとYOLOは必須ではないが、利用可能な場合は機能強化される
+OPTIONAL_PACKAGES = [
+    'tensorflow',
+    'keras'
+]
 
-def log(message):
-    """ログメッセージを出力"""
-    print(f"[Python Installer] {message}")
-    sys.stdout.flush()  # 確実に出力を表示
-
-def run_command(command, shell=True, check=True):
-    """コマンドを実行して結果を返す"""
+def check_python_version():
+    """Pythonのバージョンをチェックする"""
+    logger.info("Pythonバージョンを確認中...")
     try:
-        result = subprocess.run(
-            command,
-            shell=shell,
-            text=True,
-            capture_output=True,
-            check=check
-        )
-        return {
-            "success": True,
-            "output": result.stdout,
-            "error": result.stderr
-        }
+        python_version = sys.version_info
+        logger.info(f"Python {python_version.major}.{python_version.minor}.{python_version.micro} が検出されました")
+        return python_version.major >= 3 and python_version.minor >= 6
+    except Exception as e:
+        logger.error(f"Pythonバージョンの確認中にエラーが発生しました: {e}")
+        return False
+
+def check_pip():
+    """pipが利用可能かチェックする"""
+    try:
+        subprocess.check_call([sys.executable, '-m', 'pip', '--version'],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError:
+        logger.error("pipが見つかりません。")
+        return False
+
+def install_package(package_name):
+    """指定されたパッケージをインストールする"""
+    try:
+        logger.info(f"{package_name} のインストールを試みています...")
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', package_name],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info(f"{package_name} のインストールに成功しました。")
+        return True
     except subprocess.CalledProcessError as e:
-        return {
-            "success": False,
-            "output": e.stdout,
-            "error": e.stderr,
-            "code": e.returncode
-        }
-
-def check_python_installed():
-    """Pythonがインストールされているかチェック"""
-    try:
-        # 現在のPythonではなく、システムにインストールされているPythonを確認
-        if platform.system() == "Windows":
-            command = ["where", "python"]
-        else:  # macOS, Linux
-            command = ["which", "python3"]
-
-        result = subprocess.run(command, capture_output=True, text=True)
-        return result.returncode == 0
-    except Exception:
+        logger.error(f"{package_name} のインストールに失敗しました: {str(e)}")
         return False
 
-def install_python():
-    """システムに適したPythonをインストール"""
-    system = platform.system()
-    if system not in PYTHON_INSTALLERS:
-        log(f"サポートされていないシステムです: {system}")
-        return False
-
-    installer_info = PYTHON_INSTALLERS[system]
-    log(f"Pythonインストーラーをダウンロードしています...")
-
-    # インストーラーをダウンロード
+def check_and_install_package(package_name, optional=False):
+    """パッケージの存在をチェックし、なければインストールする"""
     try:
-        temp_dir = tempfile.gettempdir()
-        installer_path = os.path.join(temp_dir, installer_info["filename"])
+        __import__(package_name.split('==')[0].replace('-', '_'))
+        logger.info(f"{package_name} は既にインストールされています。")
+        return True
+    except ImportError:
+        if optional:
+            logger.warning(f"オプショナルパッケージ {package_name} が見つかりません。")
+            response = input(f"{package_name} をインストールしますか？(y/n): ")
+            if response.lower() != 'y':
+                logger.info(f"{package_name} のインストールをスキップします。")
+                return False
+        return install_package(package_name)
 
-        urllib.request.urlretrieve(installer_info["url"], installer_path)
-        log(f"インストーラーをダウンロードしました: {installer_path}")
-
-        # インストールコマンドを実行
-        install_command = installer_info["command"].format(installer_path)
-        log(f"Pythonをインストールしています...")
-
-        if system == "Windows":
-            result = run_command(install_command)
-        else:  # macOS
-            result = run_command(install_command, check=False)
-
-        if result["success"]:
-            log("Pythonのインストールが完了しました")
-            return True
-        else:
-            log(f"インストール中にエラーが発生しました: {result['error']}")
-            return False
-    except Exception as e:
-        log(f"インストール中に例外が発生しました: {str(e)}")
-        return False
-
-def install_pip():
-    """pipをインストールする"""
-    log("pipをインストールしています...")
-    # get-pip.pyをダウンロード
+def check_tesseract():
+    """Tesseractが利用可能かチェックする"""
+    logger.info("Tesseractのインストール状況を確認中...")
     try:
-        temp_dir = tempfile.gettempdir()
-        get_pip_path = os.path.join(temp_dir, "get-pip.py")
-
-        urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", get_pip_path)
-        log("get-pip.pyをダウンロードしました")
-
-        # get-pip.pyを実行
-        python_cmd = "python" if platform.system() == "Windows" else "python3"
-        result = run_command(f"{python_cmd} {get_pip_path}")
-
-        if result["success"]:
-            log("pipのインストールが完了しました")
-            return True
-        else:
-            log(f"pipのインストール中にエラーが発生しました: {result['error']}")
-            return False
-    except Exception as e:
-        log(f"pipのインストール中に例外が発生しました: {str(e)}")
-        return False
-
-def install_libraries():
-    """必要なライブラリをインストール"""
-    log("必要なライブラリをインストールしています...")
-    python_cmd = "python" if platform.system() == "Windows" else "python3"
-
-    for library in REQUIRED_LIBRARIES:
-        log(f"{library}をインストールしています...")
-        result = run_command(f"{python_cmd} -m pip install {library}")
-
-        if result["success"]:
-            log(f"{library}のインストールが完了しました")
-        else:
-            log(f"{library}のインストール中にエラーが発生しました: {result['error']}")
-            return False
-
-    return True
-
-def get_environment_status():
-    """環境ステータスをJSON形式で返す"""
-    # python_check.pyを実行して結果を取得
-    python_cmd = "python" if platform.system() == "Windows" else "python3"
-    try:
-        # python_check.pyが同じディレクトリにあると仮定
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        check_script = os.path.join(script_dir, "python_check.py")
-
-        result = subprocess.run(
-            [python_cmd, check_script],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
+        # Tesseractのバージョンを確認
+        result = subprocess.run(['tesseract', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
-            return json.loads(result.stdout)
+            logger.info(f"Tesseractがインストールされています: {result.stdout.splitlines()[0]}")
+            return True
         else:
-            log(f"環境チェックスクリプトの実行中にエラーが発生しました: {result.stderr}")
-            return None
+            logger.warning("Tesseractがインストールされていないようです")
+            return False
     except Exception as e:
-        log(f"環境ステータスの取得中に例外が発生しました: {str(e)}")
-        return None
+        logger.warning(f"Tesseractのチェック中にエラーが発生しました: {e}")
+        logger.info("Tesseractのインストール方法をガイド中...")
+        if sys.platform == 'darwin':  # macOS
+            logger.info("macOSユーザー向け: 'brew install tesseract' を実行してTesseractをインストールしてください")
+        elif sys.platform == 'win32':  # Windows
+            logger.info("Windowsユーザー向け: https://github.com/UB-Mannheim/tesseract/wiki からTesseractをダウンロードしてインストールしてください")
+        else:  # Linux
+            logger.info("Linuxユーザー向け: 'sudo apt-get install tesseract-ocr' または同等のコマンドを実行してTesseractをインストールしてください")
+        return False
+
+def create_virtual_env():
+    """仮想環境の作成を試みる"""
+    try:
+        env_path = Path(os.path.dirname(os.path.abspath(__file__))) / 'venv'
+        if env_path.exists():
+            logger.info(f"仮想環境は既に {env_path} に存在します。")
+            return True
+
+        logger.info("仮想環境を作成しています...")
+        subprocess.check_call([sys.executable, '-m', 'venv', str(env_path)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info(f"仮想環境が {env_path} に作成されました。")
+
+        # 環境情報をJSONで保存
+        env_info = {
+            'path': str(env_path),
+            'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            'created_at': str(datetime.datetime.now())
+        }
+        with open(env_path / 'env_info.json', 'w') as f:
+            json.dump(env_info, f, indent=2)
+
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"仮想環境の作成に失敗しました: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"予期せぬエラーが発生しました: {str(e)}")
+        return False
+
+def setup_environment():
+    """Python環境のセットアップを行う"""
+    logger.info("Python環境のセットアップを開始します...")
+
+    if not check_python_version():
+        return False
+
+    if not check_pip():
+        logger.error("pipが必要です。Pythonをインストールし直してください。")
+        return False
+
+    # 仮想環境の作成はオプション
+    # create_virtual_env()
+
+    # 必須パッケージのインストール
+    all_installed = True
+    for package in REQUIRED_PACKAGES:
+        if not check_and_install_package(package):
+            all_installed = False
+
+    # オプショナルパッケージのインストール
+    for package in OPTIONAL_PACKAGES:
+        check_and_install_package(package, optional=True)
+
+    # Tesseractの確認
+    check_tesseract()
+
+    if all_installed:
+        logger.info("すべての必須パッケージがインストールされました。")
+        return True
+    else:
+        logger.warning("一部のパッケージのインストールに失敗しました。")
+        return False
 
 def main():
     """メイン関数"""
-    log("Python環境のインストールを開始します")
-
-    # Pythonがインストールされているか確認
-    if not check_python_installed():
-        log("Pythonがインストールされていません。インストールを開始します...")
-        if not install_python():
-            log("Pythonのインストールに失敗しました。手動でインストールしてください。")
-            return {
-                "success": False,
-                "message": "Pythonのインストールに失敗しました"
+    try:
+        logger.info("Python環境インストーラーを開始します...")
+        result = setup_environment()
+        if result:
+            logger.info("セットアップが正常に完了しました。")
+            # 結果をJSONで出力
+            result_data = {
+                'status': 'success',
+                'message': 'Python環境が正常にセットアップされました。'
+            }
+        else:
+            logger.warning("セットアップが完了しましたが、一部の問題がありました。")
+            # 結果をJSONで出力
+            result_data = {
+                'status': 'warning',
+                'message': 'セットアップが一部の問題付きで完了しました。'
             }
 
-        # インストール直後はPATHが更新されていない可能性があるため、少し待機
-        log("インストール完了後のPATH更新を待機中...")
-        time.sleep(5)
+        # 結果をJSONファイルに保存
+        output_path = Path(os.path.dirname(os.path.abspath(__file__))) / 'setup_result.json'
+        with open(output_path, 'w') as f:
+            json.dump(result_data, f, indent=2)
 
-    # pipが利用可能か確認し、必要なら追加インストール
-    log("pipが利用可能か確認しています...")
-    python_cmd = "python" if platform.system() == "Windows" else "python3"
-    pip_check = run_command(f"{python_cmd} -m pip --version", check=False)
-
-    if not pip_check["success"]:
-        log("pipがインストールされていません。インストールを開始します...")
-        if not install_pip():
-            log("pipのインストールに失敗しました。")
-            return {
-                "success": False,
-                "message": "pipのインストールに失敗しました"
-            }
-
-    # 必要なライブラリをインストール
-    if not install_libraries():
-        log("一部のライブラリのインストールに失敗しました。")
-        return {
-            "success": False,
-            "message": "一部のライブラリのインストールに失敗しました"
+        logger.info(f"セットアップ結果が {output_path} に保存されました。")
+        return 0
+    except Exception as e:
+        logger.error(f"予期せぬエラーが発生しました: {str(e)}")
+        # 結果をJSONで出力
+        result_data = {
+            'status': 'error',
+            'message': f'セットアップ中にエラーが発生しました: {str(e)}'
         }
-
-    # 環境ステータスを確認
-    log("環境ステータスを確認しています...")
-    status = get_environment_status()
-
-    if status and status["summary"]["all_libraries_installed"]:
-        log("すべてのライブラリが正常にインストールされました。")
-        return {
-            "success": True,
-            "message": "すべてのライブラリが正常にインストールされました",
-            "status": status
-        }
-    else:
-        missing = status["summary"]["missing_libraries"] if status else "不明"
-        log(f"一部のライブラリがインストールされていません: {missing}")
-        return {
-            "success": False,
-            "message": f"一部のライブラリがインストールされていません: {missing}",
-            "status": status
-        }
+        try:
+            output_path = Path(os.path.dirname(os.path.abspath(__file__))) / 'setup_result.json'
+            with open(output_path, 'w') as f:
+                json.dump(result_data, f, indent=2)
+        except:
+            pass
+        return 1
 
 if __name__ == "__main__":
-    result = main()
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    sys.exit(0 if result["success"] else 1)
+    sys.exit(main())

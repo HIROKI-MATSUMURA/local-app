@@ -1,566 +1,623 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import json
-import sys
+"""
+画像解析モジュール
+基本的な画像解析機能を提供します。
+"""
+
 import os
+import sys
 import base64
+import json
+import traceback
+from io import BytesIO
 import numpy as np
-import cv2
-from skimage import color, feature, segmentation, measure
 from PIL import Image
-import io
-import matplotlib.pyplot as plt
+import cv2
+import re
+import math
 from collections import Counter
 
-# TensorFlowのインポート（利用可能な場合）
+try:
+    import pytesseract
+    from pytesseract import Output
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+
+try:
+    from sklearn.cluster import KMeans
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
 try:
     import tensorflow as tf
-    from tensorflow.keras.applications.efficientnet import EfficientNetB0, preprocess_input
-    from tensorflow.keras.preprocessing import image as tf_image
-    TENSORFLOW_AVAILABLE = True
+    import tensorflow.keras as keras
+    TF_AVAILABLE = True
 except ImportError:
-    TENSORFLOW_AVAILABLE = False
+    TF_AVAILABLE = False
 
-# 画像の前処理関数
-def preprocess_image(image_data):
-    """Base64形式の画像データをNumPy配列に変換"""
-    if isinstance(image_data, str) and image_data.startswith('data:image'):
-        # Base64文字列からデータ部分を抽出
-        image_data = image_data.split(',')[1]
+# 定数定義
+MAX_COLORS = 5
+RESIZE_WIDTH = 300
+MIN_SECTION_HEIGHT_RATIO = 0.05
 
-    if isinstance(image_data, str):
+def decode_image(image_data):
+    """
+    Base64形式の画像データをOpenCVイメージに変換
+
+    Args:
+        image_data: Base64エンコードされた画像データ
+
+    Returns:
+        dict: OpenCVイメージと関連情報を含む辞書
+    """
+    try:
+        # Base64文字列から画像データを抽出
+        if 'base64,' in image_data:
+            image_data = image_data.split('base64,')[1]
+
         # Base64デコード
         image_bytes = base64.b64decode(image_data)
-        # バイトデータからnumpy配列へ変換
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        # OpenCV形式の画像に変換
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        return img
-    elif isinstance(image_data, np.ndarray):
-        return image_data
-    else:
-        raise ValueError("サポートされていない画像形式です")
 
-# 色抽出機能
-def extract_colors_from_image(image_data, num_colors=5):
-    """画像から主要な色を抽出する（K-meansクラスタリング使用）"""
-    # 画像の前処理
-    img = preprocess_image(image_data)
+        # PILイメージに変換
+        pil_image = Image.open(BytesIO(image_bytes))
 
-    # RGBに変換（OpenCVはBGR形式で読み込むため）
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # 画像をピクセルの1次元配列に変換
-    pixels = img_rgb.reshape(-1, 3).astype(np.float32)
-
-    # K-means法を使用して代表的な色を抽出
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-    _, labels, centers = cv2.kmeans(pixels, num_colors, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-
-    # クラスター（色）ごとのピクセル数をカウント
-    counts = Counter(labels.flatten())
-
-    # 出現頻度の高い順にソート
-    sorted_colors = sorted([(count, center) for center, count in zip(centers, [counts[i] for i in range(num_colors)])],
-                          reverse=True)
-
-    # RGB形式の色を返す
-    result = []
-    for _, center in sorted_colors:
-        r, g, b = center.astype(int)
-        color_hex = f"#{r:02x}{g:02x}{b:02x}"
-        color_rgb = f"rgb({r},{g},{b})"
-        result.append({
-            "hex": color_hex.upper(),
-            "rgb": color_rgb,
-            "values": {"r": int(r), "g": int(g), "b": int(b)}
-        })
-
-    return result
-
-# テキスト抽出（OCR）機能
-def extract_text_from_image(image_data):
-    """画像からテキストを抽出する（テスト実装）"""
-    try:
-        import pytesseract
-        # 画像の前処理
-        img = preprocess_image(image_data)
-
-        # 画像を適切に前処理（グレースケール化、ノイズ除去など）
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # ノイズリダクションとコントラスト強調
-        gray = cv2.medianBlur(gray, 3)
-        gray = cv2.equalizeHist(gray)
-
-        # Tesseractを使用してOCR処理
-        config = '--oem 3 --psm 6'
-        text = pytesseract.image_to_string(gray, config=config)
-
-        return text.strip()
-    except ImportError:
-        return "pytesseract（OCRエンジン）がインストールされていません。適切なテキスト抽出を行うには、pytesseractとTesseract OCRをインストールしてください。"
-
-# セクション分析機能
-def analyze_image_sections(image_data, num_sections=5):
-    """画像を複数のセクションに分割し、各セクションの特徴を抽出"""
-    # 画像の前処理
-    img = preprocess_image(image_data)
-
-    # RGBに変換
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # 画像の高さと幅を取得
-    height, width = img_rgb.shape[:2]
-
-    # 画像を垂直方向にn分割
-    section_height = height // num_sections
-
-    sections = []
-    for i in range(num_sections):
-        # セクションの範囲を計算
-        y_start = i * section_height
-        y_end = (i + 1) * section_height if i < num_sections - 1 else height
-
-        # セクションを切り出し
-        section_img = img_rgb[y_start:y_end, 0:width]
-
-        # セクションの代表色を抽出
-        section_colors = extract_colors_from_image(section_img, num_colors=1)
-        dominant_color = section_colors[0] if section_colors else None
-
-        # セクションの特徴を抽出（エッジ検出などを行って構造を把握）
-        gray_section = cv2.cvtColor(section_img, cv2.COLOR_RGB2GRAY)
-        edges = feature.canny(gray_section, sigma=1)
-        edge_density = np.mean(edges)
-
-        # テクスチャの複雑さを測定
-        if section_img.size > 0:  # 空のセクションを防ぐ
-            texture_complexity = np.std(gray_section)
+        # OpenCVフォーマットに変換
+        if pil_image.mode == 'RGBA':
+            # アルファチャンネルを持つ画像の場合
+            cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGBA2BGRA)
         else:
-            texture_complexity = 0
+            # その他の画像の場合
+            cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
-        # セクション情報を保存
-        sections.append({
-            "section": i + 1,
-            "position": {
-                "top": int(y_start),
-                "bottom": int(y_end),
-                "height": int(y_end - y_start)
-            },
-            "dominantColor": dominant_color,
-            "features": {
-                "edgeDensity": float(edge_density),
-                "textureComplexity": float(texture_complexity)
-            }
-        })
-
-    return sections
-
-# レイアウト分析機能
-def analyze_layout_pattern(image_data):
-    """画像のレイアウトパターンを分析"""
-    # 画像の前処理
-    img = preprocess_image(image_data)
-
-    # 画像の基本情報を取得
-    height, width = img.shape[:2]
-    aspect_ratio = width / height
-
-    # グレースケールに変換
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # エッジ検出
-    edges = feature.canny(gray, sigma=2)
-
-    # 水平・垂直ラインの検出
-    lines = cv2.HoughLinesP(edges.astype(np.uint8) * 255, 1, np.pi/180,
-                           threshold=100, minLineLength=width//10, maxLineGap=20)
-
-    horizontal_lines = []
-    vertical_lines = []
-
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            if abs(y2 - y1) < abs(x2 - x1) // 5:  # ほぼ水平
-                horizontal_lines.append((y1 + y2) // 2)
-            elif abs(x2 - x1) < abs(y2 - y1) // 5:  # ほぼ垂直
-                vertical_lines.append((x1 + x2) // 2)
-
-    # 類似の線をマージ
-    horizontal_lines = merge_similar_lines(horizontal_lines, threshold=height//50)
-    vertical_lines = merge_similar_lines(vertical_lines, threshold=width//50)
-
-    # グリッドの検出
-    grid_pattern = len(horizontal_lines) > 1 and len(vertical_lines) > 1
-
-    # 列数と行数の推定
-    num_rows = len(horizontal_lines) + 1
-    num_cols = len(vertical_lines) + 1
-
-    # セクション数
-    num_sections = len(analyze_image_sections(image_data))
-
-    # 色解析
-    colors = extract_colors_from_image(image_data)
-
-    # レイアウトタイプの判定ロジック
-    layout_type = determine_layout_type(num_rows, num_cols, grid_pattern, aspect_ratio, num_sections)
-
-    # 結果オブジェクトを作成
-    result = {
-        "layoutType": layout_type,
-        "confidence": 0.85,  # 確信度（実際のモデルを使った場合はモデルの出力）
-        "layoutDetails": {
-            "dimensions": {
-                "width": int(width),
-                "height": int(height),
-                "aspectRatio": float(aspect_ratio)
-            },
-            "grid": {
-                "detected": grid_pattern,
-                "rows": int(num_rows),
-                "columns": int(num_cols),
-                "horizontalLines": sorted(horizontal_lines),
-                "verticalLines": sorted(vertical_lines)
-            },
-            "sections": num_sections,
-            "styles": {
-                "colors": colors
-            }
+        return {
+            'opencv': cv_image,
+            'pil': pil_image,
+            'width': cv_image.shape[1],
+            'height': cv_image.shape[0]
         }
-    }
+    except Exception as e:
+        print(f"画像のデコードエラー: {str(e)}")
+        traceback.print_exc()
+        return None
 
-    return result
+def extract_colors(image_data):
+    """
+    画像から主要な色を抽出
 
-# 類似の線をマージする補助関数
-def merge_similar_lines(lines, threshold):
-    """類似の位置にある線をマージする"""
-    if not lines:
+    Args:
+        image_data: Base64エンコードされた画像データ
+
+    Returns:
+        list: 主要な色のリスト
+    """
+    try:
+        img_data = decode_image(image_data)
+        if not img_data:
+            return {'error': 'Failed to decode image'}
+
+        img = img_data['opencv']
+        height, width = img.shape[:2]
+
+        # 処理を高速化するためにリサイズ
+        scale = RESIZE_WIDTH / width
+        small_img = cv2.resize(img, (0, 0), fx=scale, fy=scale)
+
+        # K-meansクラスタリングで色抽出
+        if SKLEARN_AVAILABLE:
+            # データを準備
+            pixels = small_img.reshape(-1, 3)
+            pixels = pixels[:, ::-1]  # BGR to RGB
+
+            # K-meansでクラスタリング
+            kmeans = KMeans(n_clusters=MAX_COLORS, n_init=10)
+            kmeans.fit(pixels)
+
+            # クラスタの中心点（色）を取得
+            colors = kmeans.cluster_centers_
+
+            # クラスタのサイズ（ピクセル数）を取得
+            labels = kmeans.labels_
+            counts = Counter(labels)
+
+            # 結果を整形
+            color_info = []
+            total_pixels = len(pixels)
+
+            for i in range(MAX_COLORS):
+                rgb = colors[i].astype(int)
+                hex_color = '#{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2])
+
+                color_info.append({
+                    'rgb': f'rgb({rgb[0]},{rgb[1]},{rgb[2]})',
+                    'hex': hex_color,
+                    'ratio': counts[i] / total_pixels
+                })
+
+            # サイズ順にソート
+            color_info.sort(key=lambda x: x['ratio'], reverse=True)
+
+            return color_info
+        else:
+            # scikit-learnが利用できない場合のフォールバック
+            # より単純な方法で色を抽出
+            # 色のヒストグラムを計算
+            pixels = small_img.reshape(-1, 3)
+            color_counts = {}
+
+            for pixel in pixels:
+                # 色の量子化（類似色をグループ化）
+                quantized = (pixel[0] // 25 * 25, pixel[1] // 25 * 25, pixel[2] // 25 * 25)
+                key = f"{quantized[2]},{quantized[1]},{quantized[0]}"  # RGB形式
+                color_counts[key] = color_counts.get(key, 0) + 1
+
+            # 頻度順にソート
+            sorted_colors = sorted(color_counts.items(), key=lambda x: x[1], reverse=True)
+            top_colors = sorted_colors[:MAX_COLORS]
+
+            # 結果を整形
+            color_info = []
+            total_pixels = len(pixels)
+
+            for color_key, count in top_colors:
+                r, g, b = map(int, color_key.split(','))
+                hex_color = '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
+                color_info.append({
+                    'rgb': f'rgb({r},{g},{b})',
+                    'hex': hex_color,
+                    'ratio': count / total_pixels
+                })
+
+            return color_info
+    except Exception as e:
+        print(f"色抽出エラー: {str(e)}")
+        traceback.print_exc()
         return []
 
-    lines = sorted(lines)
-    merged_lines = [lines[0]]
+def extract_text(image_data):
+    """
+    画像からテキストを抽出
 
-    for line in lines[1:]:
-        if line - merged_lines[-1] <= threshold:
-            # 類似の線を平均位置にマージ
-            merged_lines[-1] = (merged_lines[-1] + line) // 2
-        else:
-            merged_lines.append(line)
+    Args:
+        image_data: Base64エンコードされた画像データ
 
-    return merged_lines
+    Returns:
+        dict: 抽出されたテキストと位置情報
+    """
+    try:
+        img_data = decode_image(image_data)
+        if not img_data:
+            return {'error': 'Failed to decode image'}
 
-# レイアウトタイプを判定する関数
-def determine_layout_type(num_rows, num_cols, grid_pattern, aspect_ratio, num_sections):
-    """レイアウトの種類を判定する"""
-    if grid_pattern and num_cols >= 3:
-        return "card-grid"
-    elif num_rows <= 3 and aspect_ratio > 1.3:
-        return "hero"
-    elif num_sections >= 4:
-        return "landing-page"
-    elif num_cols == 2:
-        return "two-column"
-    else:
-        return "custom"
+        img = img_data['opencv']
 
-# 要素検出機能
-def detect_feature_elements(image_data):
-    """画像からUI要素を検出する"""
-    # TensorFlowが利用可能かチェック
-    if not TENSORFLOW_AVAILABLE:
-        return {
-            "error": "TensorFlowがインストールされていないため、要素検出はダミーデータを返します",
-            "elements": generate_dummy_elements()
-        }
+        # Tesseractが利用可能かチェック
+        if not TESSERACT_AVAILABLE:
+            return {
+                'text': '',
+                'error': 'Tesseract OCR is not available',
+                'textBlocks': []
+            }
 
-    # 画像の前処理
-    img = preprocess_image(image_data)
+        # グレースケールに変換
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # レイアウト分析
-    layout_analysis = analyze_layout_pattern(image_data)
-    layout_type = layout_analysis["layoutType"]
+        # OCR処理
+        ocr_data = pytesseract.image_to_data(gray, output_type=Output.DICT)
 
-    # TensorFlowを使った要素検出のロジック（デモンストレーション用）
-    # 実際の実装では事前学習済みモデルを使用
+        # テキストブロックを抽出
+        text_blocks = []
+        full_text = []
 
-    # 結果オブジェクトの作成
-    result = {
-        "layoutType": layout_type,
-        "layoutConfidence": layout_analysis["confidence"],
-        "elements": []
-    }
+        for i in range(len(ocr_data['text'])):
+            # 空のテキストはスキップ
+            if ocr_data['text'][i].strip() == '':
+                continue
 
-    # レイアウトタイプに基づいた要素を生成
-    if layout_type == "hero":
-        result["elements"] = generate_hero_elements(img)
-    elif layout_type == "card-grid":
-        result["elements"] = generate_card_grid_elements(img, layout_analysis)
-    elif layout_type == "two-column":
-        result["elements"] = generate_two_column_elements(img)
-    else:
-        result["elements"] = generate_custom_elements(img, layout_analysis)
+            # テキストブロック情報を追加
+            x = ocr_data['left'][i]
+            y = ocr_data['top'][i]
+            w = ocr_data['width'][i]
+            h = ocr_data['height'][i]
+            conf = ocr_data['conf'][i]
+            text = ocr_data['text'][i]
 
-    return result
+            full_text.append(text)
 
-# 以下はダミーデータ生成のためのヘルパー関数（後で実際の検出ロジックに置き換え）
-def generate_dummy_elements():
-    """ダミーの要素情報を生成"""
-    return [
-        {
-            "type": "header",
-            "position": {"top": 0, "left": 0, "width": 100, "height": 10},
-            "confidence": 0.92
-        },
-        {
-            "type": "image",
-            "position": {"top": 20, "left": 10, "width": 80, "height": 40},
-            "confidence": 0.95
-        },
-        {
-            "type": "text",
-            "position": {"top": 70, "left": 10, "width": 80, "height": 20},
-            "confidence": 0.88
-        }
-    ]
-
-def generate_hero_elements(img):
-    """ヒーローセクションの要素を生成"""
-    height, width = img.shape[:2]
-
-    return [
-        {
-            "type": "header",
-            "position": {"top": 0, "left": 0, "width": width, "height": int(height * 0.15)},
-            "confidence": 0.92
-        },
-        {
-            "type": "hero-image",
-            "position": {"top": int(height * 0.15), "left": 0, "width": width, "height": int(height * 0.5)},
-            "confidence": 0.95
-        },
-        {
-            "type": "heading",
-            "position": {"top": int(height * 0.25), "left": int(width * 0.1), "width": int(width * 0.8), "height": int(height * 0.1)},
-            "confidence": 0.9
-        },
-        {
-            "type": "button",
-            "position": {"top": int(height * 0.4), "left": int(width * 0.4), "width": int(width * 0.2), "height": int(height * 0.06)},
-            "confidence": 0.85
-        },
-        {
-            "type": "content-section",
-            "position": {"top": int(height * 0.65), "left": 0, "width": width, "height": int(height * 0.35)},
-            "confidence": 0.9
-        }
-    ]
-
-def generate_card_grid_elements(img, layout_analysis):
-    """カードグリッドの要素を生成"""
-    height, width = img.shape[:2]
-
-    grid = layout_analysis["layoutDetails"]["grid"]
-    rows = max(1, grid["rows"] - 1)  # ヘッダー行を考慮
-    cols = max(1, grid["columns"])
-
-    elements = [
-        {
-            "type": "header",
-            "position": {"top": 0, "left": 0, "width": width, "height": int(height * 0.15)},
-            "confidence": 0.92
-        }
-    ]
-
-    card_height = int((height - height * 0.15) / rows)
-    card_width = int(width / cols)
-
-    for r in range(rows):
-        for c in range(cols):
-            top = int(height * 0.15) + r * card_height
-            left = c * card_width
-
-            elements.append({
-                "type": "card",
-                "position": {"top": top, "left": left, "width": card_width, "height": card_height},
-                "confidence": 0.88,
-                "children": [
-                    {
-                        "type": "image",
-                        "position": {"top": top, "left": left, "width": card_width, "height": int(card_height * 0.6)},
-                        "confidence": 0.85
-                    },
-                    {
-                        "type": "heading",
-                        "position": {"top": top + int(card_height * 0.65), "left": left + int(card_width * 0.1),
-                                    "width": int(card_width * 0.8), "height": int(card_height * 0.1)},
-                        "confidence": 0.82
-                    },
-                    {
-                        "type": "text",
-                        "position": {"top": top + int(card_height * 0.75), "left": left + int(card_width * 0.1),
-                                    "width": int(card_width * 0.8), "height": int(card_height * 0.2)},
-                        "confidence": 0.8
-                    }
-                ]
+            text_blocks.append({
+                'text': text,
+                'confidence': float(conf) / 100.0,
+                'position': {
+                    'x': x,
+                    'y': y,
+                    'width': w,
+                    'height': h
+                }
             })
 
-    return elements
-
-def generate_two_column_elements(img):
-    """2カラムレイアウトの要素を生成"""
-    height, width = img.shape[:2]
-
-    return [
-        {
-            "type": "header",
-            "position": {"top": 0, "left": 0, "width": width, "height": int(height * 0.15)},
-            "confidence": 0.92
-        },
-        {
-            "type": "image-column",
-            "position": {"top": int(height * 0.15), "left": 0, "width": int(width * 0.5), "height": int(height * 0.7)},
-            "confidence": 0.9,
-            "children": [
-                {
-                    "type": "image",
-                    "position": {"top": int(height * 0.2), "left": int(width * 0.05),
-                                "width": int(width * 0.4), "height": int(height * 0.6)},
-                    "confidence": 0.95
-                }
-            ]
-        },
-        {
-            "type": "text-column",
-            "position": {"top": int(height * 0.15), "left": int(width * 0.5), "width": int(width * 0.5), "height": int(height * 0.7)},
-            "confidence": 0.9,
-            "children": [
-                {
-                    "type": "heading",
-                    "position": {"top": int(height * 0.2), "left": int(width * 0.55),
-                                "width": int(width * 0.4), "height": int(height * 0.1)},
-                    "confidence": 0.88
-                },
-                {
-                    "type": "text",
-                    "position": {"top": int(height * 0.35), "left": int(width * 0.55),
-                                "width": int(width * 0.4), "height": int(height * 0.3)},
-                    "confidence": 0.85
-                },
-                {
-                    "type": "button",
-                    "position": {"top": int(height * 0.7), "left": int(width * 0.55),
-                                "width": int(width * 0.2), "height": int(height * 0.06)},
-                    "confidence": 0.82
-                }
-            ]
-        },
-        {
-            "type": "footer",
-            "position": {"top": int(height * 0.85), "left": 0, "width": width, "height": int(height * 0.15)},
-            "confidence": 0.87
+        return {
+            'text': ' '.join(full_text),
+            'textBlocks': text_blocks
         }
-    ]
+    except Exception as e:
+        print(f"テキスト抽出エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'text': '',
+            'error': str(e),
+            'textBlocks': []
+        }
 
-def generate_custom_elements(img, layout_analysis):
-    """カスタムレイアウトの要素を生成"""
-    height, width = img.shape[:2]
+def analyze_sections(image_data):
+    """
+    画像をセクションに分割して分析
 
-    # セクション情報をもとに要素を生成
-    num_sections = layout_analysis["layoutDetails"]["sections"]
-    section_height = height / max(1, num_sections)
+    Args:
+        image_data: Base64エンコードされた画像データ
 
-    elements = []
+    Returns:
+        list: セクション情報のリスト
+    """
+    try:
+        img_data = decode_image(image_data)
+        if not img_data:
+            return {'error': 'Failed to decode image'}
 
-    # ヘッダー
-    elements.append({
-        "type": "header",
-        "position": {"top": 0, "left": 0, "width": width, "height": int(section_height * 0.8)},
-        "confidence": 0.92
-    })
+        img = img_data['opencv']
+        height, width = img.shape[:2]
 
-    # コンテンツセクション
-    for i in range(1, num_sections):
-        section_top = int(i * section_height)
-        elements.append({
-            "type": "section",
-            "position": {"top": section_top, "left": 0, "width": width, "height": int(section_height)},
-            "confidence": 0.85,
-            "children": [
-                {
-                    "type": "heading",
-                    "position": {"top": section_top + int(section_height * 0.1),
-                                "left": int(width * 0.1),
-                                "width": int(width * 0.8),
-                                "height": int(section_height * 0.15)},
-                    "confidence": 0.8
+        # グレースケールに変換
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # エッジ検出
+        edges = cv2.Canny(gray, 50, 150)
+
+        # 水平方向の射影を計算
+        h_projection = np.sum(edges, axis=1)
+
+        # 変化点を検出（セクションの境界）
+        thres = np.mean(h_projection) * 0.5
+        boundaries = [0]
+
+        for i in range(1, len(h_projection)):
+            if h_projection[i] > thres and h_projection[i-1] <= thres:
+                boundaries.append(i)
+            elif h_projection[i] <= thres and h_projection[i-1] > thres:
+                boundaries.append(i)
+
+        if height not in boundaries:
+            boundaries.append(height)
+
+        # 小さすぎるセクションを除外
+        min_height = height * MIN_SECTION_HEIGHT_RATIO
+        sections = []
+
+        for i in range(0, len(boundaries) - 1, 2):
+            if i + 1 >= len(boundaries):
+                break
+
+            y1 = boundaries[i]
+            y2 = boundaries[i + 1]
+
+            if y2 - y1 < min_height:
+                continue
+
+            # セクションの色を分析
+            section_img = img[y1:y2, 0:width]
+
+            # 中心座標を計算
+            center_x = width // 2
+            center_y = (y1 + y2) // 2
+
+            # セクション情報を追加
+            sections.append({
+                'section': f'section_{i//2}',
+                'position': {
+                    'top': int(y1),
+                    'left': 0,
+                    'width': width,
+                    'height': y2 - y1,
+                    'center': [center_x, center_y]
                 },
-                {
-                    "type": "content",
-                    "position": {"top": section_top + int(section_height * 0.3),
-                                "left": int(width * 0.1),
-                                "width": int(width * 0.8),
-                                "height": int(section_height * 0.6)},
-                    "confidence": 0.75
+                'color': {
+                    'dominant': get_dominant_color(section_img)
                 }
-            ]
-        })
+            })
 
-    return elements
+        return sections
+    except Exception as e:
+        print(f"セクション分析エラー: {str(e)}")
+        traceback.print_exc()
+        return []
 
-# メイン実行部（コマンドライン引数によって機能を切り替え）
+def get_dominant_color(img):
+    """
+    画像の主要な色を抽出
+
+    Args:
+        img: OpenCV画像
+
+    Returns:
+        dict: 主要な色情報
+    """
+    # 処理を高速化するためにリサイズ
+    scale = min(1.0, 100.0 / max(img.shape[0], img.shape[1]))
+    small_img = cv2.resize(img, (0, 0), fx=scale, fy=scale)
+
+    # 色の平均を計算
+    pixels = small_img.reshape(-1, 3)
+    mean_color = np.mean(pixels, axis=0).astype(int)
+
+    # BGR -> RGB
+    r, g, b = mean_color[2], mean_color[1], mean_color[0]
+    hex_color = '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
+    return {
+        'rgb': f'rgb({r},{g},{b})',
+        'hex': hex_color
+    }
+
+def analyze_layout(image_data):
+    """
+    画像のレイアウトパターンを分析
+
+    Args:
+        image_data: Base64エンコードされた画像データ
+
+    Returns:
+        dict: レイアウト分析結果
+    """
+    try:
+        img_data = decode_image(image_data)
+        if not img_data:
+            return {'error': 'Failed to decode image'}
+
+        img = img_data['opencv']
+        height, width = img.shape[:2]
+
+        # セクション分析
+        sections = analyze_sections(image_data)
+
+        # 画像の基本情報
+        layout_info = {
+            'layoutType': 'grid',  # デフォルト値
+            'confidence': 0.7,
+            'layoutDetails': {
+                'dimensions': {
+                    'width': width,
+                    'height': height,
+                    'aspectRatio': width / height if height > 0 else 0
+                },
+                'sections': sections,
+                'styles': {
+                    'colors': extract_colors(image_data)
+                }
+            }
+        }
+
+        # レイアウトパターンを推測
+        aspect_ratio = width / height if height > 0 else 0
+        num_sections = len(sections)
+
+        if aspect_ratio > 2.0:
+            layout_info['layoutType'] = 'horizontal_scroll'
+            layout_info['confidence'] = 0.8
+        elif aspect_ratio < 0.5:
+            layout_info['layoutType'] = 'vertical_scroll'
+            layout_info['confidence'] = 0.8
+        elif num_sections == 0:
+            layout_info['layoutType'] = 'single_view'
+            layout_info['confidence'] = 0.9
+        elif num_sections == 1:
+            layout_info['layoutType'] = 'header_content'
+            layout_info['confidence'] = 0.7
+        elif num_sections == 2:
+            layout_info['layoutType'] = 'header_content_footer'
+            layout_info['confidence'] = 0.8
+        elif num_sections >= 3:
+            # エッジ検出と線検出でグリッドを推測
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            edges = cv2.Canny(gray, 50, 150)
+
+            # ハフ変換で線を検出
+            lines = cv2.HoughLinesP(edges, 1, np.pi/180, 100, minLineLength=min(width, height)/4, maxLineGap=20)
+
+            if lines is not None and len(lines) > 10:
+                # 水平・垂直線の数をカウント
+                h_lines = 0
+                v_lines = 0
+
+                for line in lines:
+                    x1, y1, x2, y2 = line[0]
+
+                    if abs(y2 - y1) < 10:  # 水平線
+                        h_lines += 1
+                    elif abs(x2 - x1) < 10:  # 垂直線
+                        v_lines += 1
+
+                # グリッドパターンの判定
+                if h_lines > 5 and v_lines > 5:
+                    layout_info['layoutType'] = 'grid'
+                    layout_info['confidence'] = 0.9
+                elif h_lines > v_lines:
+                    layout_info['layoutType'] = 'list'
+                    layout_info['confidence'] = 0.8
+                else:
+                    layout_info['layoutType'] = 'columns'
+                    layout_info['confidence'] = 0.7
+
+        return layout_info
+    except Exception as e:
+        print(f"レイアウト分析エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'layoutType': 'unknown',
+            'confidence': 0.5,
+            'layoutDetails': {
+                'dimensions': {'width': 0, 'height': 0, 'aspectRatio': 0},
+                'sections': []
+            }
+        }
+
+def detect_elements(image_data):
+    """
+    画像からUIの主要な要素を検出
+
+    Args:
+        image_data: Base64エンコードされた画像データ
+
+    Returns:
+        dict: 検出された要素
+    """
+    try:
+        img_data = decode_image(image_data)
+        if not img_data:
+            return {'error': 'Failed to decode image'}
+
+        img = img_data['opencv']
+        height, width = img.shape[:2]
+
+        # グレースケールに変換
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # エッジ検出
+        edges = cv2.Canny(gray, 50, 150)
+
+        # 輪郭検出
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # 要素検出結果
+        elements = []
+        min_area = (width * height) * 0.005  # 最小面積
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+
+            # 小さすぎる輪郭はスキップ
+            if area < min_area:
+                continue
+
+            # 輪郭の情報を取得
+            x, y, w, h = cv2.boundingRect(contour)
+
+            # 要素のタイプを推測
+            element_type = classify_element(img[y:y+h, x:x+w], w/h)
+
+            # 要素情報を追加
+            elements.append({
+                'type': element_type,
+                'position': {
+                    'x': int(x),
+                    'y': int(y),
+                    'width': int(w),
+                    'height': int(h)
+                },
+                'dominantColor': get_dominant_color(img[y:y+h, x:x+w])
+            })
+
+        # レイアウト情報と組み合わせて返す
+        layout_info = analyze_layout(image_data)
+
+        return {
+            'layoutType': layout_info['layoutType'],
+            'layoutConfidence': layout_info['confidence'],
+            'elements': elements
+        }
+    except Exception as e:
+        print(f"要素検出エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'layoutType': 'unknown',
+            'layoutConfidence': 0.5,
+            'elements': []
+        }
+
+def classify_element(element_img, aspect_ratio):
+    """
+    UI要素の種類を分類
+
+    Args:
+        element_img: 要素の画像
+        aspect_ratio: アスペクト比
+
+    Returns:
+        str: 要素の種類
+    """
+    # アスペクト比で大まかに分類
+    if aspect_ratio > 5.0:
+        return 'header'
+    elif aspect_ratio > 3.0:
+        return 'text_input'
+    elif aspect_ratio < 0.3:
+        return 'sidebar'
+    elif 0.9 < aspect_ratio < 1.1:
+        # ほぼ正方形の場合
+        # テキストを含むかチェック
+        if TESSERACT_AVAILABLE:
+            text = pytesseract.image_to_string(element_img)
+            if len(text.strip()) > 0:
+                return 'button'
+        return 'card'
+    else:
+        # その他の場合
+        if element_img.shape[0] < 100:
+            return 'button'
+        return 'content_section'
+
 def main():
-    """コマンドラインからの実行時のエントリーポイント"""
+    """
+    コマンドライン引数から機能を実行
+    """
     if len(sys.argv) < 3:
-        print(json.dumps({
-            "error": "引数が不足しています。使用法: python image_analyzer.py <機能> <画像のBase64または画像パス>"
-        }))
+        print('使用法: python image_analyzer.py [機能] [ファイルパス]')
         return
 
-    feature = sys.argv[1]
-    image_data = sys.argv[2]
+    command = sys.argv[1]
+    file_path = sys.argv[2]
 
-    # ファイルパスが与えられた場合はBase64に変換
-    if os.path.isfile(image_data):
-        with open(image_data, 'rb') as f:
-            image_data = base64.b64encode(f.read()).decode('utf-8')
+    try:
+        # ファイルからBase64データを読み込み
+        with open(file_path, 'r') as f:
+            image_data = f.read()
 
-    # 機能に基づいて適切な関数を呼び出す
-    result = None
-    if feature == 'extract_colors':
-        result = extract_colors_from_image(image_data)
-    elif feature == 'extract_text':
-        result = extract_text_from_image(image_data)
-    elif feature == 'analyze_sections':
-        result = analyze_image_sections(image_data)
-    elif feature == 'analyze_layout':
-        result = analyze_layout_pattern(image_data)
-    elif feature == 'detect_elements':
-        result = detect_feature_elements(image_data)
-    elif feature == 'analyze_all':
-        # すべての分析を行い結果を結合
-        colors = extract_colors_from_image(image_data)
-        text = extract_text_from_image(image_data)
-        sections = analyze_image_sections(image_data)
-        layout = analyze_layout_pattern(image_data)
-        elements = detect_feature_elements(image_data)
+        result = None
 
-        result = {
-            "colors": colors,
-            "text": text,
-            "sections": sections,
-            "layout": layout,
-            "elements": elements
-        }
-    else:
-        result = {
-            "error": f"不明な機能: {feature}。サポートされる機能: extract_colors, extract_text, analyze_sections, analyze_layout, detect_elements, analyze_all"
-        }
+        # コマンドに応じて機能を実行
+        if command == 'extract_colors':
+            result = extract_colors(image_data)
+        elif command == 'extract_text':
+            result = extract_text(image_data)
+        elif command == 'analyze_sections':
+            result = analyze_sections(image_data)
+        elif command == 'analyze_layout':
+            result = analyze_layout(image_data)
+        elif command == 'detect_elements':
+            result = detect_elements(image_data)
+        elif command == 'analyze_all':
+            # すべての分析を実行
+            layout = analyze_layout(image_data)
+            elements = detect_elements(image_data)
+            text = extract_text(image_data)
 
-    # 結果をJSON形式で出力
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+            result = {
+                'layout': layout,
+                'elements': elements['elements'],
+                'text': text
+            }
+        else:
+            result = {'error': f'Unknown command: {command}'}
 
-if __name__ == "__main__":
+        # 結果をJSON形式で出力
+        print(json.dumps(result))
+    except Exception as e:
+        print(json.dumps({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }))
+
+if __name__ == '__main__':
     main()

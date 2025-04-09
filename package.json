@@ -12,8 +12,8 @@
     "package-win": "electron-builder --win",
     "package-linux": "electron-builder --linux",
     "package": "npm run build && electron-builder",
-    "check-python": "node -e \"require('./python_bridge').checkPythonEnvironment().then(console.log)\"",
-    "setup-python": "node -e \"require('./python_bridge').setupPythonEnvironment().then(console.log)\""
+    "check-python": "node -e \"require('./python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
+    "setup-python": "node -e \"require('./python_bridge').setupPythonEnvironment().then(result => console.log('Python環境セットアップ結果:', result)).catch(err => console.error('Python環境セットアップエラー:', err))\""
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -81,6 +81,7 @@
         "filter": [
           "python_check.py",
           "python_installer.py",
+          "python_setup.py",
           "image_analyzer.py"
         ]
       }

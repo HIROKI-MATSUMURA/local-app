@@ -4,8 +4,234 @@
  * 内部的にはPythonスクリプトを使用して処理を行う
  */
 
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const log = require('electron-log');
+const { app } = require('electron');
+const { v4: uuidv4 } = require('uuid');
+const isDev = require('electron-is-dev');
+
 // Python処理ブリッジをインポート
 const pythonBridge = require('../../../python_bridge');
+
+// リクエストIDカウンター
+let requestCounter = 0;
+
+// リクエストコールバックマップ
+const pendingRequests = new Map();
+
+// Pythonプロセス参照
+let pythonProcess = null;
+
+// プロセス状態
+let isInitialized = false;
+let isShuttingDown = false;
+
+// ログレベル設定
+const LOG_LEVEL = {
+  DEBUG: 3,
+  INFO: 2,
+  ERROR: 1,
+  NONE: 0
+};
+
+// 現在のログレベル
+const currentLogLevel = LOG_LEVEL.INFO;
+
+// ロガー
+const logger = {
+  debug: (...args) => currentLogLevel >= LOG_LEVEL.DEBUG && console.debug('[Python Bridge]', ...args),
+  info: (...args) => currentLogLevel >= LOG_LEVEL.INFO && console.info('[Python Bridge]', ...args),
+  error: (...args) => currentLogLevel >= LOG_LEVEL.ERROR && console.error('[Python Bridge]', ...args)
+};
+
+/**
+ * Pythonスクリプトの場所を取得
+ */
+function getPythonScriptPath(scriptName) {
+  if (isDev) {
+    // 開発モードでは、プロジェクトルートからのパス
+    return path.join(process.cwd(), scriptName);
+  } else {
+    // 本番モードでは、extraResourcesからのパス
+    return path.join(app.getAppPath(), '..', 'extraResources', scriptName);
+  }
+}
+
+/**
+ * Pythonインタープリタのパスを取得
+ */
+function getPythonInterpreter() {
+  // 環境変数からPythonパスを取得試行
+  const pythonEnvPath = process.env.PYTHON_PATH;
+
+  if (pythonEnvPath && fs.existsSync(pythonEnvPath)) {
+    return pythonEnvPath;
+  }
+
+  // OSごとのデフォルトPythonパスを試行
+  const platform = os.platform();
+  let pythonCommands = ['python3', 'python'];
+
+  // WindowsではPythonがレジストリに登録されている可能性がある
+  if (platform === 'win32') {
+    pythonCommands = ['python', 'py'];
+  }
+
+  return pythonCommands[0]; // 単純化のため最初のコマンドを返す
+}
+
+/**
+ * Pythonプロセスを初期化
+ * @returns {Promise<boolean>} 初期化成功時はtrue
+ */
+async function initialize() {
+  if (isInitialized && pythonProcess) {
+    return true;
+  }
+
+  try {
+    const pythonScript = getPythonScriptPath('python_server.py');
+    const pythonInterpreter = getPythonInterpreter();
+
+    log.info(`Pythonサーバーを起動します: ${pythonInterpreter} ${pythonScript}`);
+
+    // Pythonプロセスを起動
+    pythonProcess = spawn(pythonInterpreter, [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
+
+    // 標準出力ハンドラ
+    pythonProcess.stdout.on('data', handlePythonMessage);
+
+    // 標準エラーハンドラ
+    pythonProcess.stderr.on('data', handlePythonError);
+
+    // プロセス終了ハンドラ
+    pythonProcess.on('close', handlePythonExit);
+
+    // 環境チェック
+    const checkResult = await sendRequest('check_environment', {});
+
+    if (checkResult.status === 'missing_dependencies') {
+      log.info('必要なPythonパッケージをインストールします...');
+      const setupResult = await sendRequest('setup_environment', {});
+
+      if (!setupResult.success) {
+        log.error('Pythonパッケージのインストールに失敗しました:', setupResult.message);
+        return false;
+      }
+
+      log.info('Pythonパッケージのインストールが完了しました:', setupResult.message);
+    }
+
+    isInitialized = true;
+    log.info('Pythonブリッジを初期化しました');
+    return true;
+  } catch (error) {
+    log.error('Pythonブリッジの初期化に失敗しました:', error);
+    return false;
+  }
+}
+
+/**
+ * Python処理サーバーにリクエストを送信
+ * @param {string} command コマンド名
+ * @param {object} params パラメータ
+ * @returns {Promise<any>} レスポンス
+ */
+function sendRequest(command, params = {}) {
+  return new Promise((resolve, reject) => {
+    if (!pythonProcess || pythonProcess.killed) {
+      reject(new Error('Pythonプロセスが実行されていません'));
+      return;
+    }
+
+    // リクエストID生成
+    const requestId = `req_${Date.now()}_${requestCounter++}`;
+
+    // リクエストオブジェクト作成
+    const request = {
+      id: requestId,
+      command,
+      ...params
+    };
+
+    // コールバックを保存
+    pendingRequests.set(requestId, { resolve, reject });
+
+    // タイムアウト設定
+    const timeoutMs = params.timeout || 30000; // デフォルト30秒
+    const timeoutId = setTimeout(() => {
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
+        reject(new Error(`リクエストがタイムアウトしました: ${command}`));
+      }
+    }, timeoutMs);
+
+    // プロミス完了時にタイムアウトをクリア
+    const clearTimeoutAndForward = (result) => {
+      clearTimeout(timeoutId);
+      return result;
+    };
+
+    // プロミスにタイムアウトクリアを追加
+    const originalResolve = pendingRequests.get(requestId).resolve;
+    pendingRequests.set(requestId, {
+      resolve: (value) => {
+        clearTimeout(timeoutId);
+        originalResolve(value);
+      },
+      reject: (reason) => {
+        clearTimeout(timeoutId);
+        reject(reason);
+      }
+    });
+
+    try {
+      // JSONリクエストをPythonプロセスに送信
+      const requestString = JSON.stringify(request) + '\n';
+      pythonProcess.stdin.write(requestString);
+    } catch (error) {
+      pendingRequests.delete(requestId);
+      clearTimeout(timeoutId);
+      reject(error);
+    }
+  });
+}
+
+/**
+ * リソースをクリーンアップし、Pythonプロセスを終了
+ */
+async function shutdown() {
+  isShuttingDown = true;
+
+  if (pythonProcess && !pythonProcess.killed) {
+    try {
+      // 正常終了をリクエスト
+      await sendRequest('exit');
+    } catch (error) {
+      log.warn('Pythonプロセスの正常終了に失敗しました:', error);
+    }
+
+    // 強制終了
+    try {
+      pythonProcess.kill();
+    } catch (error) {
+      log.error('Pythonプロセスの強制終了に失敗しました:', error);
+    }
+  }
+
+  // リソースのクリーンアップ
+  pythonProcess = null;
+  isInitialized = false;
+  isShuttingDown = false;
+
+  log.info('Pythonブリッジをシャットダウンしました');
+}
 
 /**
  * 画像の主要な色を抽出する
@@ -13,20 +239,8 @@ const pythonBridge = require('../../../python_bridge');
  * @returns {Promise<Array>} 抽出された色の配列
  */
 const extractColorsFromImage = async (imageBase64) => {
-  try {
-    if (!imageBase64) {
-      return [];
-    }
-
-    // Python処理に委譲
-    const colors = await pythonBridge.extractColorsFromImage(imageBase64);
-
-    // 古いインターフェースに合わせて結果を変換
-    return colors.map(color => color.rgb);
-  } catch (error) {
-    console.error("色抽出エラー:", error);
-    return [];
-  }
+  await initialize();
+  return sendRequest('extract_colors', { image_data: imageBase64 });
 };
 
 /**
@@ -35,18 +249,8 @@ const extractColorsFromImage = async (imageBase64) => {
  * @returns {Promise<string>} 抽出されたテキスト
  */
 const extractTextFromImage = async (imageBase64) => {
-  try {
-    if (!imageBase64) {
-      return '';
-    }
-
-    // Python処理に委譲
-    const text = await pythonBridge.extractTextFromImage(imageBase64);
-    return text;
-  } catch (error) {
-    console.error("テキスト抽出エラー:", error);
-    return 'OCR処理中にエラーが発生しました。';
-  }
+  await initialize();
+  return sendRequest('extract_text', { image_data: imageBase64 });
 };
 
 /**
@@ -55,27 +259,8 @@ const extractTextFromImage = async (imageBase64) => {
  * @returns {Promise<Array>} セクション分析結果
  */
 const analyzeImageSections = async (imageBase64) => {
-  try {
-    if (!imageBase64) {
-      return [];
-    }
-
-    // Python処理に委譲
-    const sections = await pythonBridge.analyzeImageSections(imageBase64);
-
-    // 古いインターフェースに合わせて結果を変換
-    return sections.map(section => ({
-      section: section.section,
-      position: {
-        top: section.position.top,
-        height: section.position.height
-      },
-      dominantColor: section.dominantColor ? section.dominantColor.rgb : 'rgb(255,255,255)'
-    }));
-  } catch (error) {
-    console.error("セクション分析エラー:", error);
-    return [];
-  }
+  await initialize();
+  return sendRequest('analyze_sections', { image_data: imageBase64 });
 };
 
 /**
@@ -84,36 +269,8 @@ const analyzeImageSections = async (imageBase64) => {
  * @returns {Promise<Object>} - レイアウトタイプとその確信度を含むオブジェクト
  */
 const analyzeLayoutPattern = async (imagePath) => {
-  try {
-    if (!imagePath) {
-      return getDefaultLayoutResult();
-    }
-
-    // Python処理に委譲
-    const layoutResult = await pythonBridge.analyzeLayoutPattern(imagePath);
-
-    // 古いインターフェースに合わせて結果を変換
-    return {
-      layoutType: layoutResult.layoutType,
-      confidence: layoutResult.confidence,
-      patterns: {},
-      layoutDetails: {
-        dimensions: layoutResult.layoutDetails.dimensions,
-        sections: await analyzeImageSections(imagePath),
-        elements: [],
-        styles: {
-          colors: await extractColorsFromImage(imagePath),
-          typography: {},
-          spacing: {},
-          layout: {}
-        },
-        text: await extractTextFromImage(imagePath)
-      }
-    };
-  } catch (error) {
-    console.error('レイアウトパターン分析中にエラーが発生しました:', error);
-    return getDefaultLayoutResult();
-  }
+  await initialize();
+  return sendRequest('analyze_layout', { image_data: imagePath });
 };
 
 /**
@@ -122,26 +279,8 @@ const analyzeLayoutPattern = async (imagePath) => {
  * @returns {Promise<Object>} - 検出された要素の情報
  */
 const detectFeatureElements = async (imagePath) => {
-  try {
-    if (!imagePath) {
-      return getDefaultElementsResult();
-    }
-
-    // Python処理に委譲
-    const elementsResult = await pythonBridge.detectFeatureElements(imagePath);
-
-    // レイアウト分析も取得してマージ
-    const layoutAnalysis = await analyzeLayoutPattern(imagePath);
-
-    return {
-      layoutType: elementsResult.layoutType,
-      layoutConfidence: elementsResult.layoutConfidence,
-      elements: elementsResult.elements
-    };
-  } catch (error) {
-    console.error('要素検出中にエラーが発生しました:', error);
-    return getDefaultElementsResult();
-  }
+  await initialize();
+  return sendRequest('detect_elements', { image_data: imagePath });
 };
 
 /**
@@ -150,103 +289,8 @@ const detectFeatureElements = async (imagePath) => {
  * @returns {Promise<Object>} - 検出されたセクション情報
  */
 const detectMainSections = async (imagePath) => {
-  try {
-    // レイアウト分析を利用
-    const layoutAnalysis = await analyzeLayoutPattern(imagePath);
-    const elementsResult = await detectFeatureElements(imagePath);
-
-    // 基本情報
-    const result = {
-      dimensions: layoutAnalysis.layoutDetails.dimensions,
-      layoutType: layoutAnalysis.layoutType,
-      layoutConfidence: layoutAnalysis.confidence
-    };
-
-    // レイアウトタイプに基づいた詳細情報を追加
-    switch (layoutAnalysis.layoutType) {
-      case "two-column":
-        result.header = {
-          exists: true,
-          height: Math.round(result.dimensions.height * 0.15),
-          alignment: "center",
-          hasTitle: true,
-          hasSubtitle: true
-        };
-
-        // 要素データから画像位置を特定
-        const imageElement = elementsResult.elements.find(el => el.type === "image-column");
-        const imagePosition = imageElement ? "left" : "right"; // 単純化
-
-        result.mainContent = {
-          layout: "two-column",
-          imagePosition: imagePosition,
-          textPosition: imagePosition === "left" ? "right" : "left",
-          hasTitle: true,
-          titlePosition: imagePosition === "left" ? "right" : "left",
-          hasSubtitle: true,
-          hasText: true,
-          hasButton: true,
-          buttonPosition: imagePosition === "left" ? "right" : "left",
-          imageWidth: "50%",
-          textWidth: "50%"
-        };
-
-        result.footer = {
-          exists: false
-        };
-        break;
-
-      case "card-grid":
-        result.header = {
-          exists: true,
-          height: Math.round(result.dimensions.height * 0.15),
-          alignment: "center",
-          hasTitle: true,
-          hasSubtitle: false
-        };
-
-        result.mainContent = {
-          layout: "card-grid",
-          cardCount: elementsResult.elements.filter(el => el.type === "card").length,
-          cardsPerRow: 3, // 推定値
-          hasTitle: true,
-          hasImage: true,
-          hasText: true,
-          cardWidth: "30%",
-          cardHeight: "auto"
-        };
-
-        result.footer = {
-          exists: false
-        };
-        break;
-
-      // 他のレイアウトタイプも同様に処理
-      default:
-        result.header = {
-          exists: true,
-          height: Math.round(result.dimensions.height * 0.15),
-          alignment: "center",
-          hasTitle: true,
-          hasSubtitle: false
-        };
-
-        result.mainContent = {
-          layout: "custom",
-          hasTitle: true,
-          hasText: true
-        };
-
-        result.footer = {
-          exists: false
-        };
-    }
-
-    return result;
-  } catch (error) {
-    console.error('メインセクション検出中にエラーが発生しました:', error);
-    return getDefaultMainSectionsResult();
-  }
+  await initialize();
+  return sendRequest('detect_main_sections', { image_data: imagePath });
 };
 
 /**
@@ -255,93 +299,29 @@ const detectMainSections = async (imagePath) => {
  * @returns {Promise<Object>} - カード要素の情報
  */
 const detectCardElements = async (imagePath) => {
-  try {
-    // 要素検出を利用
-    const elementsResult = await detectFeatureElements(imagePath);
-
-    // カード要素のみをフィルタリング
-    const cardElements = elementsResult.elements.filter(element =>
-      element.type === "card"
-    );
-
-    return {
-      cardCount: cardElements.length,
-      cards: cardElements.map((card, index) => ({
-        id: `card-${index + 1}`,
-        position: card.position,
-        hasImage: card.children && card.children.some(child => child.type === "image"),
-        hasTitle: card.children && card.children.some(child => child.type === "heading"),
-        hasText: card.children && card.children.some(child => child.type === "text"),
-        hasButton: card.children && card.children.some(child => child.type === "button")
-      }))
-    };
-  } catch (error) {
-    console.error('カード要素検出中にエラーが発生しました:', error);
-    return {
-      cardCount: 0,
-      cards: []
-    };
-  }
+  await initialize();
+  return sendRequest('detect_card_elements', { image_data: imagePath });
 };
 
-// デフォルト結果を返すヘルパー関数
-const getDefaultLayoutResult = () => {
-  return {
-    layoutType: "unknown",
-    confidence: 0.6,
-    patterns: {},
-    layoutDetails: {
-      dimensions: { width: 1200, height: 800, aspectRatio: 1.5 },
-      sections: [],
-      elements: [],
-      styles: {
-        colors: [],
-        typography: {},
-        spacing: {},
-        layout: {}
-      },
-      text: ''
-    }
-  };
+/**
+ * 画像の総合分析
+ * @param {string} imageBase64 Base64エンコードされた画像データ
+ * @param {object} options オプション
+ * @returns {Promise<object>} 画像分析結果
+ */
+const analyzeImage = async (imageBase64, options = {}) => {
+  await initialize();
+  return sendRequest('analyze_all', { image_data: imageBase64, options });
 };
 
-const getDefaultElementsResult = () => {
-  return {
-    layoutType: "unknown",
-    layoutConfidence: 0.5,
-    elements: []
-  };
-};
-
-const getDefaultMainSectionsResult = () => {
-  return {
-    dimensions: {
-      width: 1200,
-      height: 800,
-      aspectRatio: 1.5
-    },
-    layoutType: "unknown",
-    layoutConfidence: 0.5,
-    header: {
-      exists: false
-    },
-    mainContent: {
-      layout: "custom"
-    },
-    footer: {
-      exists: false
-    }
-  };
-};
-
-// Python環境のチェックとセットアップ
-const checkPythonEnvironment = async () => {
-  return await pythonBridge.checkPythonEnvironment();
-};
-
-const setupPythonEnvironment = async () => {
-  return await pythonBridge.setupPythonEnvironment();
-};
+// アプリ終了時にクリーンアップを実行
+if (app) {
+  app.on('will-quit', async (event) => {
+    event.preventDefault();
+    await shutdown();
+    app.exit();
+  });
+}
 
 // 元のimageAnalyzer.jsと同じインターフェースでエクスポート
 module.exports = {
@@ -352,6 +332,5 @@ module.exports = {
   detectCardElements,
   detectFeatureElements,
   analyzeLayoutPattern,
-  checkPythonEnvironment,
-  setupPythonEnvironment
+  analyzeImage
 };
