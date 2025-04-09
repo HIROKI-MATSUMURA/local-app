@@ -10,6 +10,7 @@ require('dotenv').config();
 
 // プロジェクト設定ファイルのパスを定義
 const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
+const ACTIVE_PROJECT_PATH = path.join(app.getPath('userData'), 'active-project.json');
 
 // ハードコードされたAPIキー
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -429,6 +430,34 @@ function unwatchProjectFiles(projectId) {
   if (watcher) {
     watcher.close();
     projectWatchers.delete(projectId);
+  }
+}
+
+// アクティブプロジェクトIDの保存
+async function saveActiveProjectId(projectId) {
+  try {
+    await fs.promises.writeFile(ACTIVE_PROJECT_PATH, JSON.stringify({ activeProjectId: projectId }));
+    console.log('アクティブプロジェクトIDを保存しました:', projectId);
+    return true;
+  } catch (error) {
+    console.error('アクティブプロジェクトIDの保存に失敗:', error);
+    return false;
+  }
+}
+
+// アクティブプロジェクトIDの読み込み
+async function loadActiveProjectId() {
+  try {
+    if (fs.existsSync(ACTIVE_PROJECT_PATH)) {
+      const data = await fs.promises.readFile(ACTIVE_PROJECT_PATH, 'utf8');
+      const { activeProjectId } = JSON.parse(data);
+      console.log('アクティブプロジェクトIDを読み込みました:', activeProjectId);
+      return activeProjectId;
+    }
+    return null;
+  } catch (error) {
+    console.error('アクティブプロジェクトIDの読み込みに失敗:', error);
+    return null;
   }
 }
 
@@ -1175,54 +1204,75 @@ $mediaquerys: (
   });
 
   // プロジェクト設定の読み込み
-  function loadProjectsConfig() {
+  async function loadProjectSettings(projectId) {
     try {
-      console.log('プロジェクト設定を読み込みます:', PROJECTS_CONFIG_PATH);
-
-      if (fs.existsSync(PROJECTS_CONFIG_PATH)) {
-        const data = fs.readFileSync(PROJECTS_CONFIG_PATH, 'utf8');
-        console.log('プロジェクト設定を読み込みました:', data);
-        const config = JSON.parse(data);
-        return {
-          projects: Array.isArray(config.projects) ? config.projects : [],
-          activeProjectId: config.activeProjectId || null
-        };
+      if (!projectId) {
+        console.error('プロジェクトIDが指定されていません');
+        return null;
       }
 
-      console.log('プロジェクト設定ファイルが存在しないため、新規作成します');
-      const defaultConfig = { projects: [], activeProjectId: null };
-      saveProjectsConfig(defaultConfig);
-      return defaultConfig;
+      const projectDir = path.join(app.getPath('userData'), 'projects');
+      const projectFilePath = path.join(projectDir, `${projectId}.json`);
+
+      if (!fs.existsSync(projectFilePath)) {
+        console.error(`プロジェクト設定ファイルが見つかりません: ${projectFilePath}`);
+        return null;
+      }
+
+      const data = await fs.promises.readFile(projectFilePath, 'utf8');
+      const projectSettings = JSON.parse(data);
+
+      // 必要なプロパティが不足している場合は追加
+      if (!projectSettings.created) {
+        projectSettings.created = new Date().toISOString();
+      }
+      if (!projectSettings.lastModified) {
+        projectSettings.lastModified = new Date().toISOString();
+      }
+      if (!projectSettings.lastAccessed) {
+        projectSettings.lastAccessed = new Date().toISOString();
+      }
+      if (!projectSettings.version) {
+        projectSettings.version = '0.1.0';
+      }
+      if (!projectSettings.versionHistory) {
+        projectSettings.versionHistory = [{
+          version: '0.1.0',
+          date: projectSettings.created,
+          description: '初期バージョン'
+        }];
+      }
+      if (projectSettings.isArchived === undefined) {
+        projectSettings.isArchived = false;
+      }
+
+      return projectSettings;
     } catch (error) {
       console.error('プロジェクト設定の読み込みに失敗:', error);
-      return { projects: [], activeProjectId: null };
+      return null;
     }
   }
 
   // プロジェクト設定の保存
-  function saveProjectsConfig(config) {
+  async function saveProjectSettings(project) {
     try {
-      console.log('プロジェクト設定を保存します:', config);
-
-      const dir = path.dirname(PROJECTS_CONFIG_PATH);
-      if (!fs.existsSync(dir)) {
-        console.log('設定ディレクトリを作成します:', dir);
-        fs.mkdirSync(dir, { recursive: true });
+      if (!project || !project.id) {
+        console.error('有効なプロジェクトオブジェクトが指定されていません');
+        return false;
       }
 
-      // 設定データの検証と正規化
-      const validConfig = {
-        projects: Array.isArray(config.projects) ? config.projects.map(project => ({
-          id: project.id || uuidv4(),
-          name: project.name || '未命名のプロジェクト',
-          path: project.path || '',
-          settings: project.settings || {}
-        })) : [],
-        activeProjectId: config.activeProjectId || (config.projects && config.projects.length > 0 ? config.projects[0].id : null)
-      };
+      const projectDir = path.join(app.getPath('userData'), 'projects');
+      await fs.promises.mkdir(projectDir, { recursive: true });
 
-      // 設定ファイルの保存
-      fs.writeFileSync(PROJECTS_CONFIG_PATH, JSON.stringify(validConfig, null, 2));
+      const projectFilePath = path.join(projectDir, `${project.id}.json`);
+
+      // 最終更新日時を設定
+      if (!project.lastModified) {
+        project.lastModified = new Date().toISOString();
+      }
+
+      await fs.promises.writeFile(projectFilePath, JSON.stringify(project, null, 2));
+      console.log(`プロジェクト設定を保存しました: ${projectFilePath}`);
       return true;
     } catch (error) {
       console.error('プロジェクト設定の保存に失敗:', error);
@@ -1230,24 +1280,81 @@ $mediaquerys: (
     }
   }
 
+  // プロジェクト設定の削除
+  async function deleteProjectSettings(projectId) {
+    try {
+      const projectDir = path.join(app.getPath('userData'), 'projects');
+      const projectFilePath = path.join(projectDir, `${projectId}.json`);
+
+      if (fs.existsSync(projectFilePath)) {
+        await fs.promises.unlink(projectFilePath);
+        console.log(`プロジェクト設定を削除しました: ${projectFilePath}`);
+        return true;
+      } else {
+        console.log(`プロジェクト設定ファイルが見つかりません: ${projectFilePath}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('プロジェクト設定の削除に失敗:', error);
+      return false;
+    }
+  }
+
+  // プロジェクト一覧の読み込み
+  async function loadProjectsConfig() {
+    try {
+      if (!fs.existsSync(PROJECTS_CONFIG_PATH)) {
+        return { projects: [] };
+      }
+
+      const data = await fs.promises.readFile(PROJECTS_CONFIG_PATH, 'utf8');
+      const config = JSON.parse(data);
+
+      // 各プロジェクトに不足しているプロパティを追加
+      if (config.projects && Array.isArray(config.projects)) {
+        config.projects = config.projects.map(project => {
+          if (!project.created) {
+            project.created = new Date().toISOString();
+          }
+          if (!project.lastModified) {
+            project.lastModified = new Date().toISOString();
+          }
+          if (!project.lastAccessed) {
+            project.lastAccessed = new Date().toISOString();
+          }
+          if (!project.version) {
+            project.version = '0.1.0';
+          }
+          if (!project.versionHistory) {
+            project.versionHistory = [{
+              version: '0.1.0',
+              date: project.created,
+              description: '初期バージョン'
+            }];
+          }
+          if (project.isArchived === undefined) {
+            project.isArchived = false;
+          }
+          return project;
+        });
+      }
+
+      return config;
+    } catch (error) {
+      console.error('プロジェクト一覧の読み込みに失敗:', error);
+      return { projects: [] };
+    }
+  }
+
   // プロジェクト管理関連のIPCハンドラー
   ipcMain.handle('load-projects-config', async () => {
-    const config = loadProjectsConfig();
+    const config = await loadProjectsConfig();
     return config;
   });
 
   ipcMain.handle('save-project-settings', async (event, project) => {
     try {
-      const config = loadProjectsConfig();
-      const existingIndex = config.projects.findIndex(p => p.id === project.id);
-
-      if (existingIndex >= 0) {
-        config.projects[existingIndex] = project;
-      } else {
-        config.projects.push(project);
-      }
-
-      return saveProjectsConfig(config);
+      return await saveProjectSettings(project);
     } catch (error) {
       console.error('プロジェクト設定の保存中にエラーが発生:', error);
       return false;
@@ -1255,19 +1362,11 @@ $mediaquerys: (
   });
 
   ipcMain.handle('load-project-settings', async (event, projectId) => {
-    const config = loadProjectsConfig();
-    return config.projects.find(p => p.id === projectId);
+    return await loadProjectSettings(projectId);
   });
 
   ipcMain.handle('delete-project-settings', async (event, projectId) => {
-    const config = loadProjectsConfig();
-    config.projects = config.projects.filter(p => p.id !== projectId);
-
-    if (config.activeProjectId === projectId) {
-      config.activeProjectId = config.projects[0]?.id || null;
-    }
-
-    return saveProjectsConfig(config);
+    return await deleteProjectSettings(projectId);
   });
 
   ipcMain.handle('open-project-dialog', async () => {
@@ -1319,5 +1418,15 @@ $mediaquerys: (
   // プロジェクトファイルの監視解除
   ipcMain.handle('unwatchProjectFiles', async (event, projectId) => {
     return unwatchProjectFiles(projectId);
+  });
+
+  // アクティブプロジェクトIDの保存
+  ipcMain.handle('save-active-project-id', async (event, projectId) => {
+    return await saveActiveProjectId(projectId);
+  });
+
+  // アクティブプロジェクトIDの読み込み
+  ipcMain.handle('load-active-project-id', async () => {
+    return await loadActiveProjectId();
   });
 }

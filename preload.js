@@ -145,6 +145,9 @@ try {
     loadProjectSettings: (projectId) => ipcRenderer.invoke('load-project-settings', projectId),
     deleteProjectSettings: (projectId) => ipcRenderer.invoke('delete-project-settings', projectId),
     loadProjectsConfig: () => ipcRenderer.invoke('load-projects-config'),
+    // アクティブプロジェクトIDの保存と読み込み
+    saveActiveProjectId: (projectId) => ipcRenderer.invoke('save-active-project-id', projectId),
+    loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),
     // プロジェクトファイル監視
     watchProjectFiles: (projectId) => ipcRenderer.invoke('watchProjectFiles', projectId),
     unwatchProjectFiles: (projectId) => ipcRenderer.invoke('unwatchProjectFiles', projectId),
