@@ -12,20 +12,15 @@ export default defineConfig({
   build: {
     outDir: '../../dist',
     emptyOutDir: true,
-    assetsDir: 'assets',
-    // ソースマップの生成
-    sourcemap: true,
-    // CSSを別ファイルとして抽出
-    cssCodeSplit: true,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'src/electron/index.html'),
       },
       output: {
-        // チャンクのファイル名を設定
-        entryFileNames: 'assets/[name].[hash].js',
-        chunkFileNames: 'assets/[name].[hash].js',
-        assetFileNames: 'assets/[name].[hash].[ext]'
+        format: 'es',
+        entryFileNames: '[name].[hash].js',
+        chunkFileNames: '[name].[hash].js',
+        assetFileNames: '[name].[hash].[ext]'
       },
     },
   },
@@ -36,15 +31,25 @@ export default defineConfig({
       '@styles': path.resolve(__dirname, 'src/electron/styles'),
     },
   },
-  // CSSの設定を追加
-  css: {
-    devSourcemap: true,
-    modules: {
-      localsConvention: 'camelCase'
+  server: {
+    port: 3000,
+    strictPort: true,
+    headers: {
+      'Content-Type': 'application/javascript',
+      'Access-Control-Allow-Origin': '*'
+    },
+    middlewareMode: false,
+    fs: {
+      strict: false,
+      allow: ['..']
+    },
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost'
     }
   },
-  // 静的アセットの設定を追加
-  publicDir: 'src/electron/public',
-  // アセットのパス解決を追加
-  assetsInclude: ['**/*.css'],
+  optimizeDeps: {
+    include: ['react', 'react-dom'],
+    exclude: ['vite']
+  }
 });

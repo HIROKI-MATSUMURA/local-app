@@ -1,11 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './electron/components/App';
+import App from './components/App';
 
 // アプリケーション用スタイルのインポート
-import './electron/styles/css/main.css';
-import './electron/styles/css/components.css';
-import './electron/styles/App.scss';
+import './styles/css/main.css';
+import './styles/css/components.css';
+import './styles/App.scss';
 
 // window.apiがあるかチェック（Electron環境の場合）
 const isElectronContext = typeof window !== 'undefined' && window.api;
