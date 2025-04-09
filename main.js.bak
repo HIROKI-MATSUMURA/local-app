@@ -324,12 +324,12 @@ app.whenReady().then(async () => {
 
     // ファイル存在確認と強制作成（同期的に確実に実行）
     // カテゴリファイル
-    const defaultCategories = ['制作会社', 'コミュニティ', 'エンド'];
+    const defaultCategories = ['uncategorized', 'work', 'personal'];
     fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
     console.log('カテゴリファイルを作成/更新しました:', defaultCategories);
 
     // タグファイル
-    const defaultTags = ['A社', 'B社'];
+    const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
     fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
     console.log('タグファイルを作成/更新しました:', defaultTags);
 
@@ -593,6 +593,7 @@ async function saveTags(tags) {
 }
 
 // 選択中のカテゴリを保存するパス
+const SELECTED_CATEGORY_PATH = path.join(app.getPath('userData'), 'selected-category.json');
 
 // 選択中のカテゴリを保存
 async function saveSelectedCategory(category) {
@@ -627,6 +628,7 @@ async function loadSelectedCategory() {
 }
 
 // 選択中のタグを保存するパス
+const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.json');
 
 // 選択中のタグを保存
 async function saveSelectedTags(tags) {

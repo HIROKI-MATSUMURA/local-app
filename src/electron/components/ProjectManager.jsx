@@ -18,6 +18,23 @@ const ProjectManager = ({ onProjectChange }) => {
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [projectToArchive, setProjectToArchive] = useState(null);
 
+  // カテゴリとタグの状態管理
+  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [showTagsDialog, setShowTagsDialog] = useState(false);
+  const [projectForTags, setProjectForTags] = useState(null);
+  const [tagsInput, setTagsInput] = useState('');
+  const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState(null);
+  const [showManageTagsDialog, setShowManageTagsDialog] = useState(false);
+
+  // カテゴリとタグのローディング状態を追跡
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+
   // window.apiの状態をチェック
   useEffect(() => {
     console.log('window.api の状態:', {
@@ -36,46 +53,187 @@ const ProjectManager = ({ onProjectChange }) => {
     }
   };
 
-  // 初期プロジェクトの読み込み
+  // カテゴリとタグ管理
   useEffect(() => {
-    console.log('初期プロジェクト読み込みの useEffect が実行されました');
+    const loadCategoriesAndTagsData = async () => {
+      console.log('=== カテゴリとタグの読み込み処理開始 ===');
+      console.log('window.api状態:', window.api ? 'API使用可能' : 'API未定義');
+
+      if (!window.api) {
+        console.error('ERROR: window.api が見つかりません。カテゴリとタグを読み込めません');
+        // デフォルト値でフォールバック
+        setCategories(['uncategorized', 'work', 'personal']);
+        setTags(['important', 'urgent', 'in-progress', 'completed']);
+        setCategoriesLoaded(true);
+        return;
+      }
+
+      console.log('API関数確認:', {
+        loadCategories: typeof window.api.loadCategories === 'function',
+        saveCategories: typeof window.api.saveCategories === 'function',
+        loadTags: typeof window.api.loadTags === 'function',
+        saveTags: typeof window.api.saveTags === 'function',
+        loadSelectedCategory: typeof window.api.loadSelectedCategory === 'function',
+        loadSelectedTags: typeof window.api.loadSelectedTags === 'function'
+      });
+
+      try {
+        console.log('カテゴリとタグのデータを読み込み開始...');
+
+        // カテゴリの読み込み
+        console.log('カテゴリ読み込み処理を開始...');
+        let savedCategories;
+        try {
+          savedCategories = await window.api.loadCategories();
+          console.log('カテゴリ読み込み結果:', savedCategories);
+        } catch (categoryLoadError) {
+          console.error('カテゴリ読み込み中にエラー発生:', categoryLoadError);
+          savedCategories = null;
+        }
+
+        if (savedCategories && Array.isArray(savedCategories)) {
+          console.log('保存されたカテゴリを正常に読み込みました:', savedCategories);
+          setCategories(savedCategories);
+        } else {
+          console.log('保存されたカテゴリが見つからないか配列でないため、デフォルト値を使用します:', savedCategories);
+          // デフォルトカテゴリ
+          const defaultCategories = ['uncategorized', 'work', 'personal'];
+          setCategories(defaultCategories);
+
+          try {
+            console.log('デフォルトカテゴリを保存します:', defaultCategories);
+            const saveResult = await window.api.saveCategories(defaultCategories);
+            console.log('デフォルトカテゴリを保存しました。結果:', saveResult);
+          } catch (saveError) {
+            console.error('デフォルトカテゴリの保存に失敗しました:', saveError);
+          }
+        }
+
+        // タグの読み込み
+        console.log('タグ読み込み処理を開始...');
+        let savedTags;
+        try {
+          savedTags = await window.api.loadTags();
+          console.log('タグ読み込み結果:', savedTags);
+        } catch (tagLoadError) {
+          console.error('タグ読み込み中にエラー発生:', tagLoadError);
+          savedTags = null;
+        }
+
+        if (savedTags && Array.isArray(savedTags)) {
+          console.log('保存されたタグを正常に読み込みました:', savedTags);
+          setTags(savedTags);
+        } else {
+          console.log('保存されたタグが見つからないか配列でないため、デフォルト値を使用します:', savedTags);
+          // デフォルトタグ
+          const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
+          setTags(defaultTags);
+
+          try {
+            console.log('デフォルトタグを保存します:', defaultTags);
+            const saveResult = await window.api.saveTags(defaultTags);
+            console.log('デフォルトタグを保存しました。結果:', saveResult);
+          } catch (saveError) {
+            console.error('デフォルトタグの保存に失敗しました:', saveError);
+          }
+        }
+
+        console.log('=== カテゴリとタグの読み込み完了 ===');
+        // カテゴリとタグの読み込みが完了したことを示す
+        setCategoriesLoaded(true);
+      } catch (error) {
+        console.error('カテゴリとタグの読み込み処理で例外が発生しました:', error);
+
+        // エラータイプに関する詳細情報を記録
+        console.error('エラータイプ:', error.constructor.name);
+        console.error('エラーメッセージ:', error.message);
+        console.error('エラースタック:', error.stack);
+
+        // エラー発生時にもデフォルト値を設定
+        const defaultCategories = ['uncategorized', 'work', 'personal'];
+        const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
+
+        setCategories(defaultCategories);
+        setTags(defaultTags);
+        setCategoriesLoaded(true);
+
+        try {
+          console.log('エラー回復: デフォルト値を保存します');
+          await window.api.saveCategories(defaultCategories);
+          await window.api.saveTags(defaultTags);
+          console.log('エラー回復: デフォルト値を保存しました');
+        } catch (saveError) {
+          console.error('エラー回復中に新たなエラーが発生しました:', saveError);
+        }
+      }
+    };
+
+    loadCategoriesAndTagsData();
+  }, []);
+
+  // 初期プロジェクトの読み込み - カテゴリとタグの読み込みが完了した後に実行
+  useEffect(() => {
+    console.log('初期プロジェクト読み込みの useEffect が実行されました、カテゴリ読み込み状態:', categoriesLoaded);
+
+    // カテゴリとタグが読み込まれた場合のみプロジェクト読み込みを実行
+    if (!categoriesLoaded) {
+      console.log('カテゴリとタグの読み込みが完了していないため、プロジェクト読み込みを待機します');
+      return;
+    }
 
     const loadInitialProjects = async () => {
       console.log('loadInitialProjects が呼び出されました');
       try {
-        const config = await window.api.loadProjectsConfig();
-        console.log('プロジェクト設定を読み込みました:', config);
+        console.log('プロジェクト設定を読み込みます...');
 
-        if (config && Array.isArray(config.projects)) {
-          setProjects(config.projects);
-
-          // 保存されているアクティブプロジェクトIDを読み込む
-          const savedActiveProjectId = await window.api.loadActiveProjectId();
+        // 保存されていたアクティブプロジェクトIDを読み込む
+        let savedActiveProjectId = null;
+        try {
+          savedActiveProjectId = await window.api.loadActiveProjectId();
           console.log('保存されていたアクティブプロジェクトID:', savedActiveProjectId);
+        } catch (error) {
+          console.error('アクティブプロジェクトIDの読み込みに失敗:', error);
+        }
 
-          if (savedActiveProjectId) {
-            const activeProject = config.projects.find(p => p.id === savedActiveProjectId);
-            if (activeProject) {
-              setActiveProjectId(savedActiveProjectId);
-              setActiveProjectSettings(activeProject.settings);
-              onProjectChange && onProjectChange(activeProject);
-              return;
+        // プロジェクト一覧を読み込む
+        const projectsConfig = await window.api.loadProjectsConfig();
+        console.log('プロジェクト設定を読み込みました:', projectsConfig);
+
+        // 各プロジェクトにカテゴリがなければuncategorizedをデフォルト設定
+        if (projectsConfig.projects && Array.isArray(projectsConfig.projects)) {
+          const updatedProjects = projectsConfig.projects.map(project => {
+            // カテゴリが未設定または空文字の場合、uncategorizedを設定
+            if (!project.category || project.category === '') {
+              console.log(`プロジェクト "${project.name || 'unnamed'}" にデフォルトカテゴリを適用: uncategorized`);
+              return {
+                ...project,
+                category: 'uncategorized'
+              };
+            }
+            return project;
+          });
+
+          // 変更があれば各プロジェクトを保存
+          for (const project of updatedProjects) {
+            if (!projectsConfig.projects.find(p => p.id === project.id)?.category && project.category === 'uncategorized') {
+              console.log(`プロジェクト "${project.name || 'unnamed'}" を更新保存します（カテゴリ: ${project.category}）`);
+              await window.api.saveProjectSettings(project);
             }
           }
 
-          // 保存されたアクティブプロジェクトが見つからない場合は最初のプロジェクトを選択
-          if (config.projects.length > 0) {
-            const firstProject = config.projects[0];
-            setActiveProjectId(firstProject.id);
-            setActiveProjectSettings(firstProject.settings);
-            onProjectChange && onProjectChange(firstProject);
-            await saveActiveProject(firstProject.id);
-          }
+          setProjects(updatedProjects);
         } else {
-          console.log('有効なプロジェクト設定が見つかりませんでした');
           setProjects([]);
-          setActiveProjectId(null);
-          setActiveProjectSettings(null);
+        }
+
+        // アクティブプロジェクトを設定
+        if (savedActiveProjectId) {
+          const activeProject = projectsConfig.projects?.find(p => p.id === savedActiveProjectId);
+          if (activeProject) {
+            setActiveProjectId(savedActiveProjectId);
+            if (onProjectChange) onProjectChange(activeProject);
+            console.log('プロジェクト変更:', activeProject);
+          }
         }
       } catch (error) {
         console.error('プロジェクト設定の読み込みに失敗:', error);
@@ -84,7 +242,8 @@ const ProjectManager = ({ onProjectChange }) => {
     };
 
     loadInitialProjects();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoriesLoaded]); // onProjectChangeを依存配列から削除
 
   // デフォルト設定の読み込み
   useEffect(() => {
@@ -180,41 +339,60 @@ const ProjectManager = ({ onProjectChange }) => {
   }, [activeProjectId, activeProjectSettings, projects]);
 
   // プロジェクト設定の初期化
-  const initializeProject = async (name, path) => {
-    const defaultSettings = await window.api.loadDefaultSettings();
-    return {
-      id: uuidv4(),
-      name,
-      path,
-      settings: defaultSettings || {
-        htmlGenerator: {
-          template: 'default',
-          options: {}
-        },
-        resetCss: {
-          enabled: true,
-          customRules: [],
-          vendorPrefixes: ['-webkit-', '-moz-', '-ms-']
-        },
-        responsive: {
-          breakpoints: {
-            mobile: '320px',
-            tablet: '768px',
-            desktop: '1024px'
-          }
-        },
-        variables: {
-          colors: {},
-          fonts: {},
-          spacing: {}
-        },
-        aiCodeGenerator: {
-          provider: 'claude',
-          model: 'claude-3-opus',
-          temperature: 0.7
-        }
+  const initializeProject = async (name, projectPath) => {
+    try {
+      console.log('プロジェクト初期化中:', { name, path: projectPath });
+
+      if (!projectPath) {
+        console.error('パスが指定されていません');
+        throw new Error('プロジェクトパスが指定されていません');
       }
-    };
+
+      // パスの最後の部分を取得（OSに依存しないように両方のパスセパレータで処理）
+      const getBaseName = (path) => {
+        const normalizedPath = path.replace(/\\/g, '/');
+        const parts = normalizedPath.split('/');
+        return parts[parts.length - 1] || '無名プロジェクト';
+      };
+
+      const defaultSettings = await window.api.loadDefaultSettings();
+      return {
+        id: uuidv4(),
+        name: name || getBaseName(projectPath),
+        path: projectPath,
+        settings: defaultSettings || {
+          htmlGenerator: {
+            template: 'default',
+            options: {}
+          },
+          resetCss: {
+            enabled: true,
+            customRules: [],
+            vendorPrefixes: ['-webkit-', '-moz-', '-ms-']
+          },
+          responsive: {
+            breakpoints: {
+              mobile: '320px',
+              tablet: '768px',
+              desktop: '1024px'
+            }
+          },
+          variables: {
+            colors: {},
+            fonts: {},
+            spacing: {}
+          },
+          aiCodeGenerator: {
+            provider: 'claude',
+            model: 'claude-3-opus',
+            temperature: 0.7
+          }
+        }
+      };
+    } catch (error) {
+      console.error('プロジェクト初期化エラー:', error);
+      throw error;
+    }
   };
 
   // プロジェクトのバージョン更新
@@ -253,47 +431,98 @@ const ProjectManager = ({ onProjectChange }) => {
   // プロジェクトの追加
   const addProject = async () => {
     try {
+      console.log('プロジェクト追加ダイアログを開始します');
+
       const result = await window.api.openProjectDialog();
-      if (result) {
-        const { filePath, name } = result;
-        const newProject = await initializeProject(name, filePath);
+      console.log('プロジェクト選択結果:', result);
 
-        // 既存のプロジェクトをチェック
-        const existingProject = projects.find(p => p.path === filePath);
-        if (existingProject) {
-          setError('選択されたフォルダは既にプロジェクトとして登録されています');
-          return;
-        }
-
-        const now = new Date().toISOString();
-        const completeProject = {
-          ...newProject,
-          created: now,
-          lastModified: now,
-          lastAccessed: now,
-          version: '0.1.0',
-          versionHistory: [
-            {
-              version: '0.1.0',
-              date: now,
-              description: '初期バージョン'
-            }
-          ],
-          isArchived: false
-        };
-
-        const updatedProjects = [...projects, completeProject];
-        setProjects(updatedProjects);
-
-        // プロジェクト設定を保存
-        await window.api.saveProjectSettings(completeProject);
-
-        // プロジェクトの切り替え
-        switchProject(completeProject.id);
+      if (!result) {
+        console.log('プロジェクト追加がキャンセルされました');
+        return;
       }
+
+      if (result.error) {
+        console.error('プロジェクト選択エラー:', result.message);
+        setError(`プロジェクト選択中にエラーが発生しました: ${result.message}`);
+        return;
+      }
+
+      const { path: projectPath, name } = result;
+
+      // 必須フィールドの検証
+      if (!projectPath) {
+        console.error('プロジェクトパスが指定されていません');
+        setError('プロジェクトパスが無効です');
+        return;
+      }
+
+      // 既存のプロジェクトをチェック（パスの正規化と厳密な比較）
+      const normalizedNewPath = projectPath.replace(/\\/g, '/').toLowerCase().trim();
+      console.log('正規化されたパス:', normalizedNewPath);
+
+      const existingProject = projects.find(p => {
+        if (!p.path) return false;
+        const normalizedExistingPath = (p.path || '').replace(/\\/g, '/').toLowerCase().trim();
+        const isMatch = normalizedExistingPath === normalizedNewPath;
+        if (isMatch) {
+          console.log('一致するプロジェクトが見つかりました:', p);
+        }
+        return isMatch;
+      });
+
+      if (existingProject) {
+        console.log('既存プロジェクトと衝突:', existingProject);
+        setError(`選択されたフォルダ「${name}」は既にプロジェクトとして登録されています`);
+        return;
+      }
+
+      console.log('新規プロジェクトを初期化します:', { name, path: projectPath });
+      const newProject = await initializeProject(name, projectPath);
+      console.log('プロジェクト初期化完了:', newProject);
+
+      const now = new Date().toISOString();
+      const completeProject = {
+        ...newProject,
+        created: now,
+        lastModified: now,
+        lastAccessed: now,
+        version: '0.1.0',
+        versionHistory: [
+          {
+            version: '0.1.0',
+            date: now,
+            description: '初期バージョン'
+          }
+        ],
+        isArchived: false,
+        category: 'uncategorized', // デフォルトカテゴリ
+        tags: [] // 空のタグリスト
+      };
+
+      const updatedProjects = [...projects, completeProject];
+      setProjects(updatedProjects);
+
+      // プロジェクト設定を保存
+      console.log('新規プロジェクト設定を保存します');
+      await window.api.saveProjectSettings(completeProject);
+      console.log('プロジェクト設定が保存されました');
+
+      // プロジェクトの切り替え
+      console.log('新規プロジェクトにスイッチします:', completeProject.id);
+      switchProject(completeProject.id);
+
+      // カテゴリのチェックと保存
+      if (!categories.includes('uncategorized')) {
+        console.log('uncategorizedカテゴリを追加します');
+        const updatedCategories = [...categories, 'uncategorized'];
+        setCategories(updatedCategories);
+        await window.api.saveCategories(updatedCategories);
+      }
+
+      console.log('プロジェクト追加が完了しました');
     } catch (error) {
       console.error('プロジェクトの追加に失敗:', error);
-      setError('プロジェクトの追加に失敗しました');
+      setError('プロジェクトの追加に失敗しました: ' + (error.message || '不明なエラー'));
     }
   };
 
@@ -320,7 +549,7 @@ const ProjectManager = ({ onProjectChange }) => {
         // プロジェクト設定を保存
         await window.api.saveProjectSettings(updatedProject);
         await saveActiveProject(projectId);
-        onProjectChange && onProjectChange(updatedProject);
+        if (onProjectChange) onProjectChange(updatedProject);
       }
     } catch (error) {
       console.error('プロジェクトの切り替えに失敗:', error);
@@ -344,12 +573,12 @@ const ProjectManager = ({ onProjectChange }) => {
           setActiveProjectId(firstProject.id);
           setActiveProjectSettings(firstProject.settings);
           await saveActiveProject(firstProject.id);
-          onProjectChange && onProjectChange(firstProject);
+          if (onProjectChange) onProjectChange(firstProject);
         } else {
           setActiveProjectId(null);
           setActiveProjectSettings(null);
           await saveActiveProject(null);
-          onProjectChange && onProjectChange(null);
+          if (onProjectChange) onProjectChange(null);
         }
       }
 
@@ -403,7 +632,7 @@ const ProjectManager = ({ onProjectChange }) => {
           setActiveProjectId(null);
           setActiveProjectSettings(null);
           await saveActiveProject(null);
-          onProjectChange && onProjectChange(null);
+          if (onProjectChange) onProjectChange(null);
         }
       }
 
@@ -455,9 +684,19 @@ const ProjectManager = ({ onProjectChange }) => {
   };
 
   // フィルタリングされたプロジェクトリスト
-  const filteredProjects = projects.filter(project =>
-    showArchived ? project.isArchived : !project.isArchived
-  );
+  const filteredProjects = projects.filter(project => {
+    // アーカイブフィルタ
+    const archiveFilter = showArchived ? project.isArchived : !project.isArchived;
+
+    // カテゴリフィルタ
+    const categoryFilter = selectedCategory === 'all' || project.category === selectedCategory;
+
+    // タグフィルタ
+    const tagFilter = selectedTags.length === 0 ||
+      (project.tags && selectedTags.every(tag => project.tags.includes(tag)));
+
+    return archiveFilter && categoryFilter && tagFilter;
+  });
 
   // プロジェクト設定の更新
   const updateProjectSettings = async (newSettings) => {
@@ -510,6 +749,356 @@ const ProjectManager = ({ onProjectChange }) => {
     }
   };
 
+  // カテゴリを削除
+  const deleteCategory = async (categoryName) => {
+    // protected categoriesは削除できない
+    const protectedCategories = ['uncategorized'];
+    if (protectedCategories.includes(categoryName)) {
+      setError('このカテゴリは削除できません');
+      return;
+    }
+
+    setCategoryToDelete(categoryName);
+    setShowDeleteCategoryDialog(true);
+    // ダイアログを表示するためにマネージダイアログを一時的に閉じる
+    setShowManageTagsDialog(false);
+  };
+
+  // タグを削除
+  const deleteTag = async (tagToDelete) => {
+    try {
+      // タグリストから削除
+      const updatedTags = tags.filter(tag => tag !== tagToDelete);
+      setTags(updatedTags);
+
+      // プロジェクトからそのタグを削除
+      const updatedProjects = projects.map(project => {
+        if (project.tags && project.tags.includes(tagToDelete)) {
+          return {
+            ...project,
+            tags: project.tags.filter(tag => tag !== tagToDelete),
+            lastModified: new Date().toISOString()
+          };
+        }
+        return project;
+      });
+
+      // プロジェクトリストを更新
+      setProjects(updatedProjects);
+
+      // 変更されたプロジェクトの設定を保存
+      const projectsToUpdate = updatedProjects.filter(project =>
+        project.tags &&
+        project.tags.filter(tag => tag !== tagToDelete).length !==
+        (project._originalTags || []).length
+      );
+
+      for (const project of projectsToUpdate) {
+        await window.api.saveProjectSettings(project);
+      }
+
+      // タグリストを保存
+      try {
+        await window.api.saveTags(updatedTags);
+        console.log('タグリストを更新しました:', updatedTags);
+      } catch (error) {
+        console.error('タグリストの保存に失敗:', error);
+      }
+
+      // 選択タグリストからも削除
+      setSelectedTags(selectedTags.filter(tag => tag !== tagToDelete));
+    } catch (error) {
+      console.error('タグの削除に失敗:', error);
+      setError('タグの削除に失敗しました');
+    }
+  };
+
+  // タグを削除（管理ダイアログから）
+  const deleteTagFromDialog = async (tagToDelete) => {
+    await deleteTag(tagToDelete);
+    // タグ削除後にダイアログを一旦閉じて再表示（リフレッシュ効果）
+    setShowManageTagsDialog(false);
+    setTimeout(() => setShowManageTagsDialog(true), 10);
+  };
+
+  // カテゴリ削除の確認
+  const confirmDeleteCategory = async () => {
+    try {
+      if (!categoryToDelete) return;
+
+      // カテゴリを削除
+      const updatedCategories = categories.filter(cat => cat !== categoryToDelete);
+      setCategories(updatedCategories);
+
+      // 該当カテゴリのプロジェクトを「uncategorized」に変更
+      const updatedProjects = projects.map(project => {
+        if (project.category === categoryToDelete) {
+          return {
+            ...project,
+            category: 'uncategorized',
+            lastModified: new Date().toISOString()
+          };
+        }
+        return project;
+      });
+
+      // プロジェクトリストを更新
+      setProjects(updatedProjects);
+
+      // 変更されたプロジェクトの設定を保存
+      for (const project of updatedProjects) {
+        if (project.category === 'uncategorized' && project.category !== categoryToDelete) {
+          await window.api.saveProjectSettings(project);
+        }
+      }
+
+      // カテゴリリストを保存
+      try {
+        await window.api.saveCategories(updatedCategories);
+        console.log('カテゴリリストを更新しました:', updatedCategories);
+      } catch (error) {
+        console.error('カテゴリリストの保存に失敗:', error);
+      }
+
+      // 選択カテゴリが削除された場合は「all」に戻す
+      if (selectedCategory === categoryToDelete) {
+        setSelectedCategory('all');
+      }
+
+      setShowDeleteCategoryDialog(false);
+      setCategoryToDelete(null);
+
+      // 管理ダイアログを閉じて再表示（リフレッシュ効果）
+      setShowManageTagsDialog(false);
+      setTimeout(() => setShowManageTagsDialog(true), 10);
+    } catch (error) {
+      console.error('カテゴリの削除に失敗:', error);
+      setError('カテゴリの削除に失敗しました');
+    }
+  };
+
+  // カテゴリを追加
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) {
+      setError('カテゴリ名を入力してください');
+      return;
+    }
+
+    const categoryName = newCategoryName.trim();
+
+    // 重複チェック
+    if (categories.includes(categoryName)) {
+      setError('同名のカテゴリが既に存在します');
+      return;
+    }
+
+    const updatedCategories = [...categories, categoryName];
+    setCategories(updatedCategories);
+    setNewCategoryName('');
+    setShowCategoryDialog(false);
+
+    // カテゴリを保存
+    try {
+      await window.api.saveCategories(updatedCategories);
+      console.log('カテゴリを保存しました:', updatedCategories);
+    } catch (error) {
+      console.error('カテゴリの保存に失敗:', error);
+      setError('カテゴリの保存に失敗しました');
+    }
+  };
+
+  // プロジェクトのカテゴリを変更
+  const changeProjectCategory = async (projectId, category) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    const updatedProject = {
+      ...project,
+      category,
+      lastModified: new Date().toISOString()
+    };
+
+    const updatedProjects = projects.map(p =>
+      p.id === projectId ? updatedProject : p
+    );
+    setProjects(updatedProjects);
+
+    // プロジェクト設定を保存
+    await window.api.saveProjectSettings(updatedProject);
+  };
+
+  // プロジェクトのタグを編集ダイアログを表示
+  const openTagsDialog = (project) => {
+    setProjectForTags(project);
+    setTagsInput(project.tags?.join(', ') || '');
+    setShowTagsDialog(true);
+  };
+
+  // プロジェクトのタグを保存
+  const saveProjectTags = async () => {
+    if (!projectForTags) return;
+
+    try {
+      // タグを処理（トリミング、重複除去）
+      const newTags = tagsInput
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 0)
+        .filter((tag, index, self) => self.indexOf(tag) === index);
+
+      const updatedProject = {
+        ...projectForTags,
+        tags: newTags,
+        lastModified: new Date().toISOString()
+      };
+
+      const updatedProjects = projects.map(p =>
+        p.id === projectForTags.id ? updatedProject : p
+      );
+      setProjects(updatedProjects);
+
+      // プロジェクト設定を保存
+      await window.api.saveProjectSettings(updatedProject);
+
+      // 新しいタグをグローバルタグリストに追加
+      const updatedTags = [...new Set([...tags, ...newTags])];
+      if (updatedTags.length !== tags.length) {
+        setTags(updatedTags);
+        await window.api.saveTags(updatedTags);
+        console.log('タグリストを保存しました:', updatedTags);
+      }
+
+      setShowTagsDialog(false);
+      setProjectForTags(null);
+      setTagsInput('');
+    } catch (error) {
+      console.error('タグの保存に失敗:', error);
+      setError('タグの保存に失敗しました');
+    }
+  };
+
+  // タグ管理ダイアログを表示
+  const openManageTagsDialog = () => {
+    setShowManageTagsDialog(true);
+  };
+
+  // カテゴリーとタグのプリセット状態を読み込む
+  useEffect(() => {
+    const loadSelectedStates = async () => {
+      console.log('=== 選択中カテゴリとタグの読み込み処理開始 ===');
+
+      if (!window.api) {
+        console.error('ERROR: window.api が見つかりません。選択状態を読み込めません');
+        return;
+      }
+
+      try {
+        // 選択中のカテゴリーを読み込む
+        console.log('選択中カテゴリの読み込み処理を開始...');
+        let savedSelectedCategory;
+        try {
+          savedSelectedCategory = await window.api.loadSelectedCategory();
+          console.log('選択中カテゴリの読み込み結果:', savedSelectedCategory);
+        } catch (categoryLoadError) {
+          console.error('選択中カテゴリの読み込み中にエラー発生:', categoryLoadError);
+          savedSelectedCategory = null;
+        }
+
+        if (savedSelectedCategory) {
+          console.log('保存された選択カテゴリをセット:', savedSelectedCategory);
+          setSelectedCategory(savedSelectedCategory);
+        } else {
+          console.log('選択カテゴリが見つからないため、デフォルト値(all)を使用');
+          setSelectedCategory('all');
+
+          try {
+            console.log('デフォルト選択カテゴリ(all)を保存');
+            await window.api.saveSelectedCategory('all');
+          } catch (saveError) {
+            console.error('デフォルト選択カテゴリの保存に失敗:', saveError);
+          }
+        }
+
+        // 選択中のタグを読み込む
+        console.log('選択中タグの読み込み処理を開始...');
+        let savedSelectedTags;
+        try {
+          savedSelectedTags = await window.api.loadSelectedTags();
+          console.log('選択中タグの読み込み結果:', savedSelectedTags);
+        } catch (tagsLoadError) {
+          console.error('選択中タグの読み込み中にエラー発生:', tagsLoadError);
+          savedSelectedTags = null;
+        }
+
+        if (savedSelectedTags && Array.isArray(savedSelectedTags)) {
+          console.log('保存された選択タグをセット:', savedSelectedTags);
+          setSelectedTags(savedSelectedTags);
+        } else {
+          console.log('選択タグが見つからないため、デフォルト値([])を使用');
+          setSelectedTags([]);
+
+          try {
+            console.log('デフォルト選択タグ([])を保存');
+            await window.api.saveSelectedTags([]);
+          } catch (saveError) {
+            console.error('デフォルト選択タグの保存に失敗:', saveError);
+          }
+        }
+
+        console.log('=== 選択中カテゴリとタグの読み込み完了 ===');
+      } catch (error) {
+        console.error('フィルター状態の読み込みに失敗:', error);
+        console.error('エラータイプ:', error.constructor.name);
+        console.error('エラーメッセージ:', error.message);
+        console.error('エラースタック:', error.stack);
+
+        // エラー時のデフォルト値
+        setSelectedCategory('all');
+        setSelectedTags([]);
+
+        try {
+          console.log('エラー回復: デフォルト選択状態を保存');
+          await window.api.saveSelectedCategory('all');
+          await window.api.saveSelectedTags([]);
+        } catch (saveError) {
+          console.error('エラー回復中の保存で新たなエラー:', saveError);
+        }
+      }
+    };
+
+    loadSelectedStates();
+  }, []);
+
+  // 選択カテゴリーが変更されたときに保存
+  useEffect(() => {
+    const saveSelectedCategory = async () => {
+      try {
+        console.log('選択カテゴリが変更されたので保存します:', selectedCategory);
+        await window.api.saveSelectedCategory(selectedCategory);
+        console.log('選択カテゴリを保存しました');
+      } catch (error) {
+        console.error('選択カテゴリーの保存に失敗:', error);
+      }
+    };
+
+    saveSelectedCategory();
+  }, [selectedCategory]);
+
+  // 選択タグが変更されたときに保存
+  useEffect(() => {
+    const saveSelectedTags = async () => {
+      try {
+        console.log('選択タグが変更されたので保存します:', selectedTags);
+        await window.api.saveSelectedTags(selectedTags);
+        console.log('選択タグを保存しました');
+      } catch (error) {
+        console.error('選択タグの保存に失敗:', error);
+      }
+    };
+
+    saveSelectedTags();
+  }, [selectedTags]);
+
   return (
     <div className={styles['project-manager']}>
       <h2>プロジェクト管理</h2>
@@ -520,19 +1109,81 @@ const ProjectManager = ({ onProjectChange }) => {
         </div>
       )}
 
-      <div className={styles['view-controls']}>
-        <button
-          className={`${styles['view-toggle']} ${!showArchived ? styles.active : ''}`}
-          onClick={() => setShowArchived(false)}
-        >
-          アクティブ
-        </button>
-        <button
-          className={`${styles['view-toggle']} ${showArchived ? styles.active : ''}`}
-          onClick={() => setShowArchived(true)}
-        >
-          アーカイブ済み
-        </button>
+      <div className={styles['filter-controls']}>
+        <div className={styles['view-controls']}>
+          <button
+            className={`${styles['view-toggle']} ${!showArchived ? styles.active : ''}`}
+            onClick={() => setShowArchived(false)}
+          >
+            アクティブ
+          </button>
+          <button
+            className={`${styles['view-toggle']} ${showArchived ? styles.active : ''}`}
+            onClick={() => setShowArchived(true)}
+          >
+            アーカイブ済み
+          </button>
+        </div>
+
+        <div className={styles['categories-filter']}>
+          <div className={styles['categories-header']}>
+            <h4>カテゴリ</h4>
+            <div className={styles['categories-actions']}>
+              <button
+                className={styles['add-category']}
+                onClick={() => setShowCategoryDialog(true)}
+                title="カテゴリを追加"
+              >
+                +
+              </button>
+              <button
+                className={styles['manage-category']}
+                onClick={() => openManageTagsDialog()}
+                title="カテゴリとタグを管理"
+              >
+                ⚙️
+              </button>
+            </div>
+          </div>
+          <div className={styles['categories-list']}>
+            <button
+              className={`${styles.category} ${selectedCategory === 'all' ? styles.active : ''}`}
+              onClick={() => setSelectedCategory('all')}
+            >
+              すべて
+            </button>
+            {categories.map(category => (
+              <button
+                key={category}
+                className={`${styles.category} ${selectedCategory === category ? styles.active : ''} ${styles[`category-${category}`] || ''}`}
+                onClick={() => setSelectedCategory(category)}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles['tags-filter']}>
+          <h4>タグ</h4>
+          <div className={styles['tags-list']}>
+            {tags.map(tag => (
+              <button
+                key={tag}
+                className={`${styles.tag} ${selectedTags.includes(tag) ? styles.active : ''}`}
+                onClick={() => {
+                  setSelectedTags(
+                    selectedTags.includes(tag)
+                      ? selectedTags.filter(t => t !== tag)
+                      : [...selectedTags, tag]
+                  );
+                }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className={styles['project-list']}>
@@ -550,8 +1201,23 @@ const ProjectManager = ({ onProjectChange }) => {
               onClick={() => !project.isArchived && switchProject(project.id)}
             >
               <div className={styles['project-info']}>
-                <h3>{project.name} <span className={styles.version}>v{project.version || '0.1.0'}</span></h3>
-                <p className={styles['project-path']}>{project.path}</p>
+                <div className={styles['project-header']}>
+                  <div className={styles['name-path']}>
+                    <h3>{project.name} <span className={styles.version}>v{project.version || '0.1.0'}</span></h3>
+                    <p className={styles['project-path']}>{project.path || '未設定'}</p>
+                  </div>
+                  <span className={`${styles.category} ${styles[`category-${project.category}`]}`}>
+                    {project.category || 'uncategorized'}
+                  </span>
+                </div>
+
+                {project.tags && project.tags.length > 0 && (
+                  <div className={styles['project-tags']}>
+                    {project.tags.map(tag => (
+                      <span key={tag} className={styles.tag}>{tag}</span>
+                    ))}
+                  </div>
+                )}
                 <div className={styles['project-details']}>
                   <p>作成日: {project.created ? new Date(project.created).toLocaleDateString('ja-JP') : '未設定'}</p>
                   <p>最終更新: {project.lastModified ? new Date(project.lastModified).toLocaleDateString('ja-JP') : '未設定'}</p>
@@ -562,40 +1228,65 @@ const ProjectManager = ({ onProjectChange }) => {
                     </>
                   )}
                 </div>
-              </div>
-              <div className={styles['project-actions']}>
-                {project.isArchived ? (
-                  <button
-                    className={styles.restore}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      restoreProject(project.id);
-                    }}
-                  >
-                    復元
-                  </button>
-                ) : (
-                  <>
+
+                <div className={styles['project-actions']}>
+                  {!project.isArchived ? (
+                    <div className={styles['action-buttons']}>
+                      <button
+                        className={styles.edit}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openTagsDialog(project);
+                        }}
+                      >
+                        タグ編集
+                      </button>
+                      <select
+                        className={styles['category-select']}
+                        value={project.category || 'uncategorized'}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          changeProjectCategory(project.id, e.target.value);
+                        }}
+                      >
+                        <option value="uncategorized">uncategorized</option>
+                        {categories.filter(category => category !== 'uncategorized').map(category => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className={styles.archive}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          archiveProject(project.id);
+                        }}
+                      >
+                        アーカイブ
+                      </button>
+                      <button
+                        className={styles.delete}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeProject(project.id);
+                        }}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      className={styles.archive}
+                      className={styles.restore}
                       onClick={(e) => {
                         e.stopPropagation();
-                        archiveProject(project.id);
+                        restoreProject(project.id);
                       }}
                     >
-                      アーカイブ
+                      復元
                     </button>
-                    <button
-                      className={styles.delete}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeProject(project.id);
-                      }}
-                    >
-                      削除
-                    </button>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           ))
@@ -612,8 +1303,8 @@ const ProjectManager = ({ onProjectChange }) => {
       )}
 
       {showArchiveDialog && (
-        <div className={styles['archive-dialog']}>
-          <div className={styles['archive-dialog-content']}>
+        <div className={styles['dialog-overlay']}>
+          <div className={styles['dialog-content']}>
             <h3>プロジェクトをアーカイブ</h3>
             <p>{projectToArchive ? projectToArchive.name : ''}をアーカイブします。</p>
             <div className={styles['form-group']}>
@@ -641,6 +1332,187 @@ const ProjectManager = ({ onProjectChange }) => {
                 onClick={confirmArchive}
               >
                 アーカイブ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCategoryDialog && (
+        <div className={styles['dialog-overlay']}>
+          <div className={styles['dialog-content']}>
+            <h3>新しいカテゴリを追加</h3>
+            <div className={styles['form-group']}>
+              <label htmlFor="category-name">カテゴリ名:</label>
+              <input
+                id="category-name"
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="カテゴリ名を入力してください"
+              />
+            </div>
+            <div className={styles['dialog-actions']}>
+              <button
+                className={styles.cancel}
+                onClick={() => {
+                  setShowCategoryDialog(false);
+                  setNewCategoryName('');
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.confirm}
+                onClick={addCategory}
+              >
+                追加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTagsDialog && projectForTags && (
+        <div className={styles['dialog-overlay']}>
+          <div className={styles['dialog-content']}>
+            <h3>タグを編集</h3>
+            <p>プロジェクト「{projectForTags.name}」のタグを編集します</p>
+            <div className={styles['form-group']}>
+              <label htmlFor="tags-input">タグ（カンマ区切り）:</label>
+              <input
+                id="tags-input"
+                type="text"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder="例: 重要, 進行中, デザイン"
+              />
+            </div>
+            <div className={styles['tags-suggestions']}>
+              {tags.map(tag => (
+                <button
+                  key={tag}
+                  className={styles['tag-suggestion']}
+                  onClick={() => {
+                    const currentTags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
+                    if (!currentTags.includes(tag)) {
+                      setTagsInput(tagsInput ? `${tagsInput}, ${tag}` : tag);
+                    }
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+            <div className={styles['dialog-actions']}>
+              <button
+                className={styles.cancel}
+                onClick={() => {
+                  setShowTagsDialog(false);
+                  setProjectForTags(null);
+                  setTagsInput('');
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.confirm}
+                onClick={saveProjectTags}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteCategoryDialog && (
+        <div className={styles['dialog-overlay']}>
+          <div className={styles['dialog-content']}>
+            <h3>カテゴリを削除</h3>
+            <p>カテゴリ「{categoryToDelete}」を削除しますか？</p>
+            <p className={styles['warning-text']}>
+              このカテゴリに属するすべてのプロジェクトは「uncategorized」カテゴリに移動します。
+            </p>
+            <div className={styles['dialog-actions']}>
+              <button
+                className={styles.cancel}
+                onClick={() => {
+                  setShowDeleteCategoryDialog(false);
+                  setCategoryToDelete(null);
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.delete}
+                onClick={confirmDeleteCategory}
+              >
+                削除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showManageTagsDialog && (
+        <div className={styles['dialog-overlay']}>
+          <div className={styles['dialog-content']}>
+            <h3>カテゴリとタグの管理</h3>
+
+            <div className={styles['manage-section']}>
+              <h4>カテゴリ</h4>
+              <div className={styles['manage-list']}>
+                {categories.map(category => (
+                  <div key={category} className={styles['manage-item']}>
+                    <span>{category}</span>
+                    {category !== 'uncategorized' && (
+                      <button
+                        className={styles['delete-btn']}
+                        onClick={() => deleteCategory(category)}
+                        title="カテゴリを削除"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                className={styles['add-btn']}
+                onClick={() => {
+                  setShowManageTagsDialog(false);
+                  setShowCategoryDialog(true);
+                }}
+              >
+                カテゴリを追加
+              </button>
+            </div>
+
+            <div className={styles['manage-section']}>
+              <h4>タグ</h4>
+              <div className={styles['manage-list']}>
+                {tags.map(tag => (
+                  <div key={tag} className={styles['manage-item']}>
+                    <span>{tag}</span>
+                    <button
+                      className={styles['delete-btn']}
+                      onClick={() => deleteTagFromDialog(tag)}
+                      title="タグを削除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles['dialog-actions']}>
+              <button
+                className={styles.confirm}
+                onClick={() => setShowManageTagsDialog(false)}
+              >
+                閉じる
               </button>
             </div>
           </div>

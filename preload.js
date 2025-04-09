@@ -148,6 +148,16 @@ try {
     // アクティブプロジェクトIDの保存と読み込み
     saveActiveProjectId: (projectId) => ipcRenderer.invoke('save-active-project-id', projectId),
     loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),
+    // カテゴリとタグの管理
+    loadCategories: () => ipcRenderer.invoke('loadCategories'),
+    saveCategories: (categories) => ipcRenderer.invoke('saveCategories', categories),
+    loadTags: () => ipcRenderer.invoke('loadTags'),
+    saveTags: (tags) => ipcRenderer.invoke('saveTags', tags),
+    // 選択中のカテゴリとタグの管理
+    saveSelectedCategory: (category) => ipcRenderer.invoke('saveSelectedCategory', category),
+    loadSelectedCategory: () => ipcRenderer.invoke('loadSelectedCategory'),
+    saveSelectedTags: (tags) => ipcRenderer.invoke('saveSelectedTags', tags),
+    loadSelectedTags: () => ipcRenderer.invoke('loadSelectedTags'),
     // プロジェクトファイル監視
     watchProjectFiles: (projectId) => ipcRenderer.invoke('watchProjectFiles', projectId),
     unwatchProjectFiles: (projectId) => ipcRenderer.invoke('unwatchProjectFiles', projectId),
