@@ -1,8 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { session } = require('electron');
 require('dotenv').config();
 
 // ハードコードされたAPIキー
@@ -33,28 +32,52 @@ const htmlDirectory = path.join(__dirname, 'src');
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
 let previousFiles = [];
 
+// アプリ起動時に監視を開始するフラグ
+let isDirectoryWatcherInitialized = false;
+
 // HTMLファイルの作成を監視する
 function watchDirectory() {
-  fs.readdir(htmlDirectory, (err, files) => {
-    if (err) {
-      console.error('Error reading directory:', err);
-      return;
-    }
+  if (!isDirectoryWatcherInitialized) {
+    console.log('ディレクトリ監視を初期化します');
+    isDirectoryWatcherInitialized = true;
 
-    const htmlFiles = files.filter(file => file.endsWith('.html'));
-    // 新しいファイルを検出
-    const newFiles = htmlFiles.filter(file => !previousFiles.includes(file));
+    // 監視を1秒ごとにチェック - mainWindowが使用可能になるまで遅延
+    const watchIntervalId = setInterval(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return; // mainWindowがまだ利用できない場合はスキップ
+      }
 
-    // 新規ファイルのみを処理
-    newFiles.forEach(fileName => {
-      console.log(`Detected new HTML file: ${fileName}`);
-      // フロントエンドに新しいHTMLファイルを通知
-      mainWindow.webContents.send('new-html-file', fileName);
+      fs.readdir(htmlDirectory, (err, files) => {
+        if (err) {
+          console.error('Error reading directory:', err);
+          return;
+        }
+
+        const htmlFiles = files.filter(file => file.endsWith('.html'));
+        // 新しいファイルを検出
+        const newFiles = htmlFiles.filter(file => !previousFiles.includes(file));
+
+        // 新規ファイルのみを処理
+        if (newFiles.length > 0) {
+          newFiles.forEach(fileName => {
+            console.log(`Detected new HTML file: ${fileName}`);
+            // フロントエンドに新しいHTMLファイルを通知（mainWindowが存在する場合のみ）
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('new-html-file', fileName);
+            }
+          });
+        }
+
+        // 今回のファイルリストを保存
+        previousFiles = htmlFiles;
+      });
+    }, 1000); // 1秒ごとにチェック
+
+    // アプリ終了時に監視を停止
+    app.on('will-quit', () => {
+      clearInterval(watchIntervalId);
     });
-
-    // 今回のファイルリストを保存
-    previousFiles = htmlFiles;
-  });
+  }
 }
 
 // ファイル変更監視ハンドラー - Viteのリロードに頼らずElectronで独自に処理
@@ -85,9 +108,6 @@ function setupFileWatcher() {
   console.log('ファイル監視を設定しました');
 }
 
-// 監視を1秒ごとにチェック
-setInterval(watchDirectory, 1000); // 定期的にディレクトリの内容をチェック
-
 // スプラッシュウィンドウを作成する関数
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
@@ -106,12 +126,39 @@ function createSplashWindow() {
   splashWindow.loadFile(path.join(__dirname, 'src/electron/splash.html'));
 
   splashWindow.on('closed', () => {
+    console.log('スプラッシュウィンドウが閉じられました');
     splashWindow = null;
   });
 }
 
 // メインウィンドウ作成関数
 function createMainWindow() {
+  const windowWidth = 1280;
+  const windowHeight = 800;
+
+  // ウィンドウオプションを設定
+  const windowOptions = {
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: 800,
+    minHeight: 600,
+    frame: true,
+    show: false, // 準備ができるまで非表示
+    title: 'CreAIte Code',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      nodeIntegrationInWorker: true, // Workerでのnode統合を有効化
+      nodeIntegrationInSubFrames: true, // サブフレームでのnode統合を有効化
+      webSecurity: !isDevelopment, // 開発中はWebセキュリティを無効化
+      sandbox: false, // サンドボックスを無効化してNodeモジュールアクセスを許可
+      preload: path.join(__dirname, 'preload.js')  // プリロードスクリプトを常に使用
+    }
+  };
+
+  // メインウィンドウの作成
+  mainWindow = new BrowserWindow(windowOptions);
+
   // uploadsディレクトリを作成
   const uploadsDir = path.join(__dirname, "uploads");
   if (!fs.existsSync(uploadsDir)) {
@@ -119,309 +166,71 @@ function createMainWindow() {
     console.log(`Created uploads directory at: ${uploadsDir}`);
   }
 
-  const express = require('express');
-  const server = express();
-
-  // MIMEタイプの設定
-  express.static.mime.define({ 'application/javascript': ['js', 'jsx'] });
-
-  // Content-Security-Policy ヘッダーの設定
-  server.use((req, res, next) => {
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://unpkg.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://unpkg.com; object-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' http://localhost:* https://api.anthropic.com https://api.openai.com https://unpkg.com https://fonts.googleapis.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com;"
-    );
-    next();
-  });
-
-  // JSXファイルのMIMEタイプを設定するミドルウェア
-  server.use((req, res, next) => {
-    if (req.path.endsWith('.jsx')) {
-      res.type('application/javascript');
-    }
-    next();
-  });
-
-  server.use(express.static(path.join(__dirname, 'src')));
-
-  // JSXファイルのMIMEタイプを適切に設定
-  server.get('*.jsx', (req, res, next) => {
-    res.setHeader('Content-Type', 'application/javascript');
-    next();
-  });
-
-  server.get('/renderer.jsx', (req, res) => {
-    res.setHeader('Content-Type', 'application/javascript');
-    res.sendFile(path.join(__dirname, 'src/electron/renderer.jsx'));
-  });
-
-  server.get('/electron/renderer.jsx', (req, res) => {
-    res.setHeader('Content-Type', 'application/javascript');
-    res.sendFile(path.join(__dirname, 'src/electron/renderer.jsx'));
-  });
-
-  // コンポーネントのJSXファイルを処理
-  server.get('/electron/components/*.jsx', (req, res) => {
-    const componentPath = req.path.replace('/electron/components/', '');
-    res.setHeader('Content-Type', 'application/javascript');
-    res.sendFile(path.join(__dirname, 'src/electron/components', componentPath));
-  });
-
-  server.get('/renderer.js', (req, res) => {
-    res.setHeader('Content-Type', 'application/javascript');
-    // Reactやその他のJSXトランスパイラがブラウザ側で処理できるように変換
-    const jsxFilePath = path.join(__dirname, 'src/electron/renderer.jsx');
-    fs.readFile(jsxFilePath, 'utf8', (err, data) => {
-      if (err) {
-        res.status(500).send(`Error reading file: ${err.message}`);
-        return;
-      }
-      res.send(data);
-    });
-  });
-
-  server.listen(3000, () => {
-    console.log('サーバーが起動しました: http://localhost:3000');
-  });
-
-  // メインウィンドウの作成
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-      // ホットリロードの動作を制御するための設定を追加
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-    },
-    backgroundColor: '#f5f5f5',
-    show: false,
-    title: 'CreAIte Code',
-  });
-
-  // 準備ができたら表示（スプラッシュ画面のようなちらつきを防止）
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    // スプラッシュウィンドウがあれば閉じる
-    if (splashWindow) {
-      splashWindow.close();
-    }
-
-    // ファイル監視セットアップ
-    setupFileWatcher();
-  });
-
-  // 開発モードなら開発サーバーのURLを、そうでなければローカルのHTMLファイルを読み込む
-  if (isDevelopment) {
-    mainWindow.loadURL('http://localhost:3000/electron/index.html');
-
-    // Viteの開発サーバーによるホットリロードを防止
-    mainWindow.webContents.session.webRequest.onBeforeRequest(
-      { urls: ['ws://localhost:3000/*', 'http://localhost:3000/__vite_hmr*'] },
-      (details, callback) => {
-        console.log('Viteホットリロードリクエストをブロックしました:', details.url);
-        callback({ cancel: true });
-      }
-    );
-  } else {
-    mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
-  }
-
-  // リロードイベントをハンドリング
-  mainWindow.webContents.on('did-finish-load', () => {
-    // リロードブロッカーの設定
-    if (isElectronAppReloadBlocked) {
-      console.log('Electronアプリでのリロードブロックを有効化しました');
-
-      // Viteの自動リロードをブロック
-      mainWindow.webContents.executeJavaScript(`
-        console.log('Electronアプリ用のカスタムリロード設定を適用しています');
-
-        // ViteのWebSocketエラーを抑制
-        const originalConsoleError = console.error;
-        console.error = function(...args) {
-          // WebSocket関連のエラーを抑制
-          const errorMsg = args.join(' ');
-          if (
-            errorMsg.includes('WebSocket') ||
-            errorMsg.includes('ws://localhost') ||
-            errorMsg.includes('[vite] failed to connect')
-          ) {
-            // WebSocketエラーを抑制
-            console.log('[抑制済み] Vite WebSocketエラー');
-            return;
-          }
-          // その他のエラーは通常通り表示
-          return originalConsoleError.apply(this, args);
-        };
-
-        // WebSocketのコンストラクタをオーバーライド
-        const OriginalWebSocket = window.WebSocket;
-        window.WebSocket = function(url, protocols) {
-          // Viteの開発サーバーへの接続をブロック
-          if (url.includes('localhost:3000') || url.startsWith('ws://localhost:3000')) {
-            console.log('[ブロック済み] Vite WebSocket接続:', url);
-            // ダミーのWebSocketオブジェクトを返す
-            return {
-              addEventListener: () => {},
-              removeEventListener: () => {},
-              send: () => {},
-              close: () => {},
-              onopen: null,
-              onclose: null,
-              onmessage: null,
-              onerror: null
-            };
-          }
-          // その他のWebSocket接続は通常通り処理
-          return new OriginalWebSocket(url, protocols);
-        };
-
-        // ViteのHMRをオーバーライド
-        if (window.__vite_hmr) {
-          const originalSend = window.__vite_hmr.send;
-          window.__vite_hmr.send = function(type, ...args) {
-            if (type === 'update' || type === 'full-reload') {
-              console.log('Viteのリロードイベントをブロックしました:', type);
-              return; // リロードイベントを無視
-            }
-            return originalSend.call(this, type, ...args);
-          };
-          console.log('ViteのHMRハンドラーをオーバーライドしました');
-        }
-
-        // WebSocketのイベントリスナーを無効化
-        if (window.__original_addEventListener) {
-          console.log('既にWebSocketイベントリスナーを置き換えています');
-        } else {
-          window.__original_addEventListener = window.WebSocket.prototype.addEventListener;
-          window.WebSocket.prototype.addEventListener = function(type, listener, ...args) {
-            if (type === 'message' && window.location.href.includes('electron')) {
-              console.log('Electronアプリ内でのWebSocketイベントリスナーを無効化しました');
-              // メッセージイベントリスナーを登録しない
-              return;
-            }
-            return window.__original_addEventListener.call(this, type, listener, ...args);
-          };
-          console.log('WebSocketのイベントリスナーをオーバーライドしました');
-        }
-      `).catch(err => console.error('スクリプト実行エラー:', err));
-    }
-
-    // webContents APIを使ってリロード後も正しく動作するようにする
-    mainWindow.webContents.session.webRequest.onBeforeRequest(
-      { urls: ['*://*/*'] },
-      (details, callback) => {
-        // リロードやナビゲーションをハンドリング
-        if (details.url.includes('index.html') && details.method === 'GET' && details.resourceType === 'mainFrame') {
-          console.log('メインフレームのリロードリクエストを検出:', details.url);
-
-          // AIコード保存中またはリロードブロックフラグがオンの場合はリロードをブロック
-          if (isElectronAppReloadBlocked || isAICodeSaving) {
-            console.log('メインフレームのリロードをブロックしました:', details.url);
-            return callback({ cancel: true });
-          }
-        }
-        // 条件に合致しない通常のリクエストは続行する
-        callback({ cancel: false });
-      }
-    );
-
-    // 自動リロードを防止するためのイベントハンドラー
-    mainWindow.webContents.on('will-navigate', (event, url) => {
-      const currentUrl = mainWindow.webContents.getURL();
-      console.log('ナビゲーションを検出:', url);
-
-      // アプリ内の任意のリロード（同一URLを含む）をブロック
-      if (url.includes('localhost:3000')) {
-        console.log('リロードをブロックしました:', url);
-        event.preventDefault();
-      }
-    });
-
-    // will-redirectイベントも同様に処理
-    mainWindow.webContents.on('will-redirect', (event, url) => {
-      const currentUrl = mainWindow.webContents.getURL();
-      console.log('リダイレクトを検出:', url);
-
-      // アプリ内の任意のリダイレクトをブロック
-      if (url.includes('localhost:3000')) {
-        console.log('リダイレクトをブロックしました:', url);
-        event.preventDefault();
-      }
-    });
-
-    // Viteのホットリロードスクリプトを削除
-    if (isDevelopment) {
-      mainWindow.webContents.executeJavaScript(`
-        // Viteのホットリロードイベントリスナーを無効化
-        window.__vite_plugin_react_preamble_installed__ = true;
-        window.__vite_plugin_react_timeout = null;
-
-        // Viteのホットリロードスクリプトを削除
-        const viteHmrScript = document.querySelector('script[type="module"]');
-        if (viteHmrScript) {
-          viteHmrScript.remove();
-          console.log('Viteホットリロードスクリプトを削除しました');
-        }
-
-        // WebSocket接続を切断
-        if (window.__vite_ws) {
-          window.__vite_ws.close();
-          window.__vite_ws = null;
-          console.log('Vite WebSocket接続を切断しました');
-        }
-      `).catch(err => console.error('スクリプト実行エラー:', err));
-    }
-  });
-
-  // Cmd+Rが押された時の処理（macOS）
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if ((input.meta && input.key === 'r') || (input.control && input.key === 'r')) {
-      console.log('リロードコマンドを検出しました');
-
-      // デフォルトのリロード動作を防止
-      event.preventDefault();
-
-      // 手動でリロードする場合は以下をコメント解除
-      // if (isDevelopment) {
-      //   mainWindow.loadURL('http://localhost:3000/electron/index.html');
-      // } else {
-      //   mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
-      // }
-    }
-  });
-
-  // リロード時に白画面になる問題の対応
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.log('ページの読み込みに失敗しました:', errorCode, errorDescription);
-
-    // リロードを試みる
-    if (isDevelopment) {
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          console.log('ページを再度読み込みます...');
-          mainWindow.loadURL('http://localhost:3000/electron/index.html');
-        }
-      }, 1000);
-    } else {
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          console.log('ページを再度読み込みます...');
-          mainWindow.loadFile(path.join(__dirname, 'dist/electron/index.html'));
-        }
-      }, 1000);
-    }
-  });
-
-  // 開発ツールを開く
+  // ブラウザの開発者ツールを開く（開発時のみ）
   if (isDevelopment) {
     mainWindow.webContents.openDevTools();
   }
+
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('isDevelopment:', isDevelopment);
+
+  // 開発環境と本番環境で適切なパスを使い分ける
+  let filePath;
+
+  if (isDevelopment) {
+    // 開発環境では、Viteによってビルドされたファイルを使用
+    filePath = path.join(__dirname, 'dist', 'index.html');
+    console.log('開発モード: ビルド済みファイルを読み込みます:', filePath);
+  } else {
+    // 本番環境では、パッケージ化されたファイルを使用
+    filePath = path.join(__dirname, 'dist', 'index.html');
+    console.log('本番モード: ビルド済みファイルを読み込みます:', filePath);
+  }
+
+  // ブラウザコンソールのログを表示
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[WebContents] ${message}`);
+  });
+
+  // ファイルを読み込む
+  mainWindow.loadFile(filePath).catch(err => {
+    console.error('ファイル読み込みエラー:', err);
+
+    // 読み込み失敗時のフォールバック
+    const fallbackPath = path.join(__dirname, 'src', 'electron', 'index.html');
+    console.log('フォールバックファイルを読み込みます:', fallbackPath);
+    mainWindow.loadFile(fallbackPath).catch(fallbackErr => {
+      console.error('フォールバックファイルの読み込みにも失敗:', fallbackErr);
+    });
+  });
+
+  // レンダリングの問題をデバッグするためのフラグを設定
+  app.commandLine.appendSwitch('disable-site-isolation-trials');
+
+  // ウィンドウが閉じられたときにメインウィンドウを破棄
+  mainWindow.on('closed', () => {
+    console.log('メインウィンドウが閉じられました');
+    mainWindow = null;
+  });
+
+  // メインウィンドウの準備ができたら表示
+  mainWindow.once('ready-to-show', () => {
+    console.log('メインウィンドウの表示準備完了');
+
+    // スプラッシュウィンドウが存在すれば閉じる
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      console.log('スプラッシュウィンドウを閉じます');
+      splashWindow.close();
+      splashWindow = null;
+    }
+
+    // 0.5秒待ってからメインウィンドウを表示（スプラッシュが完全に閉じるのを待つ）
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+      }
+    }, 500);
+  });
 
   // ファイル監視対象
   const watchFiles = [
@@ -445,57 +254,57 @@ function createMainWindow() {
 
 // アプリの起動が完了したら
 app.whenReady().then(() => {
-  // セッション設定を保持するための設定
-  const ses = session.defaultSession;
-  ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['Accept-Language'] = 'ja';
-    callback({ requestHeaders: details.requestHeaders });
+  // CSPの設定
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com"
+        ]
+      }
+    });
   });
 
-  // 最初にIPC ハンドラーを設定（レンダラープロセスのロード前に実行）
   console.log('アプリ起動時にIPCハンドラーを設定します');
   setupIPCHandlers();
+  setupFileWatcher();
 
-  // まずスプラッシュ画面を表示
+  // 出力ディレクトリの準備
+  const outputPath = path.join(__dirname, 'output');
+  try {
+    if (!fs.existsSync(outputPath)) {
+      fs.mkdirSync(outputPath, { recursive: true });
+      console.log('出力ディレクトリを作成しました:', outputPath);
+    }
+  } catch (err) {
+    console.error('出力ディレクトリの作成に失敗しました:', err);
+  }
+
+  // スプラッシュウィンドウを作成
   createSplashWindow();
 
-  // 少し遅延させてからメインウィンドウを作成
+  // メインウィンドウの作成をわずかに遅延させる
   setTimeout(() => {
     createMainWindow();
 
-    // ウィンドウ状態を保存
-    mainWindow.on('close', (e) => {
-      const windowState = {
-        bounds: mainWindow.getBounds()
-      };
-      // 状態をファイルに保存
-      fs.writeFileSync(
-        path.join(app.getPath('userData'), 'window-state.json'),
-        JSON.stringify(windowState)
-      );
-    });
+    // ディレクトリ監視を開始
+    watchDirectory();
   }, 1000);
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  // Mac OS の場合、アプリがアクティブ化されたらメインウィンドウを作成
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow();
+    }
   });
+});
 
-  // ファイル監視対象
-  const watchFiles = [
-    path.join(__dirname, 'src/scss/base/_reset.scss'),
-    path.join(__dirname, 'src/scss/global/_breakpoints.scss'),
-  ];
-
-  // ファイルの監視処理
-  watchFiles.forEach((file) => {
-    fs.watchFile(file, (curr, prev) => {
-      fs.readFile(file, 'utf8', (err, data) => {
-        if (!err && mainWindow) {
-          mainWindow.webContents.send('file-updated', { file, content: data });
-        }
-      });
-    });
-  });
+// Macでアプリケーションが閉じられる際の処理
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 // IPC ハンドラーを設定する関数
@@ -1240,10 +1049,3 @@ $mediaquerys: (
     }
   });
 }
-
-// Macでアプリケーションが閉じられる際の処理
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});

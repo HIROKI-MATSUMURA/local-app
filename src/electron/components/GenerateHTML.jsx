@@ -3,6 +3,9 @@ import { v4 as uuidv4 } from 'uuid'; // UUIDを使う
 import Header from './Header';
 import '../styles/GenerateHTML.scss';
 
+// Electronコンテキストかどうかを判定
+const isElectronContext = typeof window !== 'undefined' && window.api;
+
 const GenerateHTML = () => {
   const [fileName, setFileName] = useState('');
   const [fileList, setFileList] = useState([]); // 追加されたファイル名を管理
@@ -31,36 +34,38 @@ const GenerateHTML = () => {
     // 初期化後にlocalStorageに保存
     localStorage.setItem('generatedFiles', JSON.stringify(files));
 
-    // 新しいファイルが追加された場合、ファイルリストを更新
-    window.api.onNewHtmlFile((fileName) => {
-      console.log('New HTML file detected:', fileName);
-      setFileList((prevList) => {
-        if (!prevList.some(file => file.name === fileName)) {
-          const newFile = {
-            id: uuidv4(),
-            name: fileName,
-            status: '保存済'
-          };
-          const updatedList = [...prevList, newFile];
-          // 更新後にlocalStorageに保存
+    // Electron環境でのみ実行
+    if (isElectronContext) {
+      // 新しいファイルが追加された場合、ファイルリストを更新
+      window.api.onNewHtmlFile((fileName) => {
+        console.log('New HTML file detected:', fileName);
+        setFileList((prevList) => {
+          if (!prevList.some(file => file.name === fileName)) {
+            const newFile = {
+              id: uuidv4(),
+              name: fileName,
+              status: '保存済'
+            };
+            const updatedList = [...prevList, newFile];
+            // 更新後にlocalStorageに保存
+            localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
+            return updatedList;
+          }
+          return prevList;  // 重複があればそのまま
+        });
+      });
+
+      // ファイル削除時の監視
+      window.api.onFileDeleted((fileName) => {
+        setFileList((prevList) => {
+          const updatedList = prevList.filter((file) => file.name !== fileName);
+          // 削除後にlocalStorageに保存
           localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
           return updatedList;
-        }
-        return prevList;  // 重複があればそのまま
+        });
       });
-    });
-
-    // ファイル削除時の監視
-    window.api.onFileDeleted((fileName) => {
-      setFileList((prevList) => {
-        const updatedList = prevList.filter((file) => file.name !== fileName);
-        // 削除後にlocalStorageに保存
-        localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
-        return updatedList;
-      });
-    });
+    }
   }, []);
-
 
   // ファイル名を追加（エンターキーでのみリストに追加）
   const handleAddFile = () => {
@@ -135,7 +140,7 @@ const GenerateHTML = () => {
 
         const filePath = `${updatedFile.name}`;
 
-        if (filePath) {
+        if (filePath && isElectronContext) {
           try {
             window.api.send('save-html-file', { filePath, content });
             console.log(`File saved successfully: ${updatedFile.name}`);
@@ -178,10 +183,12 @@ const GenerateHTML = () => {
     setFileName('');
 
     // ファイル名を変更するためにメインプロセスに送信
-    window.api.send('rename-file', {
-      oldFileName: editingFile.name,
-      newFileName: fileName.endsWith('.html') ? fileName : fileName + '.html',
-    });
+    if (isElectronContext) {
+      window.api.send('rename-file', {
+        oldFileName: editingFile.name,
+        newFileName: fileName.endsWith('.html') ? fileName : fileName + '.html',
+      });
+    }
   };
 
   // 削除処理
@@ -196,8 +203,10 @@ const GenerateHTML = () => {
     setFileList(updatedList);
     localStorage.setItem('generatedFiles', JSON.stringify(updatedList));
 
-    window.api.send('delete-html-file', { fileName: fileNameWithHtml });
-    console.log(`Deleted file: ${fileNameWithHtml}`);
+    if (isElectronContext) {
+      window.api.send('delete-html-file', { fileName: fileNameWithHtml });
+      console.log(`Deleted file: ${fileNameWithHtml}`);
+    }
   };
 
   // 入力制限: 日本語・全角入力を防ぐ

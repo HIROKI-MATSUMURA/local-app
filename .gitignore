@@ -1,6 +1,19 @@
-/package-lock.json
-/dist
-/css
-/node_modules
-/node_modules 2
+# ビルド成果物
+dist/
+release/
+
+# 出力ディレクトリ - ユーザー生成コード用
+output/
+
+# 開発環境
+node_modules/
+.DS_Store
+.env
+logs/
+uploads/
+
+# Python関連
+__pycache__/
+*.py[cod]
+*$py.class
 .env

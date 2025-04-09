@@ -4,17 +4,45 @@
  * 内部的にはPythonスクリプトを使用して処理を行う
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const log = require('electron-log');
-const { app } = require('electron');
-const { v4: uuidv4 } = require('uuid');
-const isDev = require('electron-is-dev');
+// Electron環境かどうかチェック
+const isElectron = typeof window !== 'undefined' && window.api;
+let childProcess, path, fs, os, electronLog, app, uuid, isDev, pythonBridge;
 
-// Python処理ブリッジをインポート
-const pythonBridge = require('../../../python_bridge');
+// Electron環境の場合のみモジュールをロード
+if (isElectron) {
+  try {
+    // Electronのrequireを使用
+    const _require = window.require || require;
+
+    if (typeof _require === 'function') {
+      const electron = _require('electron');
+      childProcess = _require('child_process');
+      path = _require('path');
+      fs = _require('fs');
+      os = _require('os');
+      electronLog = _require('electron-log');
+      app = electron.remote ? electron.remote.app : null;
+      try {
+        const { v4: uuidv4 } = _require('uuid');
+        uuid = { v4: uuidv4 };
+      } catch (err) {
+        console.warn('UUID モジュールをロードできませんでした:', err);
+        uuid = { v4: () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` };
+      }
+      isDev = _require('electron-is-dev');
+
+      try {
+        pythonBridge = _require('../../../python_bridge');
+      } catch (bridgeErr) {
+        console.warn('Python ブリッジをロードできませんでした:', bridgeErr);
+      }
+    } else {
+      console.warn('requireが利用できません - ブラウザ環境と判断します');
+    }
+  } catch (err) {
+    console.warn('Electronモジュールをロードできませんでした - ブラウザ環境として続行します:', err);
+  }
+}
 
 // リクエストIDカウンター
 let requestCounter = 0;
@@ -51,6 +79,8 @@ const logger = {
  * Pythonスクリプトの場所を取得
  */
 function getPythonScriptPath(scriptName) {
+  if (!isElectron) return null;
+
   if (isDev) {
     // 開発モードでは、プロジェクトルートからのパス
     return path.join(process.cwd(), scriptName);
@@ -64,6 +94,8 @@ function getPythonScriptPath(scriptName) {
  * Pythonインタープリタのパスを取得
  */
 function getPythonInterpreter() {
+  if (!isElectron) return null;
+
   // 環境変数からPythonパスを取得試行
   const pythonEnvPath = process.env.PYTHON_PATH;
 
@@ -88,6 +120,11 @@ function getPythonInterpreter() {
  * @returns {Promise<boolean>} 初期化成功時はtrue
  */
 async function initialize() {
+  if (!isElectron) {
+    logger.info('ブラウザ環境ではPythonブリッジは利用できません');
+    return false;
+  }
+
   if (isInitialized && pythonProcess) {
     return true;
   }
@@ -96,10 +133,10 @@ async function initialize() {
     const pythonScript = getPythonScriptPath('python_server.py');
     const pythonInterpreter = getPythonInterpreter();
 
-    log.info(`Pythonサーバーを起動します: ${pythonInterpreter} ${pythonScript}`);
+    logger.info(`Pythonサーバーを起動します: ${pythonInterpreter} ${pythonScript}`);
 
     // Pythonプロセスを起動
-    pythonProcess = spawn(pythonInterpreter, [pythonScript], {
+    pythonProcess = childProcess.spawn(pythonInterpreter, [pythonScript], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
@@ -117,23 +154,79 @@ async function initialize() {
     const checkResult = await sendRequest('check_environment', {});
 
     if (checkResult.status === 'missing_dependencies') {
-      log.info('必要なPythonパッケージをインストールします...');
+      logger.info('必要なPythonパッケージをインストールします...');
       const setupResult = await sendRequest('setup_environment', {});
 
       if (!setupResult.success) {
-        log.error('Pythonパッケージのインストールに失敗しました:', setupResult.message);
+        logger.error('Pythonパッケージのインストールに失敗しました:', setupResult.message);
         return false;
       }
 
-      log.info('Pythonパッケージのインストールが完了しました:', setupResult.message);
+      logger.info('Pythonパッケージのインストールが完了しました:', setupResult.message);
     }
 
     isInitialized = true;
-    log.info('Pythonブリッジを初期化しました');
+    logger.info('Pythonブリッジを初期化しました');
     return true;
   } catch (error) {
-    log.error('Pythonブリッジの初期化に失敗しました:', error);
+    logger.error('Pythonブリッジの初期化に失敗しました:', error);
     return false;
+  }
+}
+
+/**
+ * Pythonプロセスからのメッセージハンドラ
+ */
+function handlePythonMessage(data) {
+  if (!isElectron) return;
+
+  try {
+    const messages = data.toString().trim().split('\n');
+
+    for (const message of messages) {
+      if (!message.trim()) continue;
+
+      const response = JSON.parse(message);
+      const requestId = response.id;
+
+      if (pendingRequests.has(requestId)) {
+        const { resolve } = pendingRequests.get(requestId);
+        pendingRequests.delete(requestId);
+        resolve(response.result);
+      }
+    }
+  } catch (error) {
+    logger.error('Pythonメッセージの処理中にエラーが発生しました:', error);
+  }
+}
+
+/**
+ * Pythonプロセスからのエラーハンドラ
+ */
+function handlePythonError(data) {
+  if (!isElectron) return;
+  logger.error('Python Error:', data.toString());
+}
+
+/**
+ * Pythonプロセス終了ハンドラ
+ */
+function handlePythonExit(code) {
+  if (!isElectron) return;
+
+  if (code !== 0 && !isShuttingDown) {
+    logger.error(`Pythonプロセスが異常終了しました: 終了コード ${code}`);
+
+    // 保留中のリクエストをすべて拒否
+    for (const [id, { reject }] of pendingRequests.entries()) {
+      reject(new Error('Pythonプロセスが終了しました'));
+      pendingRequests.delete(id);
+    }
+
+    pythonProcess = null;
+    isInitialized = false;
+  } else {
+    logger.info(`Pythonプロセスが終了しました: 終了コード ${code}`);
   }
 }
 
@@ -144,6 +237,10 @@ async function initialize() {
  * @returns {Promise<any>} レスポンス
  */
 function sendRequest(command, params = {}) {
+  if (!isElectron) {
+    return Promise.reject(new Error('ブラウザ環境ではPythonリクエストは実行できません'));
+  }
+
   return new Promise((resolve, reject) => {
     if (!pythonProcess || pythonProcess.killed) {
       reject(new Error('Pythonプロセスが実行されていません'));
@@ -171,12 +268,6 @@ function sendRequest(command, params = {}) {
         reject(new Error(`リクエストがタイムアウトしました: ${command}`));
       }
     }, timeoutMs);
-
-    // プロミス完了時にタイムアウトをクリア
-    const clearTimeoutAndForward = (result) => {
-      clearTimeout(timeoutId);
-      return result;
-    };
 
     // プロミスにタイムアウトクリアを追加
     const originalResolve = pendingRequests.get(requestId).resolve;
@@ -207,6 +298,8 @@ function sendRequest(command, params = {}) {
  * リソースをクリーンアップし、Pythonプロセスを終了
  */
 async function shutdown() {
+  if (!isElectron) return;
+
   isShuttingDown = true;
 
   if (pythonProcess && !pythonProcess.killed) {
@@ -214,14 +307,14 @@ async function shutdown() {
       // 正常終了をリクエスト
       await sendRequest('exit');
     } catch (error) {
-      log.warn('Pythonプロセスの正常終了に失敗しました:', error);
+      logger.warn('Pythonプロセスの正常終了に失敗しました:', error);
     }
 
     // 強制終了
     try {
       pythonProcess.kill();
     } catch (error) {
-      log.error('Pythonプロセスの強制終了に失敗しました:', error);
+      logger.error('Pythonプロセスの強制終了に失敗しました:', error);
     }
   }
 
@@ -230,7 +323,7 @@ async function shutdown() {
   isInitialized = false;
   isShuttingDown = false;
 
-  log.info('Pythonブリッジをシャットダウンしました');
+  logger.info('Pythonブリッジをシャットダウンしました');
 }
 
 /**
@@ -238,7 +331,12 @@ async function shutdown() {
  * @param {string} imageBase64 - Base64形式の画像データ
  * @returns {Promise<Array>} 抽出された色の配列
  */
-const extractColorsFromImage = async (imageBase64) => {
+export const extractColorsFromImage = async (imageBase64) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] extractColorsFromImage はブラウザでは動作しません`);
+    return [];
+  }
+
   await initialize();
   return sendRequest('extract_colors', { image_data: imageBase64 });
 };
@@ -248,7 +346,12 @@ const extractColorsFromImage = async (imageBase64) => {
  * @param {string} imageBase64 - Base64形式の画像データ
  * @returns {Promise<string>} 抽出されたテキスト
  */
-const extractTextFromImage = async (imageBase64) => {
+export const extractTextFromImage = async (imageBase64) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] extractTextFromImage はブラウザでは動作しません`);
+    return "";
+  }
+
   await initialize();
   return sendRequest('extract_text', { image_data: imageBase64 });
 };
@@ -256,81 +359,93 @@ const extractTextFromImage = async (imageBase64) => {
 /**
  * 画像のセクション分析機能
  * @param {string} imageBase64 - Base64形式の画像データ
- * @returns {Promise<Array>} セクション分析結果
+ * @returns {Promise<Array>} セクション情報の配列
  */
-const analyzeImageSections = async (imageBase64) => {
+export const analyzeImageSections = async (imageBase64) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] analyzeImageSections はブラウザでは動作しません`);
+    return [];
+  }
+
   await initialize();
   return sendRequest('analyze_sections', { image_data: imageBase64 });
 };
 
 /**
- * レイアウトパターンを分析する関数
- * @param {string} imagePath - 分析する画像のパス
- * @returns {Promise<Object>} - レイアウトタイプとその確信度を含むオブジェクト
+ * レイアウトパターンを分析する
+ * @param {string} imagePath - 画像パス
+ * @returns {Promise<Object>} レイアウト情報
  */
-const analyzeLayoutPattern = async (imagePath) => {
+export const analyzeLayoutPattern = async (imagePath) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] analyzeLayoutPattern はブラウザでは動作しません`);
+    return { layoutType: "unknown", confidence: 0.5 };
+  }
+
   await initialize();
-  return sendRequest('analyze_layout', { image_data: imagePath });
+  return sendRequest('analyze_layout', { image_path: imagePath });
 };
 
 /**
- * 画像内の特徴的な要素を検出する（ボタン、ヘッダー、リストなど）
- * @param {string} imagePath - 分析する画像のパス
- * @returns {Promise<Object>} - 検出された要素の情報
+ * サイトの特徴要素を検出する
+ * @param {string} imagePath - 画像パス
+ * @returns {Promise<Object>} 検出された要素情報
  */
-const detectFeatureElements = async (imagePath) => {
+export const detectFeatureElements = async (imagePath) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] detectFeatureElements はブラウザでは動作しません`);
+    return { elements: [] };
+  }
+
   await initialize();
-  return sendRequest('detect_elements', { image_data: imagePath });
+  return sendRequest('detect_features', { image_path: imagePath });
 };
 
 /**
- * 画像からメインセクション（ヘッダー、メイン、フッター）を検出する
- * @param {string} imagePath - 分析する画像のパス
- * @returns {Promise<Object>} - 検出されたセクション情報
+ * メインセクションを検出する
+ * @param {string} imagePath - 画像パス
+ * @returns {Promise<Object>} 検出されたセクション情報
  */
-const detectMainSections = async (imagePath) => {
+export const detectMainSections = async (imagePath) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] detectMainSections はブラウザでは動作しません`);
+    return { sections: [] };
+  }
+
   await initialize();
-  return sendRequest('detect_main_sections', { image_data: imagePath });
+  return sendRequest('detect_sections', { image_path: imagePath });
 };
 
 /**
- * カード要素を検出する関数
- * @param {string} imagePath - 分析する画像のパス
- * @returns {Promise<Object>} - カード要素の情報
+ * カード要素を検出する
+ * @param {string} imagePath - 画像パス
+ * @returns {Promise<Object>} 検出されたカード要素情報
  */
-const detectCardElements = async (imagePath) => {
+export const detectCardElements = async (imagePath) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] detectCardElements はブラウザでは動作しません`);
+    return { cards: [] };
+  }
+
   await initialize();
-  return sendRequest('detect_card_elements', { image_data: imagePath });
+  return sendRequest('detect_cards', { image_path: imagePath });
 };
 
 /**
- * 画像の総合分析
- * @param {string} imageBase64 Base64エンコードされた画像データ
- * @param {object} options オプション
- * @returns {Promise<object>} 画像分析結果
+ * 画像を包括的に解析する
+ * @param {string} imageBase64 - Base64形式の画像データ
+ * @param {Object} options - 解析オプション
+ * @returns {Promise<Object>} 解析結果
  */
-const analyzeImage = async (imageBase64, options = {}) => {
-  await initialize();
-  return sendRequest('analyze_all', { image_data: imageBase64, options });
-};
+export const analyzeImage = async (imageBase64, options = {}) => {
+  if (!isElectron) {
+    console.warn(`[python_bridge_adapter] analyzeImage はブラウザでは動作しません`);
+    return { success: false, reason: "ブラウザ環境では実行できません" };
+  }
 
-// アプリ終了時にクリーンアップを実行
-if (app) {
-  app.on('will-quit', async (event) => {
-    event.preventDefault();
-    await shutdown();
-    app.exit();
+  await initialize();
+  return sendRequest('analyze_image', {
+    image_data: imageBase64,
+    options
   });
-}
-
-// 元のimageAnalyzer.jsと同じインターフェースでエクスポート
-module.exports = {
-  extractTextFromImage,
-  extractColorsFromImage,
-  analyzeImageSections,
-  detectMainSections,
-  detectCardElements,
-  detectFeatureElements,
-  analyzeLayoutPattern,
-  analyzeImage
 };

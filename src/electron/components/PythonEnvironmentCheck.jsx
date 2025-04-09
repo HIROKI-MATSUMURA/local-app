@@ -1,10 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { checkPythonEnvironment, setupPythonEnvironment } from '../utils/python_bridge_adapter';
+// CommonJSモジュールの呼び出し方を修正
+// 1. window.api経由でアクセスする方法
+const pythonBridge = window.api?.pythonBridge;
+
+// 環境チェック・セットアップモーダルが使用できない場合のスキップ用関数
+const skipEnvironmentCheck = (onComplete) => {
+  console.warn('Python環境チェックがスキップされました');
+  if (onComplete) {
+    setTimeout(() => onComplete(false), 100);
+  }
+};
 
 /**
  * Python環境チェック・セットアップのモーダルコンポーネント
  */
 const PythonEnvironmentCheck = ({ onComplete }) => {
+  // pythonBridgeが存在しない場合はスキップ
+  useEffect(() => {
+    if (!pythonBridge) {
+      console.error('pythonBridgeモジュールが見つかりません。環境チェックをスキップします。');
+      skipEnvironmentCheck(onComplete);
+    }
+  }, [onComplete]);
+
   // 環境チェックのステータス
   const [checkStatus, setCheckStatus] = useState({
     isChecking: true,
@@ -48,8 +66,8 @@ const PythonEnvironmentCheck = ({ onComplete }) => {
         error: null
       }));
 
-      // Python環境をチェック
-      const result = await checkPythonEnvironment();
+      // Python環境をチェック - メインのpython_bridgeモジュールを使用
+      const result = await pythonBridge.checkPythonEnvironment();
 
       if (result.error) {
         // エラーが発生した場合
@@ -105,8 +123,8 @@ const PythonEnvironmentCheck = ({ onComplete }) => {
         error: null
       }));
 
-      // Python環境をセットアップ
-      const result = await setupPythonEnvironment();
+      // Python環境をセットアップ - メインのpython_bridgeモジュールを使用
+      const result = await pythonBridge.setupPythonEnvironment();
 
       // セットアップ結果を状態に反映
       setCheckStatus(prevStatus => ({

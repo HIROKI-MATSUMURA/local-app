@@ -13,17 +13,15 @@ export default defineConfig({
     port: 3000,
     open: true,
     strictPort: true,
-    hmr: process.env.ELECTRON_APP_DISABLE_HMR === 'true' ? false : {
-      // Electronアプリケーションへのリロード通知を制限
+    hmr: {
+      // ホットモジュールリロード設定
       protocol: 'ws',
       host: 'localhost',
       clientPort: 3000,
-      // Electronアプリ専用のカスタム処理
-      overlay: false,
     },
-    // Electronアプリではホットリロードを使わない
-    watch: {
-      ignored: process.env.ELECTRON_APP === 'true' ? ['**/*'] : null,
+    fs: {
+      // Viteが/srcの外部のファイルにアクセスできるようにする
+      allow: ['..']
     },
   },
   base: "./",
@@ -67,10 +65,21 @@ export default defineConfig({
   },
   publicDir: path.resolve(__dirname, "public"),
   resolve: {
+    alias: {
+      // エイリアスを設定して、インポートパスを簡略化
+      '@': path.resolve(__dirname, 'src'),
+      '@components': path.resolve(__dirname, 'src/components'),
+      '@styles': path.resolve(__dirname, 'src/styles'),
+    },
     extensions: [".mjs", ".js", ".jsx", ".json"]
   },
   optimizeDeps: {
     include: ["react", "react-dom"]
+  },
+  // 開発モードでのデバッグ設定
+  define: {
+    '__APP_VERSION__': JSON.stringify(process.env.npm_package_version),
+    '__DEV_MODE__': process.env.NODE_ENV !== 'production',
   }
 });
 
@@ -135,14 +144,32 @@ function replaceImagesWithPictureTag() {
 // HTMLファイルの動的取得
 function getHtmlFiles() {
   const htmlFiles = {};
-  const dirPath = path.resolve(__dirname, "src");
+  const srcDirPath = path.resolve(__dirname, "src");
+  const htmlGlob = "**/*.html";
 
-  fs.readdirSync(dirPath, { withFileTypes: true }).forEach((file) => {
-    if (file.isFile() && file.name.endsWith(".html")) {
-      const name = file.name.replace(".html", "");
-      htmlFiles[name] = path.resolve(dirPath, file.name);
-    }
-  });
+  console.log('getHtmlFiles: HTMLファイルを検索します');
 
+  // srcディレクトリを再帰的に探索してHTMLファイルを収集
+  function findHtmlFiles(dir, basePath = "") {
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((dirent) => {
+      const fullPath = path.join(dir, dirent.name);
+      const relativePath = path.join(basePath, dirent.name);
+
+      if (dirent.isDirectory() && dirent.name !== "electron") {
+        // electronディレクトリは除外して再帰的に探索
+        findHtmlFiles(fullPath, relativePath);
+      } else if (dirent.isFile() && dirent.name.endsWith(".html")) {
+        // HTMLファイルを見つけた場合は登録
+        const name = relativePath.replace(".html", "").replace(/\//g, "-") || "index";
+        htmlFiles[name] = path.resolve(dir, dirent.name);
+        console.log(`getHtmlFiles: 登録: ${name} -> ${path.resolve(dir, dirent.name)}`);
+      }
+    });
+  }
+
+  // 検索開始
+  findHtmlFiles(srcDirPath);
+
+  console.log('getHtmlFiles: 最終エントリーポイント:', Object.keys(htmlFiles));
   return htmlFiles;
 }
