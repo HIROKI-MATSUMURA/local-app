@@ -9,6 +9,13 @@ export default defineConfig({
   root: 'src/electron',
   base: './',
   plugins: [react()],
+  css: {
+    preprocessorOptions: {
+      scss: {
+        additionalData: `@use "@styles/global.scss" as *;`
+      }
+    }
+  },
   build: {
     outDir: '../../dist',
     emptyOutDir: true,

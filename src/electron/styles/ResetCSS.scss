@@ -1,4 +1,4 @@
-@import "./global.scss";
+@use "@styles/global.scss" as *;
 
 .reset-css {
   padding: $spacing-xl;

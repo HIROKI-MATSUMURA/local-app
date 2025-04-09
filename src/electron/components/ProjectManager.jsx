@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import '../styles/css/components.css';
+import '../styles/ProjectManager.scss';
 
 const ProjectManager = ({ onProjectChange }) => {
   console.log('ProjectManager コンポーネントが初期化されました');
