@@ -1809,4 +1809,30 @@ $mediaquerys: (
       return { success: false, error: error.message };
     }
   });
+
+  // フォルダをエクスプローラーで開く
+  ipcMain.handle('open-folder', async (event, folderPath) => {
+    try {
+      console.log(`フォルダを開こうとしています: ${folderPath}`);
+
+      // ファイルパスの存在確認
+      if (!fs.existsSync(folderPath)) {
+        console.error(`指定されたフォルダが存在しません: ${folderPath}`);
+        return { success: false, error: '指定されたフォルダが存在しません' };
+      }
+
+      // OSに応じてフォルダを開く
+      let result = await shell.openPath(folderPath);
+      if (result === '') {
+        console.log(`フォルダを正常に開きました: ${folderPath}`);
+        return { success: true };
+      } else {
+        console.error(`フォルダを開けませんでした: ${folderPath}, エラー: ${result}`);
+        return { success: false, error: result };
+      }
+    } catch (error) {
+      console.error(`フォルダを開く際にエラーが発生しました: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
 }

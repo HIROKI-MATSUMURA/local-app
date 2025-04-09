@@ -150,6 +150,8 @@ try {
     loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),
     // ファイルパスをエクスプローラーで開く
     openPathInExplorer: (path) => ipcRenderer.invoke('open-path-in-explorer', path),
+    // フォルダをエクスプローラーで開く
+    openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
     // カテゴリとタグの管理
     loadCategories: () => ipcRenderer.invoke('loadCategories'),
     saveCategories: (categories) => ipcRenderer.invoke('saveCategories', categories),

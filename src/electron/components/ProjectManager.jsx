@@ -1069,6 +1069,19 @@ const ProjectManager = ({ onProjectChange }) => {
     ).length;
   };
 
+  // フォルダをエクスプローラーで開く関数
+  const openFolderInExplorer = async (e, path) => {
+    e.stopPropagation(); // 親要素のクリックイベントを停止
+    try {
+      if (path && path !== '未設定') {
+        await window.api.openFolder(path);
+      }
+    } catch (error) {
+      console.error('フォルダを開けませんでした:', error);
+      setError('フォルダを開くことができませんでした');
+    }
+  };
+
   return (
     <div className={styles['project-manager']}>
       <h2>プロジェクト管理</h2>
@@ -1197,7 +1210,13 @@ const ProjectManager = ({ onProjectChange }) => {
                 <div className={styles['project-header']}>
                   <div className={styles['name-path']}>
                     <h3>{project.name} <span className={styles.version}>v{project.version || '0.1.0'}</span></h3>
-                    <p className={styles['project-path']}>{project.path || '未設定'}</p>
+                    <p
+                      className={styles['project-path']}
+                      onClick={(e) => openFolderInExplorer(e, project.path)}
+                      title="クリックでフォルダを開く"
+                    >
+                      {project.path || '未設定'}
+                    </p>
                   </div>
                   <span className={`${styles.category} ${styles[`category-${project.category}`] || ''}`}
                     style={!styles[`category-${project.category}`] ? {
