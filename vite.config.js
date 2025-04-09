@@ -10,6 +10,10 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   css: {
+    modules: {
+      localsConvention: 'camelCase',
+      generateScopedName: '[name]__[local]__[hash:base64:5]'
+    },
     preprocessorOptions: {
       scss: {
         additionalData: `@use "@styles/global.scss" as *;`

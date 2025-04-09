@@ -2,6 +2,10 @@ const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 // プロジェクト設定ファイルのパスを定義
@@ -321,6 +325,38 @@ app.whenReady().then(() => {
       createMainWindow();
     }
   });
+
+  // コンソール情報を取得する関数
+  function getConsoleInfo() {
+    try {
+      const consoleInfo = {
+        nodeVersion: process.version,
+        electronVersion: process.versions.electron,
+        chromeVersion: process.versions.chrome,
+        platform: process.platform,
+        arch: process.arch,
+        memoryUsage: process.memoryUsage(),
+        uptime: process.uptime()
+      };
+      return consoleInfo;
+    } catch (error) {
+      console.error('コンソール情報の取得に失敗:', error);
+      return null;
+    }
+  }
+
+  // コンソール情報を定期的に取得する関数
+  function startConsoleMonitoring() {
+    setInterval(() => {
+      const consoleInfo = getConsoleInfo();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('console-info-updated', consoleInfo);
+      }
+    }, 5000); // 5秒ごとに更新
+  }
+
+  // コンソール監視を開始
+  startConsoleMonitoring();
 });
 
 // Macでアプリケーションが閉じられる際の処理
@@ -329,6 +365,72 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+// デフォルト設定ファイルのパスを定義
+const DEFAULT_SETTINGS_PATH = path.join(app.getPath('userData'), 'default-settings.json');
+
+// デフォルト設定の読み込み
+function loadDefaultSettings() {
+  try {
+    if (fs.existsSync(DEFAULT_SETTINGS_PATH)) {
+      const data = fs.readFileSync(DEFAULT_SETTINGS_PATH, 'utf8');
+      return JSON.parse(data);
+    }
+    return null;
+  } catch (error) {
+    console.error('デフォルト設定の読み込みに失敗:', error);
+    return null;
+  }
+}
+
+// デフォルト設定の保存
+function saveDefaultSettings(settings) {
+  try {
+    fs.writeFileSync(DEFAULT_SETTINGS_PATH, JSON.stringify(settings, null, 2));
+    return true;
+  } catch (error) {
+    console.error('デフォルト設定の保存に失敗:', error);
+    return false;
+  }
+}
+
+// プロジェクトファイル監視用のMap
+const projectWatchers = new Map();
+
+function watchProjectFiles(projectId, callback) {
+  try {
+    const project = loadProjectsConfig().projects.find(p => p.id === projectId);
+    if (!project) {
+      throw new Error('プロジェクトが見つかりません');
+    }
+
+    const projectPath = project.path;
+    const watcher = fs.watch(projectPath, { recursive: true }, (eventType, filename) => {
+      if (filename) {
+        callback({
+          eventType,
+          filename,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    projectWatchers.set(projectId, watcher);
+    return true;
+  } catch (error) {
+    console.error('プロジェクトファイルの監視に失敗:', error);
+    return false;
+  }
+}
+
+// プロジェクトファイルの監視解除
+function unwatchProjectFiles(projectId) {
+  const watcher = projectWatchers.get(projectId);
+  if (watcher) {
+    watcher.close();
+    projectWatchers.delete(projectId);
+  }
+}
 
 // IPC ハンドラーを設定する関数
 function setupIPCHandlers() {
@@ -1075,11 +1177,22 @@ $mediaquerys: (
   // プロジェクト設定の読み込み
   function loadProjectsConfig() {
     try {
+      console.log('プロジェクト設定を読み込みます:', PROJECTS_CONFIG_PATH);
+
       if (fs.existsSync(PROJECTS_CONFIG_PATH)) {
         const data = fs.readFileSync(PROJECTS_CONFIG_PATH, 'utf8');
-        return JSON.parse(data);
+        console.log('プロジェクト設定を読み込みました:', data);
+        const config = JSON.parse(data);
+        return {
+          projects: Array.isArray(config.projects) ? config.projects : [],
+          activeProjectId: config.activeProjectId || null
+        };
       }
-      return { projects: [], activeProjectId: null };
+
+      console.log('プロジェクト設定ファイルが存在しないため、新規作成します');
+      const defaultConfig = { projects: [], activeProjectId: null };
+      saveProjectsConfig(defaultConfig);
+      return defaultConfig;
     } catch (error) {
       console.error('プロジェクト設定の読み込みに失敗:', error);
       return { projects: [], activeProjectId: null };
@@ -1089,11 +1202,27 @@ $mediaquerys: (
   // プロジェクト設定の保存
   function saveProjectsConfig(config) {
     try {
+      console.log('プロジェクト設定を保存します:', config);
+
       const dir = path.dirname(PROJECTS_CONFIG_PATH);
       if (!fs.existsSync(dir)) {
+        console.log('設定ディレクトリを作成します:', dir);
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(PROJECTS_CONFIG_PATH, JSON.stringify(config, null, 2));
+
+      // 設定データの検証と正規化
+      const validConfig = {
+        projects: Array.isArray(config.projects) ? config.projects.map(project => ({
+          id: project.id || uuidv4(),
+          name: project.name || '未命名のプロジェクト',
+          path: project.path || '',
+          settings: project.settings || {}
+        })) : [],
+        activeProjectId: config.activeProjectId || (config.projects && config.projects.length > 0 ? config.projects[0].id : null)
+      };
+
+      // 設定ファイルの保存
+      fs.writeFileSync(PROJECTS_CONFIG_PATH, JSON.stringify(validConfig, null, 2));
       return true;
     } catch (error) {
       console.error('プロジェクト設定の保存に失敗:', error);
@@ -1103,20 +1232,26 @@ $mediaquerys: (
 
   // プロジェクト管理関連のIPCハンドラー
   ipcMain.handle('load-projects-config', async () => {
-    return loadProjectsConfig();
+    const config = loadProjectsConfig();
+    return config;
   });
 
   ipcMain.handle('save-project-settings', async (event, project) => {
-    const config = loadProjectsConfig();
-    const existingIndex = config.projects.findIndex(p => p.id === project.id);
+    try {
+      const config = loadProjectsConfig();
+      const existingIndex = config.projects.findIndex(p => p.id === project.id);
 
-    if (existingIndex >= 0) {
-      config.projects[existingIndex] = project;
-    } else {
-      config.projects.push(project);
+      if (existingIndex >= 0) {
+        config.projects[existingIndex] = project;
+      } else {
+        config.projects.push(project);
+      }
+
+      return saveProjectsConfig(config);
+    } catch (error) {
+      console.error('プロジェクト設定の保存中にエラーが発生:', error);
+      return false;
     }
-
-    return saveProjectsConfig(config);
   });
 
   ipcMain.handle('load-project-settings', async (event, projectId) => {
@@ -1162,5 +1297,27 @@ $mediaquerys: (
     } catch (error) {
       console.error('タブ切り替えの通知中にエラーが発生:', error);
     }
+  });
+
+  // デフォルト設定の読み込み
+  ipcMain.handle('loadDefaultSettings', async () => {
+    return loadDefaultSettings();
+  });
+
+  // デフォルト設定の保存
+  ipcMain.handle('saveDefaultSettings', async (event, settings) => {
+    return saveDefaultSettings(settings);
+  });
+
+  // プロジェクトファイルの監視
+  ipcMain.handle('watchProjectFiles', async (event, projectId) => {
+    return watchProjectFiles(projectId, (changes) => {
+      event.sender.send('project-files-changed', changes);
+    });
+  });
+
+  // プロジェクトファイルの監視解除
+  ipcMain.handle('unwatchProjectFiles', async (event, projectId) => {
+    return unwatchProjectFiles(projectId);
   });
 }

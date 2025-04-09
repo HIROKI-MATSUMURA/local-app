@@ -145,6 +145,9 @@ try {
     loadProjectSettings: (projectId) => ipcRenderer.invoke('load-project-settings', projectId),
     deleteProjectSettings: (projectId) => ipcRenderer.invoke('delete-project-settings', projectId),
     loadProjectsConfig: () => ipcRenderer.invoke('load-projects-config'),
+    // プロジェクトファイル監視
+    watchProjectFiles: (projectId) => ipcRenderer.invoke('watchProjectFiles', projectId),
+    unwatchProjectFiles: (projectId) => ipcRenderer.invoke('unwatchProjectFiles', projectId),
     // タブ切り替え用のメソッドを追加
     switchTab: (tabId) => {
       console.log('タブ切り替え要求を受信:', tabId);
@@ -154,6 +157,22 @@ try {
       } catch (error) {
         console.error('タブ切り替え要求の送信に失敗:', error);
       }
+    },
+    // コンソール情報のコールバックを設定
+    onConsoleInfoUpdated: (callback) => {
+      window.onConsoleInfoUpdated = callback;
+    },
+    // デフォルト設定の読み込み
+    loadDefaultSettings: () => ipcRenderer.invoke('loadDefaultSettings'),
+
+    // デフォルト設定の保存
+    saveDefaultSettings: (settings) => ipcRenderer.invoke('saveDefaultSettings', settings),
+  });
+
+  // コンソール情報のイベントリスナー
+  ipcRenderer.on('console-info-updated', (event, consoleInfo) => {
+    if (window.onConsoleInfoUpdated) {
+      window.onConsoleInfoUpdated(consoleInfo);
     }
   });
 
