@@ -201,8 +201,10 @@
             border-color: #343a40;
 
             .count {
-              background-color: rgba(255, 255, 255, 0.2);
-              color: rgba(255, 255, 255, 0.9);
+              background-color: rgba(255, 255, 255, 0.8);
+              color: #222;
+              font-weight: 400;
+              padding: 1px 6px;
             }
           }
 
@@ -210,6 +212,12 @@
             &.active {
               background: #495057;
               border-color: #495057;
+
+              .count {
+                background-color: rgba(255, 255, 255, 0.8);
+                color: #222;
+                font-weight: 400;
+              }
             }
           }
 
@@ -217,6 +225,12 @@
             &.active {
               background: #3498db;
               border-color: #3498db;
+
+              .count {
+                background-color: rgba(255, 255, 255, 0.8);
+                color: #222;
+                font-weight: 400;
+              }
             }
           }
 
@@ -224,6 +238,12 @@
             &.active {
               background: #2ecc71;
               border-color: #2ecc71;
+
+              .count {
+                background-color: rgba(255, 255, 255, 0.8);
+                color: #222;
+                font-weight: 400;
+              }
             }
           }
 
