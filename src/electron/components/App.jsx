@@ -118,7 +118,23 @@ const App = () => {
           {activeProject && (
             <div className="current-project">
               <span className="project-name">{activeProject.name}</span>
-              <span className="project-path">{activeProject.path}</span>
+              <div className="project-meta">
+                {activeProject.category && (
+                  <span
+                    className="project-category"
+                    style={{}}
+                  >
+                    {activeProject.category}
+                  </span>
+                )}
+                {activeProject.tags && activeProject.tags.length > 0 && (
+                  <div className="project-tags">
+                    {activeProject.tags.map(tag => (
+                      <span key={tag} className="project-tag">{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -3,28 +3,68 @@
   max-width: 800px;
   margin: 0 auto;
   background-color: #ffffff;
+  width: 100%;
 
   @media (max-width: 768px) {
     padding: 16px;
   }
 
   h2 {
-    margin-bottom: 24px;
-    font-size: 28px;
-    color: #1a1a1a;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-    position: relative;
+    margin-bottom: 20px;
+    color: var(--primary-color);
+  }
 
-    &::after {
-      content: "";
-      position: absolute;
-      bottom: -8px;
-      left: 0;
-      width: 48px;
-      height: 3px;
-      background: linear-gradient(90deg, #4dabf7 0%, #3c8ce7 100%);
-      border-radius: 2px;
+  .title-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+
+    h2 {
+      margin-bottom: 0;
+    }
+
+    .download-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: linear-gradient(145deg, var(--primary-light), var(--primary-color));
+      color: white;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(67, 97, 238, 0.3);
+
+      &:hover {
+        background: linear-gradient(145deg, var(--primary-color), var(--primary-dark));
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(67, 97, 238, 0.4);
+      }
+
+      .github-cat {
+        min-width: 20px;
+        height: 20px;
+        transition: transform 0.3s ease;
+      }
+
+      .download-text {
+        white-space: nowrap;
+      }
+
+      svg {
+        transition: transform 0.3s ease;
+      }
+
+      &:hover svg {
+        transform: translateY(2px);
+      }
+
+      &:hover .github-cat {
+        transform: scale(1.1);
+      }
     }
   }
 
@@ -387,6 +427,28 @@
 
       &::before {
         opacity: 1;
+        width: 6px;
+      }
+
+      background-color: rgba(77, 171, 247, 0.05);
+
+      .project-info .project-header .name-path h3 {
+        color: #4dabf7;
+      }
+
+      &::after {
+        content: "";
+        display: none;
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 10px;
+        padding: 2px 6px;
+        background-color: rgba(77, 171, 247, 0.2);
+        color: #4dabf7;
+        border-radius: 4px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
       }
     }
 
@@ -591,6 +653,39 @@
         transition: all 0.2s ease;
         white-space: nowrap;
         flex-grow: 1;
+
+        &.activate {
+          background: linear-gradient(90deg, rgba(77, 171, 247, 0.1) 0%, rgba(60, 140, 231, 0.1) 100%);
+          color: #4dabf7;
+          border: 1px solid rgba(77, 171, 247, 0.2);
+
+          &:hover {
+            background: linear-gradient(90deg, #4dabf7 0%, #3c8ce7 100%);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 8px rgba(77, 171, 247, 0.2);
+          }
+
+          &.active {
+            background: linear-gradient(90deg, #4dabf7 0%, #3c8ce7 100%);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 8px rgba(77, 171, 247, 0.2);
+            pointer-events: none;
+            position: relative;
+
+            &::before {
+              content: "✓";
+              margin-right: 4px;
+              font-weight: bold;
+            }
+          }
+
+          &:disabled {
+            opacity: 0.8;
+            cursor: default;
+          }
+        }
 
         &.delete {
           background: rgba(220, 53, 69, 0.1);
