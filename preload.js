@@ -148,6 +148,8 @@ try {
     // アクティブプロジェクトIDの保存と読み込み
     saveActiveProjectId: (projectId) => ipcRenderer.invoke('save-active-project-id', projectId),
     loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),
+    // ファイルパスをエクスプローラーで開く
+    openPathInExplorer: (path) => ipcRenderer.invoke('open-path-in-explorer', path),
     // カテゴリとタグの管理
     loadCategories: () => ipcRenderer.invoke('loadCategories'),
     saveCategories: (categories) => ipcRenderer.invoke('saveCategories', categories),

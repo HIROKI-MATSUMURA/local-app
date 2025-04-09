@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
@@ -1771,5 +1771,42 @@ $mediaquerys: (
   // 選択中のタグを読み込み
   ipcMain.handle('loadSelectedTags', async () => {
     return await loadSelectedTags();
+  });
+
+  // ファイルパスをExplorer/Finderで開くハンドラ
+  ipcMain.handle('open-path-in-explorer', async (event, filePath) => {
+    try {
+      console.log(`パスをエクスプローラーで開く要求を受信: ${filePath}`);
+
+      // ファイルパスの存在確認
+      if (!fs.existsSync(filePath)) {
+        console.error(`指定されたパスが存在しません: ${filePath}`);
+        return { success: false, error: '指定されたパスが存在しません' };
+      }
+
+      // OSに応じてコマンドを選択
+      let opened = false;
+      if (process.platform === 'darwin') {
+        // macOS
+        opened = shell.openPath(filePath);
+      } else if (process.platform === 'win32') {
+        // Windows
+        opened = shell.openPath(filePath);
+      } else if (process.platform === 'linux') {
+        // Linux
+        opened = shell.openPath(filePath);
+      }
+
+      if (opened) {
+        console.log(`パスを正常に開きました: ${filePath}`);
+        return { success: true };
+      } else {
+        console.error(`パスを開けませんでした: ${filePath}`);
+        return { success: false, error: 'パスを開けませんでした' };
+      }
+    } catch (error) {
+      console.error(`パスを開く際にエラーが発生しました: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   });
 }
