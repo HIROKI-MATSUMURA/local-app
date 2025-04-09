@@ -4,31 +4,37 @@
  */
 
 // Node.js環境かブラウザ環境かを判定
-const isNode = typeof window === 'undefined' || typeof process !== 'undefined' && process.versions && process.versions.node;
+const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
 // Node.js環境でのみ必要なモジュールを条件付きでロード
 let spawn, path, fs, os, log;
 
 if (isNode) {
-  // Node.js環境の場合のみ、requireを使用
-  const nodeRequire = require;
-  spawn = nodeRequire('child_process').spawn;
-  path = nodeRequire('path');
-  fs = nodeRequire('fs');
-  os = nodeRequire('os');
   try {
-    log = nodeRequire('electron-log');
-  } catch (e) {
-    // electron-logが利用できない場合はコンソールを代用
-    log = {
-      info: console.info,
-      warn: console.warn,
-      error: console.error,
-      debug: console.debug
-    };
+    // Node.js環境の場合のみ、requireを使用
+    spawn = require('child_process').spawn;
+    path = require('path');
+    fs = require('fs');
+    os = require('os');
+    try {
+      log = require('electron-log');
+    } catch (e) {
+      // electron-logが利用できない場合はコンソールを代用
+      log = {
+        info: console.info,
+        warn: console.warn,
+        error: console.error,
+        debug: console.debug
+      };
+    }
+  } catch (error) {
+    console.warn('Electronモジュールをロードできませんでした - ブラウザ環境として続行します:', error);
+    isNode = false;
   }
-} else {
-  // ブラウザ環境では、ダミーのログオブジェクトを作成
+}
+
+// ブラウザ環境では、ダミーのログオブジェクトを作成
+if (!isNode) {
   log = {
     info: (...args) => console.info('[Log]', ...args),
     warn: (...args) => console.warn('[Log]', ...args),

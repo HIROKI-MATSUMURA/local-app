@@ -4,6 +4,9 @@ const fs = require('fs');
 const axios = require('axios');
 require('dotenv').config();
 
+// プロジェクト設定ファイルのパスを定義
+const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
+
 // ハードコードされたAPIキー
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
@@ -133,8 +136,15 @@ function createSplashWindow() {
 
 // メインウィンドウ作成関数
 function createMainWindow() {
+  console.log('メインウィンドウの作成を開始します');  // デバッグログ追加
+
   const windowWidth = 1280;
   const windowHeight = 800;
+
+  // preloadスクリプトのパスを確認
+  const preloadPath = path.join(__dirname, 'preload.js');
+  console.log('preloadスクリプトのパス:', preloadPath);  // デバッグログ追加
+  console.log('preloadスクリプトが存在するか:', fs.existsSync(preloadPath));  // デバッグログ追加
 
   // ウィンドウオプションを設定
   const windowOptions = {
@@ -143,18 +153,18 @@ function createMainWindow() {
     minWidth: 800,
     minHeight: 600,
     frame: true,
-    show: false, // 準備ができるまで非表示
+    show: false,
     title: 'CreAIte Code',
     webPreferences: {
-      nodeIntegration: false,
+      nodeIntegration: true,  // trueに変更
       contextIsolation: true,
-      nodeIntegrationInWorker: true, // Workerでのnode統合を有効化
-      nodeIntegrationInSubFrames: true, // サブフレームでのnode統合を有効化
-      webSecurity: !isDevelopment, // 開発中はWebセキュリティを無効化
-      sandbox: false, // サンドボックスを無効化してNodeモジュールアクセスを許可
-      preload: path.join(__dirname, 'preload.js')  // プリロードスクリプトを常に使用
+      webSecurity: true,
+      sandbox: false,  // falseに変更
+      preload: preloadPath
     }
   };
+
+  console.log('ウィンドウオプション:', windowOptions);  // デバッグログ追加
 
   // メインウィンドウの作成
   mainWindow = new BrowserWindow(windowOptions);
@@ -247,6 +257,19 @@ function createMainWindow() {
         }
       });
     });
+  });
+
+  // ウィンドウの読み込みイベントをリッスン
+  mainWindow.webContents.on('did-start-loading', () => {
+    console.log('ウィンドウの読み込みを開始しました');  // デバッグログ追加
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('ウィンドウの読み込みが完了しました');  // デバッグログ追加
+  });
+
+  mainWindow.webContents.on('dom-ready', () => {
+    console.log('DOMの準備が完了しました');  // デバッグログ追加
   });
 
   return mainWindow;
@@ -1046,6 +1069,98 @@ $mediaquerys: (
     } catch (error) {
       console.error('リネームして保存中にエラーが発生しました:', error);
       return { success: false, error: error.message };
+    }
+  });
+
+  // プロジェクト設定の読み込み
+  function loadProjectsConfig() {
+    try {
+      if (fs.existsSync(PROJECTS_CONFIG_PATH)) {
+        const data = fs.readFileSync(PROJECTS_CONFIG_PATH, 'utf8');
+        return JSON.parse(data);
+      }
+      return { projects: [], activeProjectId: null };
+    } catch (error) {
+      console.error('プロジェクト設定の読み込みに失敗:', error);
+      return { projects: [], activeProjectId: null };
+    }
+  }
+
+  // プロジェクト設定の保存
+  function saveProjectsConfig(config) {
+    try {
+      const dir = path.dirname(PROJECTS_CONFIG_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(PROJECTS_CONFIG_PATH, JSON.stringify(config, null, 2));
+      return true;
+    } catch (error) {
+      console.error('プロジェクト設定の保存に失敗:', error);
+      return false;
+    }
+  }
+
+  // プロジェクト管理関連のIPCハンドラー
+  ipcMain.handle('load-projects-config', async () => {
+    return loadProjectsConfig();
+  });
+
+  ipcMain.handle('save-project-settings', async (event, project) => {
+    const config = loadProjectsConfig();
+    const existingIndex = config.projects.findIndex(p => p.id === project.id);
+
+    if (existingIndex >= 0) {
+      config.projects[existingIndex] = project;
+    } else {
+      config.projects.push(project);
+    }
+
+    return saveProjectsConfig(config);
+  });
+
+  ipcMain.handle('load-project-settings', async (event, projectId) => {
+    const config = loadProjectsConfig();
+    return config.projects.find(p => p.id === projectId);
+  });
+
+  ipcMain.handle('delete-project-settings', async (event, projectId) => {
+    const config = loadProjectsConfig();
+    config.projects = config.projects.filter(p => p.id !== projectId);
+
+    if (config.activeProjectId === projectId) {
+      config.activeProjectId = config.projects[0]?.id || null;
+    }
+
+    return saveProjectsConfig(config);
+  });
+
+  ipcMain.handle('open-project-dialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'プロジェクトフォルダを選択'
+    });
+
+    if (!result.canceled && result.filePaths.length > 0) {
+      const projectPath = result.filePaths[0];
+      const projectName = path.basename(projectPath);
+      return { name: projectName, path: projectPath };
+    }
+    return null;
+  });
+
+  // タブ切り替えのハンドラを追加
+  ipcMain.on('switch-tab', (event, tabId) => {
+    console.log('メインプロセスでタブ切り替えを受信:', tabId);
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log('レンダラープロセスにタブ切り替えを通知');
+        mainWindow.webContents.send('tab-switched', tabId);
+      } else {
+        console.warn('メインウィンドウが存在しないか破棄されています');
+      }
+    } catch (error) {
+      console.error('タブ切り替えの通知中にエラーが発生:', error);
     }
   });
 }

@@ -174,3 +174,24 @@ pre {
     margin-left: 64px;
   }
 }
+
+/* プロジェクト表示 */
+.current-project {
+  margin-top: 10px;
+  padding: 8px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.current-project .project-name {
+  display: block;
+  font-weight: bold;
+  color: #fff;
+}
+
+.current-project .project-path {
+  display: block;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.7);
+  word-break: break-all;
+}

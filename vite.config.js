@@ -23,9 +23,9 @@ export default defineConfig({
       },
       output: {
         // チャンクのファイル名を設定
-        entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]',
+        entryFileNames: 'assets/[name].[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[ext]'
       },
     },
   },
@@ -36,4 +36,15 @@ export default defineConfig({
       '@styles': path.resolve(__dirname, 'src/electron/styles'),
     },
   },
+  // CSSの設定を追加
+  css: {
+    devSourcemap: true,
+    modules: {
+      localsConvention: 'camelCase'
+    }
+  },
+  // 静的アセットの設定を追加
+  publicDir: 'src/electron/public',
+  // アセットのパス解決を追加
+  assetsInclude: ['**/*.css'],
 });

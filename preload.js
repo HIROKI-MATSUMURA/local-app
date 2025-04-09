@@ -22,7 +22,8 @@ try {
         'delete-html-file',
         'rename-file',
         'save-ai-generated-code',
-        'rename-and-save-ai-code'
+        'rename-and-save-ai-code',
+        'switch-tab'
       ];
       if (validChannels.includes(channel)) {
         ipcRenderer.send(channel, data);
@@ -39,7 +40,8 @@ try {
         'file-updated',
         'new-html-file',
         'file-changed',
-        'file-deleted'
+        'file-deleted',
+        'tab-switched'
       ];
       if (validChannels.includes(channel)) {
         // Deliberately strip event as it includes `sender`
@@ -136,6 +138,22 @@ try {
       dirname: (filePath) => path.dirname(filePath),
       basename: (filePath, ext) => path.basename(filePath, ext),
       extname: (filePath) => path.extname(filePath),
+    },
+    // プロジェクト管理
+    openProjectDialog: () => ipcRenderer.invoke('open-project-dialog'),
+    saveProjectSettings: (project) => ipcRenderer.invoke('save-project-settings', project),
+    loadProjectSettings: (projectId) => ipcRenderer.invoke('load-project-settings', projectId),
+    deleteProjectSettings: (projectId) => ipcRenderer.invoke('delete-project-settings', projectId),
+    loadProjectsConfig: () => ipcRenderer.invoke('load-projects-config'),
+    // タブ切り替え用のメソッドを追加
+    switchTab: (tabId) => {
+      console.log('タブ切り替え要求を受信:', tabId);
+      try {
+        ipcRenderer.send('switch-tab', tabId);
+        console.log('タブ切り替え要求を送信しました');
+      } catch (error) {
+        console.error('タブ切り替え要求の送信に失敗:', error);
+      }
     }
   });
 

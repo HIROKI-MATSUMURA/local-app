@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
-import "../styles/css/main.css";
-import "../styles/css/components.css";
+import "@styles/css/main.css";
+import "@styles/css/components.css";
 import GenerateHTML from "./GenerateHTML";
 import ResetCSS from "./ResetCSS";
 import ResponsiveConfig from "./ResponsiveConfig";
 import VariableConfig from "./VariableConfig";
 import AICodeGenerator from "./AICodeGenerator";
+import ProjectManager from "./ProjectManager";
 
 // Electronコンテキストかどうかを判定
 const isElectronContext = typeof window !== 'undefined' && window.api;
@@ -14,19 +15,25 @@ const isElectronContext = typeof window !== 'undefined' && window.api;
 const OUTPUT_PATH = '../output';
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState("generate-html");
-  // VariableConfigの参照を保持
+  console.log('App コンポーネントがレンダリングされました');  // デバッグログ追加
+
+  const [activeTab, setActiveTab] = useState("project-manager");
+  console.log('現在のアクティブタブ:', activeTab);  // デバッグログ追加
+
+  const [activeProject, setActiveProject] = useState(null);
   const variableConfigRef = useRef(null);
-  // Python環境チェックの状態
   const [pythonCheck, setPythonCheck] = useState({
-    showCheck: false, // 初期状態でチェックを無効化
+    showCheck: false,
     isComplete: false,
     isPythonAvailable: false
   });
 
   // Electron環境かどうかをコンソールに出力（デバッグ用）
   useEffect(() => {
+    console.log('Appコンポーネントがマウントされました');
+    console.log('初期タブ:', activeTab);
     console.log('Electron API 利用可能:', isElectronContext ? 'はい' : 'いいえ');
+    console.log('現在のプロジェクト:', activeProject);
 
     // 出力ディレクトリの存在確認と作成（Electron環境の場合）
     if (isElectronContext && window.api.fs) {
@@ -34,9 +41,16 @@ const App = () => {
         .then(() => console.log(`出力ディレクトリを確認しました: ${OUTPUT_PATH}`))
         .catch(err => console.error('出力ディレクトリの確認に失敗しました:', err));
     }
-  }, []);
+  }, [activeProject, activeTab]);
+
+  // プロジェクト変更時のハンドラー
+  const handleProjectChange = (project) => {
+    console.log('プロジェクト変更:', project);
+    setActiveProject(project);
+  };
 
   const menuItems = [
+    { id: "project-manager", label: "プロジェクト管理", icon: "📁" },
     { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
     { id: "reset-css", label: "リセットCSS関連", icon: "🎨" },
     { id: "responsive-config", label: "レスポンシブ関連", icon: "📱" },
@@ -46,22 +60,42 @@ const App = () => {
 
   // タブ切り替え前に未保存の変更をチェック
   const handleTabChange = (newTabId) => {
-    // 現在が変数設定タブで、かつ未保存の変更がある場合
+    console.log('タブ切り替え開始:', newTabId);
+
+    // 現在のタブと新しいタブが同じ場合は何もしない
+    if (activeTab === newTabId) {
+      console.log('同じタブへの切り替えは無視します');
+      return;
+    }
+
+    // 未保存の変更がある場合の確認
     if (activeTab === "variable-config" &&
       variableConfigRef.current &&
       variableConfigRef.current.hasUnsavedChanges()) {
-      // 確認ダイアログを表示
       const confirmed = window.confirm('変更が保存されていません。このページを離れますか？');
       if (!confirmed) {
-        return; // キャンセルされた場合は何もしない
+        console.log('タブ切り替えをキャンセルしました');
+        return;
       }
     }
-    // 問題なければタブを切り替え
+
+    // タブを切り替える
+    console.log('タブを切り替えます:', newTabId);
     setActiveTab(newTabId);
+
+    // Electron APIを使用してタブ切り替えを通知
+    if (window.api && window.api.switchTab) {
+      console.log('Electron APIを使用してタブ切り替えを通知');
+      window.api.switchTab(newTabId);
+    }
   };
 
   const renderContent = () => {
+    console.log('renderContent が呼び出されました。activeTab:', activeTab);  // デバッグログ追加
     switch (activeTab) {
+      case "project-manager":
+        console.log('ProjectManager コンポーネントをレンダリングします');  // デバッグログ追加
+        return <ProjectManager onProjectChange={handleProjectChange} />;
       case "reset-css":
         return <ResetCSS />;
       case "responsive-config":
@@ -81,6 +115,12 @@ const App = () => {
       <aside className="sidebar">
         <div className="sidebar-header">
           <h2>CreAIte Code</h2>
+          {activeProject && (
+            <div className="current-project">
+              <span className="project-name">{activeProject.name}</span>
+              <span className="project-path">{activeProject.path}</span>
+            </div>
+          )}
         </div>
         <nav className="sidebar-nav">
           <ul>
@@ -88,7 +128,13 @@ const App = () => {
               <li
                 key={item.id}
                 className={`nav-item ${activeTab === item.id ? "active" : ""}`}
-                onClick={() => handleTabChange(item.id)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('メニュー項目クリック:', item.id);
+                  handleTabChange(item.id);
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 <span className="nav-icon">{item.icon}</span>
                 <span className="nav-label">{item.label}</span>
@@ -98,9 +144,7 @@ const App = () => {
         </nav>
       </aside>
       <main className="main-content">
-        <div className="content-wrapper">
-          {renderContent()}
-        </div>
+        {renderContent()}
       </main>
     </div>
   );

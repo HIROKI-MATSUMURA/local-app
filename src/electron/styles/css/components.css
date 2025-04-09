@@ -1,6 +1,7 @@
 /* コンポーネント用CSS */
 
 /* 共通コンポーネントスタイル */
+.project-manager,
 .ai-code-generator,
 .api-settings,
 .variable-config,
@@ -14,6 +15,100 @@
   background: linear-gradient(145deg, #ffffff, #f8f9fe);
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* プロジェクト管理 */
+.project-manager {
+  /* すでに共通スタイルが適用されます */
+}
+
+.project-manager h2 {
+  font-size: 1.5rem;
+  margin-bottom: var(--spacing-lg);
+  color: var(--text-primary);
+}
+
+.project-list {
+  margin-bottom: var(--spacing-xl);
+}
+
+.project-item {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.project-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color);
+}
+
+.project-item.active {
+  border-color: var(--primary-color);
+  background: linear-gradient(145deg, var(--primary-color), var(--primary-dark));
+}
+
+.project-item.active .project-name,
+.project-item.active .project-path {
+  color: white;
+}
+
+.project-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.project-path {
+  font-size: 0.9rem;
+  color: var(--text-tertiary);
+}
+
+.delete-button {
+  background: var(--error-color);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delete-button:hover {
+  background: #ff3333;
+  transform: scale(1.05);
+}
+
+.add-project-button {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.add-project-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 /* AIコードジェネレーター */
