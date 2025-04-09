@@ -181,6 +181,16 @@
           cursor: pointer;
           transition: all 0.2s ease;
 
+          .count {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 11px;
+            color: #6c757d;
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 0 5px;
+            border-radius: 10px;
+          }
+
           &:hover {
             background: #e9ecef;
           }
@@ -189,6 +199,11 @@
             background: #343a40;
             color: white;
             border-color: #343a40;
+
+            .count {
+              background-color: rgba(255, 255, 255, 0.2);
+              color: rgba(255, 255, 255, 0.9);
+            }
           }
 
           &.category-uncategorized {
@@ -210,6 +225,21 @@
               background: #2ecc71;
               border-color: #2ecc71;
             }
+          }
+
+          &.category-制作会社 {
+            background-color: rgba(155, 89, 182, 0.1);
+            color: #9b59b6;
+          }
+
+          &.category-コミュニティ {
+            background-color: rgba(241, 196, 15, 0.1);
+            color: #f1c40f;
+          }
+
+          &.category-エンド {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
           }
         }
       }
@@ -239,6 +269,16 @@
           cursor: pointer;
           transition: all 0.2s ease;
 
+          .count {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 11px;
+            color: #6c757d;
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 0 5px;
+            border-radius: 10px;
+          }
+
           &:hover {
             background: #e9ecef;
           }
@@ -247,6 +287,11 @@
             background: #4dabf7;
             color: white;
             border-color: #4dabf7;
+
+            .count {
+              background-color: rgba(255, 255, 255, 0.2);
+              color: rgba(255, 255, 255, 0.9);
+            }
           }
         }
       }
@@ -380,8 +425,8 @@
         }
 
         .category {
-          font-size: 12px;
-          padding: 3px 8px;
+          font-size: 15px;
+          padding: 4px 12px;
           border-radius: 4px;
           font-weight: 500;
           white-space: nowrap;
@@ -401,6 +446,21 @@
           &.category-personal {
             background-color: rgba(46, 204, 113, 0.1);
             color: #2ecc71;
+          }
+
+          &.category-制作会社 {
+            background-color: rgba(155, 89, 182, 0.1);
+            color: #9b59b6;
+          }
+
+          &.category-コミュニティ {
+            background-color: rgba(241, 196, 15, 0.1);
+            color: #f1c40f;
+          }
+
+          &.category-エンド {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
           }
         }
       }

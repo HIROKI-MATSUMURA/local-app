@@ -1015,122 +1015,59 @@ const ProjectManager = ({ onProjectChange }) => {
     setShowManageTagsDialog(true);
   };
 
-  // カテゴリーとタグのプリセット状態を読み込む
-  useEffect(() => {
-    const loadSelectedStates = async () => {
-      console.log('=== 選択中カテゴリとタグの読み込み処理開始 ===');
-
-      if (!window.api) {
-        console.error('ERROR: window.api が見つかりません。選択状態を読み込めません');
-        return;
-      }
-
-      try {
-        // 選択中のカテゴリーを読み込む
-        console.log('選択中カテゴリの読み込み処理を開始...');
-        let savedSelectedCategory;
-        try {
-          savedSelectedCategory = await window.api.loadSelectedCategory();
-          console.log('選択中カテゴリの読み込み結果:', savedSelectedCategory);
-        } catch (categoryLoadError) {
-          console.error('選択中カテゴリの読み込み中にエラー発生:', categoryLoadError);
-          savedSelectedCategory = null;
-        }
-
-        if (savedSelectedCategory) {
-          console.log('保存された選択カテゴリをセット:', savedSelectedCategory);
-          setSelectedCategory(savedSelectedCategory);
-        } else {
-          console.log('選択カテゴリが見つからないため、デフォルト値(all)を使用');
-          setSelectedCategory('all');
-
-          try {
-            console.log('デフォルト選択カテゴリ(all)を保存');
-            await window.api.saveSelectedCategory('all');
-          } catch (saveError) {
-            console.error('デフォルト選択カテゴリの保存に失敗:', saveError);
-          }
-        }
-
-        // 選択中のタグを読み込む
-        console.log('選択中タグの読み込み処理を開始...');
-        let savedSelectedTags;
-        try {
-          savedSelectedTags = await window.api.loadSelectedTags();
-          console.log('選択中タグの読み込み結果:', savedSelectedTags);
-        } catch (tagsLoadError) {
-          console.error('選択中タグの読み込み中にエラー発生:', tagsLoadError);
-          savedSelectedTags = null;
-        }
-
-        if (savedSelectedTags && Array.isArray(savedSelectedTags)) {
-          console.log('保存された選択タグをセット:', savedSelectedTags);
-          setSelectedTags(savedSelectedTags);
-        } else {
-          console.log('選択タグが見つからないため、デフォルト値([])を使用');
-          setSelectedTags([]);
-
-          try {
-            console.log('デフォルト選択タグ([])を保存');
-            await window.api.saveSelectedTags([]);
-          } catch (saveError) {
-            console.error('デフォルト選択タグの保存に失敗:', saveError);
-          }
-        }
-
-        console.log('=== 選択中カテゴリとタグの読み込み完了 ===');
-      } catch (error) {
-        console.error('フィルター状態の読み込みに失敗:', error);
-        console.error('エラータイプ:', error.constructor.name);
-        console.error('エラーメッセージ:', error.message);
-        console.error('エラースタック:', error.stack);
-
-        // エラー時のデフォルト値
-        setSelectedCategory('all');
-        setSelectedTags([]);
-
-        try {
-          console.log('エラー回復: デフォルト選択状態を保存');
-          await window.api.saveSelectedCategory('all');
-          await window.api.saveSelectedTags([]);
-        } catch (saveError) {
-          console.error('エラー回復中の保存で新たなエラー:', saveError);
-        }
-      }
+  // カテゴリの色をハッシュ値から生成するユーティリティ関数
+  const getColorForCategory = (category) => {
+    // デフォルト定義されているカテゴリの色を返す
+    const predefinedColors = {
+      'uncategorized': { bg: '#f1f3f5', text: '#495057' },
+      '制作会社': { bg: 'rgba(155, 89, 182, 0.1)', text: '#9b59b6' },
+      'コミュニティ': { bg: 'rgba(241, 196, 15, 0.1)', text: '#f1c40f' },
+      'エンド': { bg: 'rgba(231, 76, 60, 0.1)', text: '#e74c3c' },
+      'work': { bg: 'rgba(52, 152, 219, 0.1)', text: '#3498db' },
+      'personal': { bg: 'rgba(46, 204, 113, 0.1)', text: '#2ecc71' }
     };
 
-    loadSelectedStates();
-  }, []);
+    if (predefinedColors[category]) {
+      return predefinedColors[category];
+    }
 
-  // 選択カテゴリーが変更されたときに保存
-  useEffect(() => {
-    const saveSelectedCategory = async () => {
-      try {
-        console.log('選択カテゴリが変更されたので保存します:', selectedCategory);
-        await window.api.saveSelectedCategory(selectedCategory);
-        console.log('選択カテゴリを保存しました');
-      } catch (error) {
-        console.error('選択カテゴリーの保存に失敗:', error);
-      }
-    };
+    // 文字列からハッシュ値を生成
+    let hash = 0;
+    for (let i = 0; i < category.length; i++) {
+      hash = category.charCodeAt(i) + ((hash << 5) - hash);
+    }
 
-    saveSelectedCategory();
-  }, [selectedCategory]);
+    // ハッシュ値をHSLカラーに変換（彩度と明度は固定）
+    const h = Math.abs(hash) % 360;
+    const s = 80;
+    const l = 60;
 
-  // 選択タグが変更されたときに保存
-  useEffect(() => {
-    const saveSelectedTags = async () => {
-      try {
-        console.log('選択タグが変更されたので保存します:', selectedTags);
-        await window.api.saveSelectedTags(selectedTags);
-        console.log('選択タグを保存しました');
-      } catch (error) {
-        console.error('選択タグの保存に失敗:', error);
-      }
-    };
+    // HSLカラーの生成
+    const color = `hsl(${h}, ${s}%, ${l}%)`;
+    const bgColor = `hsla(${h}, ${s}%, ${l}%, 0.1)`;
 
-    saveSelectedTags();
-  }, [selectedTags]);
+    return { bg: bgColor, text: color };
+  };
+
+  // カテゴリごとのプロジェクト数を計算する関数
+  const countProjectsByCategory = (category) => {
+    if (category === 'all') {
+      return projects.filter(p => !p.isArchived === !showArchived).length;
+    }
+    return projects.filter(p =>
+      p.category === category &&
+      !p.isArchived === !showArchived
+    ).length;
+  };
+
+  // タグごとのプロジェクト数を計算する関数
+  const countProjectsByTag = (tag) => {
+    return projects.filter(p =>
+      p.tags &&
+      p.tags.includes(tag) &&
+      !p.isArchived === !showArchived
+    ).length;
+  };
 
   return (
     <div className={styles['project-manager']}>
@@ -1189,13 +1126,13 @@ const ProjectManager = ({ onProjectChange }) => {
               className={`${styles.category} ${selectedCategory === 'all' ? styles.active : ''}`}
               onClick={() => setSelectedCategory('all')}
             >
-              すべて
+              すべて <span className={styles['count']}>{countProjectsByCategory('all')}</span>
             </button>
             <button
               className={`${styles.category} ${selectedCategory === 'uncategorized' ? styles.active : ''}`}
               onClick={() => setSelectedCategory('uncategorized')}
             >
-              未分類
+              未分類 <span className={styles['count']}>{countProjectsByCategory('uncategorized')}</span>
             </button>
             {categories
               .filter(category => category !== 'uncategorized')
@@ -1203,9 +1140,17 @@ const ProjectManager = ({ onProjectChange }) => {
                 <button
                   key={category}
                   className={`${styles.category} ${selectedCategory === category ? styles.active : ''} ${styles[`category-${category}`] || ''}`}
+                  style={!styles[`category-${category}`] ? {
+                    backgroundColor: selectedCategory === category ?
+                      getColorForCategory(category).text : getColorForCategory(category).bg,
+                    color: selectedCategory === category ?
+                      '#ffffff' : getColorForCategory(category).text,
+                    borderColor: selectedCategory === category ?
+                      getColorForCategory(category).text : '#e9ecef'
+                  } : undefined}
                   onClick={() => setSelectedCategory(category)}
                 >
-                  {category}
+                  {category} <span className={styles['count']}>{countProjectsByCategory(category)}</span>
                 </button>
               ))
             }
@@ -1227,7 +1172,7 @@ const ProjectManager = ({ onProjectChange }) => {
                   );
                 }}
               >
-                {tag}
+                {tag} <span className={styles['count']}>{countProjectsByTag(tag)}</span>
               </button>
             ))}
           </div>
@@ -1254,7 +1199,11 @@ const ProjectManager = ({ onProjectChange }) => {
                     <h3>{project.name} <span className={styles.version}>v{project.version || '0.1.0'}</span></h3>
                     <p className={styles['project-path']}>{project.path || '未設定'}</p>
                   </div>
-                  <span className={`${styles.category} ${styles[`category-${project.category}`]}`}>
+                  <span className={`${styles.category} ${styles[`category-${project.category}`] || ''}`}
+                    style={!styles[`category-${project.category}`] ? {
+                      backgroundColor: getColorForCategory(project.category || 'uncategorized').bg,
+                      color: getColorForCategory(project.category || 'uncategorized').text
+                    } : undefined}>
                     {project.category || 'uncategorized'}
                   </span>
                 </div>
