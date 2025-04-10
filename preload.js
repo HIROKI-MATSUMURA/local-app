@@ -57,13 +57,44 @@ try {
       });
     },
     onFileDeleted: (callback) => {
-      ipcRenderer.on('file-deleted', (event, fileName) => {
-        callback(fileName);
+      ipcRenderer.on('file-deleted', (event, data) => {
+        try {
+          // シリアライズ可能なオブジェクトに変換
+          const safeData = JSON.parse(JSON.stringify(data));
+          console.log('ファイル削除イベントを受信:', safeData);
+          callback(safeData);
+        } catch (error) {
+          console.error('ファイル削除イベント処理エラー:', error);
+          // 最低限のデータでコールバック
+          callback({ fileName: data.fileName || 'unknown' });
+        }
       });
     },
     onFileChanged: (callback) => {
       ipcRenderer.on('file-changed', (event, data) => {
-        callback(data);
+        try {
+          // シリアライズ可能なオブジェクトに変換
+          const safeData = JSON.parse(JSON.stringify(data));
+
+          // 削除イベントの場合は特別に詳細ログを出力
+          if (safeData.eventType === 'unlink' || safeData.type === 'unlink') {
+            console.log('ファイル削除イベントを受信:', safeData);
+            console.log(`削除されたファイル: ${safeData.fileName}`);
+          } else {
+            console.log('ファイル変更イベントを受信:', safeData);
+          }
+
+          callback(safeData);
+        } catch (error) {
+          console.error('ファイル変更イベント処理エラー:', error);
+          // 最低限のデータでコールバック
+          callback({
+            eventType: data.eventType || 'unknown',
+            fileType: data.fileType || 'unknown',
+            fileName: data.fileName || 'unknown',
+            timestamp: new Date().toISOString()
+          });
+        }
       });
     },
     requestFileContent: (filePath) => {
@@ -120,14 +151,39 @@ try {
           return { success: false, error: error.message };
         }
       },
-      // ファイル一覧取得
-      readdir: async (dirPath) => {
+      // ディレクトリ内容を読む
+      readdir: async (dirPath, options = { withFileTypes: false }) => {
         try {
           const absPath = path.resolve(dirPath);
-          const files = await fsPromises.readdir(absPath);
-          return { success: true, files };
+          let files;
+
+          // オプションに基づいて関数を選択
+          if (options.withFileTypes) {
+            // Direntオブジェクトを使用して詳細情報を取得
+            const dirents = await fsPromises.readdir(absPath, { withFileTypes: true });
+            files = dirents.map(dirent => ({
+              name: dirent.name,
+              isDirectory: dirent.isDirectory(),
+              isFile: dirent.isFile(),
+              isSymbolicLink: dirent.isSymbolicLink()
+            }));
+          } else {
+            // 単純なファイル名リストを取得
+            files = await fsPromises.readdir(absPath);
+          }
+
+          return {
+            success: true,
+            dirPath: absPath,
+            files,
+            isDirectory: true
+          };
         } catch (error) {
-          return { success: false, error: error.message };
+          return {
+            success: false,
+            error: error.message,
+            isDirectory: false
+          };
         }
       }
     },
@@ -162,9 +218,37 @@ try {
     loadSelectedCategory: () => ipcRenderer.invoke('loadSelectedCategory'),
     saveSelectedTags: (tags) => ipcRenderer.invoke('saveSelectedTags', tags),
     loadSelectedTags: () => ipcRenderer.invoke('loadSelectedTags'),
-    // プロジェクトファイル監視
-    watchProjectFiles: (projectId) => ipcRenderer.invoke('watchProjectFiles', projectId),
-    unwatchProjectFiles: (projectId) => ipcRenderer.invoke('unwatchProjectFiles', projectId),
+    // ファイル監視
+    watchProjectFiles: (projectId, projectPath, patterns) => {
+      try {
+        // サニタイズされたオブジェクトを作成
+        const requestData = {
+          projectId: String(projectId),
+          projectPath: String(projectPath),
+          patterns: Array.isArray(patterns) ? patterns : ['src/pages/**/*.html']
+        };
+
+        // 安全なシリアライズ可能なオブジェクトに変換
+        const safeData = JSON.parse(JSON.stringify(requestData));
+        console.log('ファイル監視リクエストを送信:', safeData);
+
+        return ipcRenderer.invoke('watch-project-files', safeData);
+      } catch (error) {
+        console.error('watchProjectFiles呼び出しエラー:', error);
+        // エラーの場合はfalseを返す
+        return Promise.resolve(false);
+      }
+    },
+    unwatchProjectFiles: (projectId) => {
+      try {
+        return ipcRenderer.invoke('unwatch-project-files', {
+          projectId: String(projectId)
+        });
+      } catch (error) {
+        console.error('unwatchProjectFiles呼び出しエラー:', error);
+        return Promise.resolve(false);
+      }
+    },
     // タブ切り替え用のメソッドを追加
     switchTab: (tabId) => {
       console.log('タブ切り替え要求を受信:', tabId);
@@ -184,6 +268,13 @@ try {
 
     // デフォルト設定の保存
     saveDefaultSettings: (settings) => ipcRenderer.invoke('saveDefaultSettings', settings),
+
+    // プロジェクトデータの管理
+    saveProjectData: (projectId, section, data) =>
+      ipcRenderer.invoke('save-project-data', { projectId, section, data }),
+
+    loadProjectData: (projectId, section) =>
+      ipcRenderer.invoke('load-project-data', { projectId, section }),
   });
 
   // コンソール情報のイベントリスナー

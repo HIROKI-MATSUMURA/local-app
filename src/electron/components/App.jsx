@@ -97,16 +97,16 @@ const App = () => {
         console.log('ProjectManager コンポーネントをレンダリングします');  // デバッグログ追加
         return <ProjectManager onProjectChange={handleProjectChange} />;
       case "reset-css":
-        return <ResetCSS />;
+        return <ResetCSS activeProject={activeProject} />;
       case "responsive-config":
-        return <ResponsiveConfig />;
+        return <ResponsiveConfig activeProject={activeProject} />;
       case "variable-config":
-        return <VariableConfig ref={variableConfigRef} />;
+        return <VariableConfig ref={variableConfigRef} activeProject={activeProject} />;
       case "ai-code-generator":
-        return <AICodeGenerator />;
+        return <AICodeGenerator activeProject={activeProject} />;
       case "generate-html":
       default:
-        return <GenerateHTML />;
+        return <GenerateHTML activeProject={activeProject} />;
     }
   };
 

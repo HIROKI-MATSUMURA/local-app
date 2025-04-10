@@ -6,6 +6,9 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
+const url = require('url');
+const chokidar = require('chokidar'); // Chokidarをインポート
+const glob = require('glob'); // Globをインポート
 require('dotenv').config();
 
 // プロジェクト設定ファイルのパスを定義
@@ -47,8 +50,19 @@ const htmlDirectory = path.join(__dirname, 'src');
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
 let previousFiles = [];
 
+// JSONデータストア関連のパス設定
+const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
+
 // アプリ起動時に監視を開始するフラグ
 let isDirectoryWatcherInitialized = false;
+
+// ファイル監視用のMap
+const fileWatchers = new Map();
+
+// プロジェクトファイル監視用のMap
+const projectWatchers = new Map();
+// プロジェクトの定期スキャンインターバル用のMap
+const projectIntervals = new Map();
 
 // HTMLファイルの作成を監視する
 function watchDirectory() {
@@ -97,30 +111,46 @@ function watchDirectory() {
 
 // ファイル変更監視ハンドラー - Viteのリロードに頼らずElectronで独自に処理
 function setupFileWatcher() {
-  const htmlDirectory = path.join(__dirname, 'src');
-
-  // HTMLファイルの変更を監視
+  // HTMLファイルの変更を監視（グローバル監視）
   fs.watch(htmlDirectory, { recursive: true }, (eventType, filename) => {
     if (!filename) return;
 
     // HTMLファイルの変更のみを処理
     if (filename.endsWith('.html')) {
-      console.log(`ファイル変更を検出: ${filename} - イベント: ${eventType} - AIコード保存フラグ: ${isAICodeSaving}`);
+      console.log(`グローバルファイル変更を検出: ${filename} - イベント: ${eventType} - AIコード保存フラグ: ${isAICodeSaving}`);
+      console.log(`ファイルパス: ${path.join(htmlDirectory, filename)}`);
 
       // AIコード保存中でない場合のみ通知を送信（保存中のリロードを防止）
       if (mainWindow && !mainWindow.isDestroyed() && !isAICodeSaving) {
-        mainWindow.webContents.send('file-changed', {
-          type: 'html',
-          filename: filename,
-          path: path.join(htmlDirectory, filename)
-        });
+        try {
+          // ファイルタイプを判定
+          const fileType = path.extname(filename).substring(1);
+
+          // 安全なオブジェクトを作成
+          const fileData = {
+            type: fileType,
+            fileType: fileType, // 明示的にfileTypeを追加
+            eventType: eventType,
+            fileName: filename,
+            filename: filename,
+            filePath: path.join(htmlDirectory, filename)
+          };
+
+          // シリアライズ可能なオブジェクトに変換
+          const safeData = JSON.parse(JSON.stringify(fileData));
+
+          mainWindow.webContents.send('file-changed', safeData);
+          console.log('グローバル監視からファイル変更イベントを送信:', safeData);
+        } catch (error) {
+          console.error('ファイル変更通知の送信中にエラーが発生:', error);
+        }
       } else if (isAICodeSaving) {
         console.log(`AIコード保存中のため、ファイル変更通知をスキップしました: ${filename}`);
       }
     }
   });
 
-  console.log('ファイル監視を設定しました');
+  console.log('グローバルファイル監視を設定しました');
 }
 
 // スプラッシュウィンドウを作成する関数
@@ -462,41 +492,373 @@ function saveDefaultSettings(settings) {
   }
 }
 
-// プロジェクトファイル監視用のMap
-const projectWatchers = new Map();
-
-function watchProjectFiles(projectId, callback) {
+function watchProjectFiles(projectId, projectPath, patterns = ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json']) {
   try {
-    const project = loadProjectsConfig().projects.find(p => p.id === projectId);
-    if (!project) {
-      throw new Error('プロジェクトが見つかりません');
-    }
+    // 既存のウォッチャーがあれば閉じる
+    unwatchProjectFiles(projectId);
 
-    const projectPath = project.path;
-    const watcher = fs.watch(projectPath, { recursive: true }, (eventType, filename) => {
-      if (filename) {
-        callback({
-          eventType,
-          filename,
-          timestamp: new Date().toISOString()
-        });
+    console.log(`プロジェクト[${projectId}]のファイル監視を開始: ${projectPath}`);
+    console.log('監視パターン:', patterns);
+
+    // ウォッチするHTMLファイルのパターンを追加
+    const htmlPatterns = [
+      'src/pages/**/*.html',
+      'src/html/**/*.html',
+      ...(patterns.filter(p => p.includes('.html')))
+    ];
+
+    // 除外パターン（partsHTMLディレクトリを除外）
+    const ignoredPatterns = [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/partsHTML/**', // partsHTMLディレクトリを明示的に除外
+      '**/*.json', // JSONファイルを監視対象から除外（自動生成されるため）
+    ];
+
+    // 監視済みファイルを追跡するためのSet
+    const watchedFiles = new Set();
+
+    // chokidarの設定
+    const watcher = chokidar.watch(patterns, {
+      cwd: projectPath,
+      ignored: [
+        /(^|[\/\\])\../, // ドットファイルを無視
+        ...ignoredPatterns
+      ],
+      persistent: true,
+      ignoreInitial: false,
+      awaitWriteFinish: {
+        stabilityThreshold: 500,
+        pollInterval: 100
       }
     });
 
+    // インターバルIDを保存するための配列を初期化
+    if (!projectIntervals.has(projectId)) {
+      projectIntervals.set(projectId, []);
+    }
+
+    // イベントハンドラー
+    watcher
+      .on('add', async path => {
+        // partsHTMLディレクトリ内のファイルは無視
+        if (path.includes('partsHTML/')) {
+          console.log(`partsHTMLディレクトリのファイルはスキップ: ${path}`);
+          return;
+        }
+
+        // ファイルが既に処理済みかチェック
+        const fullPath = `${projectPath}/${path}`;
+        if (watchedFiles.has(fullPath)) {
+          console.log(`既に処理済みのファイル: ${path}`);
+          return;
+        }
+
+        watchedFiles.add(fullPath);
+        console.log(`ファイル追加検知: ${path}`);
+
+        // HTMLファイルの場合、対応するJSONファイルを更新（オプション）
+        if (path.endsWith('.html')) {
+          try {
+            // HTMLファイルの内容を読み込む
+            const htmlContent = fs.readFileSync(`${projectPath}/${path}`, 'utf8');
+
+            // ファイル内容をJSONに同期
+            try {
+              await syncFileToJson(projectId, `${projectPath}/${path}`, 'html');
+            } catch (error) {
+              console.error(`ファイル同期エラー (${path}):`, error);
+            }
+          } catch (error) {
+            console.error(`HTMLファイル処理エラー: ${path}`, error);
+          }
+        } else {
+          // 他のファイルタイプを処理
+          const fileType = path.split('.').pop();
+
+          // ファイル内容をJSONに同期
+          try {
+            await syncFileToJson(projectId, `${projectPath}/${path}`, fileType);
+          } catch (error) {
+            console.error(`ファイル同期エラー (${path}):`, error);
+          }
+        }
+
+        // フロントエンドに通知
+        if (mainWindow) {
+          const fileType = path.split('.').pop();
+          const eventData = {
+            type: 'add',
+            projectId: projectId,
+            eventType: 'add',
+            path: path,
+            filePath: `${projectPath}/${path}`,
+            fileType: fileType,
+            fileName: path.split('/').pop(),
+            timestamp: new Date().toISOString()
+          };
+
+          mainWindow.webContents.send('file-event', eventData);
+          mainWindow.webContents.send('file-changed', eventData);
+          console.log('ファイル追加イベントを送信:', eventData);
+        }
+      })
+      .on('change', async path => {
+        // partsHTMLディレクトリ内のファイルは無視
+        if (path.includes('partsHTML/')) {
+          return;
+        }
+
+        console.log(`ファイル変更検知: ${path}`);
+
+        // HTMLファイルの場合の処理
+        if (path.endsWith('.html')) {
+          try {
+            // ファイル内容をJSONに同期
+            await syncFileToJson(projectId, `${projectPath}/${path}`, 'html');
+          } catch (error) {
+            console.error(`ファイル同期エラー (${path}):`, error);
+          }
+        } else {
+          // 他のファイルタイプを処理
+          const fileType = path.split('.').pop();
+
+          // ファイル内容をJSONに同期
+          try {
+            await syncFileToJson(projectId, `${projectPath}/${path}`, fileType);
+          } catch (error) {
+            console.error(`ファイル同期エラー (${path}):`, error);
+          }
+        }
+
+        // フロントエンドに通知
+        if (mainWindow) {
+          const fileType = path.split('.').pop();
+          const eventData = {
+            type: 'change',
+            projectId: projectId,
+            eventType: 'change',
+            path: path,
+            filePath: `${projectPath}/${path}`,
+            fileType: fileType,
+            fileName: path.split('/').pop(),
+            timestamp: new Date().toISOString()
+          };
+
+          mainWindow.webContents.send('file-event', eventData);
+          mainWindow.webContents.send('file-changed', eventData);
+          console.log('ファイル変更イベントを送信:', eventData);
+        }
+      })
+      .on('unlink', async path => {
+        // partsHTMLディレクトリ内のファイルは無視
+        if (path.includes('partsHTML/')) {
+          return;
+        }
+
+        // Setから削除
+        const fullPath = `${projectPath}/${path}`;
+        watchedFiles.delete(fullPath);
+
+        console.log(`ファイル削除検知: ${path}`);
+
+        // ファイルタイプを判定
+        const fileType = path.split('.').pop();
+
+        // フロントエンドに通知
+        if (mainWindow) {
+          const eventData = {
+            type: 'unlink',
+            projectId: projectId,
+            eventType: 'unlink',
+            path: path,
+            filePath: `${projectPath}/${path}`,
+            fileType: fileType,
+            fileName: path.split('/').pop(),
+            timestamp: new Date().toISOString()
+          };
+
+          // ログ出力を追加
+          console.log('ファイル削除イベントを送信:', JSON.stringify(eventData));
+
+          // イベント名を両方試す
+          mainWindow.webContents.send('file-event', eventData);
+          mainWindow.webContents.send('file-changed', eventData);
+
+          // 1秒後に再度送信して確実に届くようにする
+          setTimeout(() => {
+            console.log('ファイル削除イベントを再送信:', JSON.stringify(eventData));
+            mainWindow.webContents.send('file-changed', eventData);
+          }, 1000);
+        }
+      })
+      .on('error', error => {
+        console.error(`ファイル監視エラー: ${error}`);
+      });
+
+    // ウォッチャーを保存
     projectWatchers.set(projectId, watcher);
+
+    // 初回スキャン後に手動で再スキャン（1回のみ）
+    const initialScanTimeout = setTimeout(() => {
+      console.log(`プロジェクト[${projectId}] 初期スキャン後の確認スキャンを実行`);
+      try {
+        // HTMLファイルを再確認（一度だけ）
+        htmlPatterns.forEach(pattern => {
+          // partsHTMLディレクトリを除外
+          if (pattern.includes('partsHTML')) return;
+
+          const htmlFiles = glob.sync(pattern, {
+            cwd: projectPath,
+            ignore: ignoredPatterns
+          });
+
+          console.log(`パターン[${pattern}]で検出されたHTMLファイル:`, htmlFiles);
+
+          htmlFiles.forEach(async htmlPath => {
+            // partsHTMLディレクトリのファイルは無視
+            if (htmlPath.includes('partsHTML/')) {
+              console.log(`partsHTMLディレクトリのファイルはスキップ: ${htmlPath}`);
+              return;
+            }
+
+            const fullPath = `${projectPath}/${htmlPath}`;
+            if (!watchedFiles.has(fullPath)) {
+              console.log(`確認スキャンで検出された未処理ファイル: ${htmlPath}`);
+
+              try {
+                // ファイル内容をJSONに同期
+                await syncFileToJson(projectId, fullPath, 'html');
+
+                // フロントエンドに通知
+                if (mainWindow) {
+                  const eventData = {
+                    type: 'add',
+                    projectId: projectId,
+                    eventType: 'add',
+                    path: htmlPath,
+                    filePath: fullPath,
+                    fileType: 'html',
+                    fileName: htmlPath.split('/').pop(),
+                    timestamp: new Date().toISOString()
+                  };
+
+                  mainWindow.webContents.send('file-event', eventData);
+                  mainWindow.webContents.send('file-changed', eventData);
+                  console.log('ファイル検出イベントを送信:', eventData);
+                }
+
+                watchedFiles.add(fullPath);
+              } catch (error) {
+                console.error(`HTMLファイル処理エラー: ${htmlPath}`, error);
+              }
+            }
+          });
+        });
+      } catch (error) {
+        console.error('確認スキャンエラー:', error);
+      }
+    }, 5000);
+
+    // タイマーを保存
+    projectIntervals.get(projectId).push(initialScanTimeout);
+
+    // 30秒ごとにファイルシステムを再スキャン（新規ファイル検出用）
+    const scanInterval = setInterval(() => {
+      console.log(`プロジェクト[${projectId}] 定期再スキャンを実行`);
+      try {
+        // HTMLファイルを再スキャン
+        htmlPatterns.forEach(pattern => {
+          // partsHTMLディレクトリを除外
+          if (pattern.includes('partsHTML')) return;
+
+          const htmlFiles = glob.sync(pattern, {
+            cwd: projectPath,
+            ignore: ignoredPatterns
+          });
+
+          htmlFiles.forEach(async htmlPath => {
+            // partsHTMLディレクトリのファイルは無視
+            if (htmlPath.includes('partsHTML/')) return;
+
+            const fullPath = `${projectPath}/${htmlPath}`;
+            if (!watchedFiles.has(fullPath)) {
+              // 未処理のHTMLファイルがあれば処理
+              console.log(`定期スキャンで検出された新規ファイル: ${htmlPath}`);
+
+              try {
+                // ファイル内容をJSONに同期
+                await syncFileToJson(projectId, fullPath, 'html');
+
+                // フロントエンドに通知
+                if (mainWindow) {
+                  const eventData = {
+                    type: 'add',
+                    projectId: projectId,
+                    eventType: 'add',
+                    path: htmlPath,
+                    filePath: fullPath,
+                    fileType: 'html',
+                    fileName: htmlPath.split('/').pop(),
+                    timestamp: new Date().toISOString()
+                  };
+
+                  mainWindow.webContents.send('file-event', eventData);
+                  mainWindow.webContents.send('file-changed', eventData);
+                  console.log('ファイル検出イベントを送信:', eventData);
+                }
+
+                watchedFiles.add(fullPath);
+              } catch (error) {
+                console.error(`HTMLファイル処理エラー: ${htmlPath}`, error);
+              }
+            }
+          });
+        });
+      } catch (error) {
+        console.error('定期再スキャンエラー:', error);
+      }
+    }, 30000);
+
+    // インターバルIDを保存
+    projectIntervals.get(projectId).push(scanInterval);
+
     return true;
   } catch (error) {
-    console.error('プロジェクトファイルの監視に失敗:', error);
+    console.error('ファイル監視の設定中にエラーが発生しました:', error);
     return false;
   }
 }
 
-// プロジェクトファイルの監視解除
+// ファイル監視の停止
 function unwatchProjectFiles(projectId) {
-  const watcher = projectWatchers.get(projectId);
-  if (watcher) {
-    watcher.close();
-    projectWatchers.delete(projectId);
+  try {
+    console.log(`プロジェクト[${projectId}]のファイル監視を停止します`);
+    if (projectWatchers.has(projectId)) {
+      // ウォッチャーを閉じる
+      projectWatchers.get(projectId).close();
+      projectWatchers.delete(projectId);
+      console.log(`プロジェクト[${projectId}]のファイル監視を停止しました`);
+
+      // 定期スキャンインターバルもクリア
+      if (projectIntervals.has(projectId)) {
+        const intervals = projectIntervals.get(projectId);
+        intervals.forEach(intervalId => {
+          clearInterval(intervalId);
+          console.log(`プロジェクト[${projectId}]の定期スキャンを停止しました`);
+        });
+        projectIntervals.delete(projectId);
+      }
+
+      return true;
+    } else {
+      console.log(`プロジェクト[${projectId}]の監視は既に停止しています`);
+      return false;
+    }
+  } catch (error) {
+    console.error('ファイル監視の停止中にエラーが発生しました:', error);
+    return false;
   }
 }
 
@@ -804,52 +1166,205 @@ $secondary-color: ${secondaryColor};
   });
 
   // 管理画面からファイルを保存する要求を受け取る
-  ipcMain.on('save-html-file', (event, { filePath, content }) => {
-    console.log('Received save request:', filePath, content);  // ここでログを確認
+  ipcMain.on('save-html-file', (event, { projectId, projectPath, filePath, content }) => {
+    try {
+      let fullPath;
 
-    const absolutePath = path.join(__dirname, 'src', filePath);  // 絶対パスに変換
-    fs.writeFile(absolutePath, content, 'utf8', (err) => {
-      if (err) {
-        console.error('Error occurred while saving file:', err);
-        event.reply('save-html-file-error', err);
+      // プロジェクトパスが指定されている場合はそれを使用
+      if (projectPath) {
+        console.log(`指定されたプロジェクトパス: ${projectPath}`);
+
+        // srcパスの重複を防止
+        if (filePath.startsWith('src/')) {
+          fullPath = path.join(projectPath, filePath);
+        } else {
+          fullPath = path.join(projectPath, 'src', filePath);
+        }
       } else {
-        console.log(`Successfully saved file at: ${absolutePath}`);
-        event.reply('save-html-file-success', absolutePath);
-      }
-    });
-  });
+        // 旧方式: アプリのベースパスを使用
+        const basePath = __dirname;
+        console.log('アプリのbasePath（fallback）:', basePath);
 
-  // ファイル削除処理
-  ipcMain.on('delete-html-file', (event, { fileName }) => {
-    const filePath = path.join(__dirname, 'src', `${fileName}`);
-    console.log(`取得しているファイルパス: ${filePath}`);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);  // ファイル削除
-      console.log(`Successfully deleted file: ${filePath}`);
-      event.reply('file-deleted', fileName);
-      mainWindow.webContents.send('file-deleted', fileName); // 監視しているレンダラープロセスに通知
-    } else {
-      console.log(`File not found(Delete Path): ${filePath}`);
+        if (filePath.startsWith('src/')) {
+          fullPath = path.join(basePath, filePath);
+        } else {
+          fullPath = path.join(basePath, 'src', filePath);
+        }
+      }
+
+      // srcの重複がないか確認
+      if (fullPath.includes('src/src/')) {
+        console.warn('src/パスの重複を検出しました。修正します');
+        fullPath = fullPath.replace('src/src/', 'src/');
+      }
+
+      console.log(`HTMLファイル保存リクエストを受信: ${filePath}`);
+      console.log(`プロジェクトID: ${projectId || 'なし'}`);
+      console.log(`保存先フルパス: ${fullPath}`);
+
+      // ディレクトリが存在することを確認
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) {
+        console.log(`ディレクトリが存在しないため作成します: ${dir}`);
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`ディレクトリを作成しました: ${dir}`);
+      } else {
+        console.log(`ディレクトリが既に存在します: ${dir}`);
+      }
+
+      // ファイル保存
+      fs.writeFile(fullPath, content, (err) => {
+        if (err) {
+          console.error('HTMLファイルの保存に失敗:', err);
+          event.sender.send('file-error', { error: err.message });
+        } else {
+          console.log(`HTMLファイルを保存しました: ${filePath} -> ${fullPath}`);
+          // 成功をフロントエンドに通知
+          event.sender.send('file-saved', {
+            projectId,
+            filePath,
+            fullPath,
+            timestamp: new Date().toISOString()
+          });
+
+          // プロジェクトIDがある場合は、ファイル変更イベントを発行（自己通知）
+          if (projectId) {
+            try {
+              // ファイル変更イベントの発行
+              const fileChangeEvent = {
+                projectId,
+                eventType: 'add', // 新規追加または更新
+                filePath: fullPath,
+                fileType: 'html',
+                fileName: path.basename(filePath),
+                timestamp: new Date().toISOString()
+              };
+
+              // シリアライズ可能なオブジェクトに変換
+              const safeData = JSON.parse(JSON.stringify(fileChangeEvent));
+
+              // シンプルな通知を避けるためにタイムアウトを設定
+              setTimeout(() => {
+                event.sender.send('file-changed', safeData);
+                console.log('ファイル保存後の変更イベントを発行:', safeData);
+              }, 500);
+            } catch (error) {
+              console.error('ファイル変更イベント発行中にエラーが発生しました:', error);
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error('HTMLファイル保存処理エラー:', error);
+      event.sender.send('file-error', { error: error.message });
     }
   });
 
-  // ファイル名を変更する処理
-  ipcMain.on('rename-file', (event, { oldFileName, newFileName }) => {
-    // 拡張子が重複しないように処理
-    const oldFilePath = path.join(__dirname, 'src', oldFileName);
-    const newFileNameWithHtml = newFileName.endsWith('.html') ? newFileName : newFileName + '.html'; // .htmlがなければ追加
-    const newFilePath = path.join(__dirname, 'src', newFileNameWithHtml);
-
-    // ファイル名を変更する
+  // HTMLファイルの削除
+  ipcMain.on('delete-html-file', (event, { projectId, projectPath, fileName }) => {
     try {
-      fs.renameSync(oldFilePath, newFilePath);
-      console.log(`File renamed from ${oldFileName} to ${newFileNameWithHtml}`);
+      console.log(`HTMLファイル削除要求を受信: ${fileName}`);
+      console.log(`プロジェクト情報: ID=${projectId}, パス=${projectPath}`);
 
-      // フロントエンドに変更が成功したことを通知
-      event.reply('file-renamed', { oldFileName, newFileName: newFileNameWithHtml });
-    } catch (err) {
-      console.error('Error renaming file:', err);
-      event.reply('file-rename-error', err.message);
+      // ファイルパスの構築（プロジェクトパスを優先）
+      let filePath;
+      if (projectPath) {
+        filePath = path.join(projectPath, 'src/pages', fileName);
+        console.log(`プロジェクトパスからファイルパスを構築: ${filePath}`);
+      } else {
+        // フォールバック: アプリディレクトリ基準
+        const htmlDir = path.join(__dirname, 'src');
+        filePath = path.join(htmlDir, fileName);
+        console.log(`アプリベースディレクトリからファイルパスを構築: ${filePath}`);
+      }
+
+      // ファイルの存在確認
+      if (!fs.existsSync(filePath)) {
+        console.error(`削除対象ファイルが存在しません: ${filePath}`);
+        event.sender.send('file-error', { error: 'ファイルが見つかりませんでした' });
+        return;
+      }
+
+      // ファイル削除実行
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error('HTMLファイルの削除に失敗:', err);
+          event.sender.send('file-error', { error: err.message });
+        } else {
+          console.log(`HTMLファイルを削除しました: ${filePath}`);
+
+          // 削除成功をフロントエンドに通知
+          const deleteData = {
+            projectId,
+            fileName,
+            filePath,
+            timestamp: new Date().toISOString()
+          };
+          event.sender.send('file-deleted', deleteData);
+
+          // ファイル変更イベントとしても通知
+          try {
+            const fileChangeEvent = {
+              projectId,
+              eventType: 'unlink',
+              filePath,
+              fileType: 'html',
+              fileName,
+              timestamp: new Date().toISOString()
+            };
+
+            // シリアライズ可能なオブジェクトに変換
+            const safeData = JSON.parse(JSON.stringify(fileChangeEvent));
+
+            setTimeout(() => {
+              event.sender.send('file-changed', safeData);
+              console.log('ファイル削除変更イベントを発行:', safeData);
+            }, 500);
+          } catch (error) {
+            console.error('ファイル削除イベント発行中にエラーが発生しました:', error);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('HTMLファイル削除処理エラー:', error);
+      event.sender.send('file-error', { error: error.message });
+    }
+  });
+
+  // ファイル名の変更
+  ipcMain.on('rename-file', (event, { oldPath, newPath }) => {
+    try {
+      const htmlDir = path.join(__dirname, 'src');
+      const oldFilePath = path.join(htmlDir, oldPath);
+      const newFilePath = path.join(htmlDir, newPath);
+
+      // ファイルが存在するか確認
+      if (!fs.existsSync(oldFilePath)) {
+        console.error(`元のファイルが存在しません: ${oldFilePath}`);
+        event.sender.send('file-error', { error: '元のファイルが存在しません' });
+        return;
+      }
+
+      // 移動先に既にファイルがある場合は上書き確認
+      if (fs.existsSync(newFilePath) && oldPath !== newPath) {
+        console.warn(`移動先にファイルが既に存在します: ${newFilePath}`);
+        // 上書き処理はUXに応じて実装
+      }
+
+      // ファイル名変更を実行
+      fs.rename(oldFilePath, newFilePath, (err) => {
+        if (err) {
+          console.error('ファイル名の変更に失敗:', err);
+          event.sender.send('file-error', { error: err.message });
+        } else {
+          console.log(`ファイル名を変更しました: ${oldPath} → ${newPath}`);
+          // 変更成功をフロントエンドに通知
+          event.sender.send('file-renamed', { oldPath, newPath });
+        }
+      });
+    } catch (error) {
+      console.error('ファイル名変更処理エラー:', error);
+      event.sender.send('file-error', { error: error.message });
     }
   });
 
@@ -1715,15 +2230,36 @@ $mediaquerys: (
   });
 
   // プロジェクトファイルの監視
-  ipcMain.handle('watchProjectFiles', async (event, projectId) => {
-    return watchProjectFiles(projectId, (changes) => {
-      event.sender.send('project-files-changed', changes);
-    });
+  ipcMain.handle('watch-project-files', async (event, { projectId, projectPath, patterns }) => {
+    console.log('ファイル監視要求を受信:', { projectId, projectPath, patterns });
+    try {
+      // 監視パターンが配列であることを確認
+      const validPatterns = Array.isArray(patterns) ? patterns : ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json'];
+
+      // 監視関数を呼び出し
+      const result = watchProjectFiles(projectId, projectPath, validPatterns);
+
+      console.log(`プロジェクト[${projectId}]のファイル監視を開始しました:`, result);
+      return result;
+    } catch (error) {
+      console.error('ファイル監視の開始に失敗しました:', error);
+      return false;
+    }
   });
 
-  // プロジェクトファイルの監視解除
-  ipcMain.handle('unwatchProjectFiles', async (event, projectId) => {
+  // ファイル監視の停止
+  ipcMain.handle('unwatch-project-files', async (event, { projectId }) => {
     return unwatchProjectFiles(projectId);
+  });
+
+  // プロジェクトデータの保存
+  ipcMain.handle('save-project-data', async (event, { projectId, section, data }) => {
+    return await saveProjectData(projectId, section, data);
+  });
+
+  // プロジェクトデータの読み込み
+  ipcMain.handle('load-project-data', async (event, { projectId, section }) => {
+    return await loadProjectData(projectId, section);
   });
 
   // アクティブプロジェクトIDの保存
@@ -1835,4 +2371,168 @@ $mediaquerys: (
       return { success: false, error: error.message };
     }
   });
+
+  // セットされたインターバルを追跡する
+  const projectIntervals = new Map();
+
+  // HTMLファイルを定期的にスキャンする
+  async function startPeriodicScan(projectId, projectPath, ignoreInitialScan = false) {
+    if (projectIntervals.has(projectId)) {
+      console.log(`ID ${projectId} の定期的なスキャンは既に実行中です`);
+      return;
+    }
+
+    console.log(`プロジェクト ${projectId} の定期的スキャンを開始します`);
+
+    // 初回スキャン（必要に応じてスキップ可能）
+    if (!ignoreInitialScan) {
+      try {
+        await scanForNewFiles(projectId, projectPath);
+        console.log('初期ファイルスキャンが完了しました');
+      } catch (error) {
+        console.error('初期ファイルスキャンエラー:', error);
+      }
+    }
+
+    // 2分ごとにスキャン（以前は30秒）
+    const intervalId = setInterval(async () => {
+      try {
+        await scanForNewFiles(projectId, projectPath);
+      } catch (error) {
+        console.error(`定期的なファイルスキャンエラー(プロジェクトID: ${projectId}):`, error);
+      }
+    }, 120000); // 2分ごとに実行(120,000ミリ秒)
+
+    // インターバルIDを記録
+    projectIntervals.set(projectId, intervalId);
+    console.log(`プロジェクト ${projectId} の定期的なスキャンをセットアップしました(2分間隔)`);
+  }
+}
+
+// ファイル内容をJSONデータに同期
+async function syncFileToJson(projectId, filePath, fileType) {
+  try {
+    // サポートするファイルタイプとJSONのセクション名のマッピング
+    const fileTypeToSection = {
+      'html': 'htmlContents',
+      'css': 'cssContents',
+      'scss': 'scssContents',
+      'js': 'jsContents',
+      'json': 'jsonContents',
+      'md': 'mdContents',
+      'txt': 'txtContents'
+    };
+
+    // ファイルタイプからセクションを判定
+    const section = fileTypeToSection[fileType];
+    if (!section) {
+      console.log(`未対応のファイルタイプ: ${fileType}`);
+      return false; // 未対応のファイルタイプ
+    }
+
+    // ファイル内容を読み込む
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    const fileName = path.basename(filePath);
+    console.log(`ファイル内容をJSONに同期します: ${fileName} (${fileType} -> ${section})`);
+
+    // 現在のデータを読み込む
+    const currentData = await loadProjectData(projectId, section) || {};
+
+    // ファイルデータを更新
+    currentData[fileName] = content;
+
+    // 更新したデータを保存
+    await saveProjectData(projectId, section, currentData);
+    console.log(`ファイル内容をJSONに同期しました: ${fileName} (${section})`);
+
+    // HTML/SCSSファイルの場合は追加でファイルリストも更新
+    if (fileType === 'html' || fileType === 'scss') {
+      const listSection = fileType === 'html' ? 'htmlFiles' : 'scssFiles';
+      const listData = await loadProjectData(projectId, listSection) || [];
+      console.log(`ファイルリストを更新します: ${fileName} (${listSection})`);
+
+      // 既にリストにあるかチェック
+      if (!listData.some(file => file.name === fileName)) {
+        // 新規ファイルの場合は追加
+        listData.push({
+          id: uuidv4(),
+          name: fileName,
+          status: '保存済',
+          lastModified: new Date().toISOString()
+        });
+
+        // リストを保存
+        await saveProjectData(projectId, listSection, listData);
+        console.log(`ファイルリストを更新しました: ${fileName} (${listSection})`);
+      } else {
+        console.log(`ファイルは既にリストに存在します: ${fileName} (${listSection})`);
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('ファイル同期に失敗:', error);
+    return false;
+  }
+}
+
+// プロジェクトデータの保存
+async function saveProjectData(projectId, section, data) {
+  try {
+    if (!projectId) {
+      console.error('プロジェクトIDが指定されていません');
+      return false;
+    }
+
+    // JSONデータの保存先ディレクトリを確保
+    const projectDir = path.join(PROJECT_DATA_DIR, projectId);
+    await fs.promises.mkdir(projectDir, { recursive: true });
+
+    // セクション別のJSONファイルパス
+    const filePath = path.join(projectDir, `${section}.json`);
+
+    // データと最終更新日時を保存
+    const jsonData = {
+      data,
+      lastModified: new Date().toISOString()
+    };
+
+    // JSONファイルに保存
+    await fs.promises.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
+    console.log(`プロジェクトデータを保存しました: ${projectId}/${section}`);
+    return true;
+  } catch (error) {
+    console.error(`プロジェクトデータの保存エラー (${projectId}/${section}):`, error);
+    return false;
+  }
+}
+
+// プロジェクトデータの読み込み
+async function loadProjectData(projectId, section) {
+  try {
+    if (!projectId) {
+      console.error('プロジェクトIDが指定されていません');
+      return null;
+    }
+
+    // セクション別のJSONファイルパス
+    const filePath = path.join(PROJECT_DATA_DIR, projectId, `${section}.json`);
+
+    // ファイルが存在するか確認
+    if (!fs.existsSync(filePath)) {
+      console.log(`プロジェクトデータが見つかりません: ${projectId}/${section}`);
+      return null;
+    }
+
+    // JSONファイルから読み込み
+    const fileData = await fs.promises.readFile(filePath, 'utf8');
+    const jsonData = JSON.parse(fileData);
+    console.log(`プロジェクトデータを読み込みました: ${projectId}/${section}`);
+
+    // データ部分のみを返す
+    return jsonData.data;
+  } catch (error) {
+    console.error(`プロジェクトデータの読み込みエラー (${projectId}/${section}):`, error);
+    return null;
+  }
 }

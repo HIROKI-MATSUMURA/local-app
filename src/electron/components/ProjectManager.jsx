@@ -317,20 +317,50 @@ const ProjectManager = ({ onProjectChange }) => {
   useEffect(() => {
     const watchProjectFiles = async () => {
       if (activeProjectId) {
-        await window.api.watchProjectFiles(activeProjectId, (changes) => {
-          console.log('プロジェクトファイルの変更を検知:', changes);
-          updateProjectSettings(changes);
-        });
+        try {
+          // プロジェクトパスを取得
+          const activeProject = projects.find(p => p.id === activeProjectId);
+          if (!activeProject || !activeProject.path) {
+            console.error('アクティブプロジェクトが見つからないか、パスが無効です');
+            return;
+          }
+
+          console.log(`プロジェクト[${activeProjectId}]のファイル監視を開始します`);
+          console.log(`プロジェクトパス: ${activeProject.path}`);
+
+          // 監視パターン（設定ファイルの変更などの監視に焦点）
+          const patterns = ['**/*.json', '**/*.js', '**/*.html'];
+
+          // ファイル監視を開始
+          const result = await window.api.watchProjectFiles(
+            activeProjectId,
+            activeProject.path,
+            patterns
+          );
+
+          console.log('ファイル監視の開始結果:', result);
+        } catch (error) {
+          console.error('ファイル監視の開始に失敗:', error);
+        }
       }
     };
 
     watchProjectFiles();
+
+    // アンマウント時に監視を停止
     return () => {
       if (activeProjectId) {
-        window.api.unwatchProjectFiles(activeProjectId);
+        try {
+          console.log(`プロジェクト[${activeProjectId}]のファイル監視を停止します`);
+          window.api.unwatchProjectFiles(activeProjectId)
+            .then(result => console.log('ファイル監視の停止結果:', result))
+            .catch(error => console.error('ファイル監視の停止に失敗:', error));
+        } catch (error) {
+          console.error('ファイル監視停止中にエラーが発生:', error);
+        }
       }
     };
-  }, [activeProjectId]);
+  }, [activeProjectId, projects]);
 
   // プロジェクト設定の自動保存
   useEffect(() => {
