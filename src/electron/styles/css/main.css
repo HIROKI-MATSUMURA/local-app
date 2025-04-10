@@ -212,6 +212,12 @@ pre {
   position: relative;
 }
 
+.current-project:hover {
+  background-color: rgba(77, 171, 247, 0.3);
+  border-left: 3px solid #2196f3;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
 .current-project::before {
   content: "操作中ファイル";
   display: block;

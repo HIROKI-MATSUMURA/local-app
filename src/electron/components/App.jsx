@@ -116,7 +116,12 @@ const App = () => {
         <div className="sidebar-header">
           <h2>CreAIte Code</h2>
           {activeProject && (
-            <div className="current-project">
+            <div
+              className="current-project"
+              onClick={() => handleTabChange("project-manager")}
+              style={{ cursor: 'pointer' }}
+              title="クリックでプロジェクト管理ページに移動"
+            >
               <span className="project-name">{activeProject.name}</span>
               <div className="project-meta">
                 {activeProject.category && (
