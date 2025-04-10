@@ -45,6 +45,8 @@ const VariableConfig = forwardRef((props, ref) => {
   const initialRender = useRef(true);
   // 初期データロード完了フラグ
   const initialLoadComplete = useRef(false);
+  // オリジナルの変数値を保存する参照
+  const originalVariables = useRef(null);
   // ファイルシステム操作のフラグ
   const isElectronContext = typeof window !== 'undefined' && window.api;
   // 処理中フラグと状態メッセージ
@@ -93,9 +95,16 @@ const VariableConfig = forwardRef((props, ref) => {
       return;
     }
 
-    // 変数が変更されたらhasChangesをtrueに設定
-    setHasChanges(true);
-    setIsSaved(false);
+    // 変数が実際に変更されたかどうかを比較する
+    if (originalVariables.current) {
+      const isChanged = JSON.stringify(originalVariables.current) !== JSON.stringify(variables);
+      setHasChanges(isChanged);
+      setIsSaved(!isChanged);
+    } else {
+      // オリジナル値が存在しない場合は変更なしとみなす
+      setHasChanges(false);
+      setIsSaved(true);
+    }
   }, [variables]);
 
   // プロジェクト変更時のデータ初期化・読み込み
@@ -147,6 +156,8 @@ const VariableConfig = forwardRef((props, ref) => {
             // ファイルシステムから読み込めた場合、そちらを優先
             console.log('ファイルシステムから最新の変数設定を読み込みました');
             setVariables(fileContentFromFile);
+            // オリジナル値として保存
+            originalVariables.current = JSON.parse(JSON.stringify(fileContentFromFile));
 
             // JSONも更新
             try {
@@ -161,6 +172,8 @@ const VariableConfig = forwardRef((props, ref) => {
             // JSONにデータがある場合
             console.log('JSONから読み込んだ変数設定を適用します');
             setVariables(savedVariables);
+            // オリジナル値として保存
+            originalVariables.current = JSON.parse(JSON.stringify(savedVariables));
             // showStatus('変数設定を読み込みました');
           } else {
             console.log('JSONに変数設定が存在しないため、デフォルト値を使用します');
@@ -181,6 +194,8 @@ const VariableConfig = forwardRef((props, ref) => {
             };
 
             setVariables(defaultSettings);
+            // オリジナル値として保存
+            originalVariables.current = JSON.parse(JSON.stringify(defaultSettings));
 
             // JSONに保存
             try {
@@ -226,6 +241,20 @@ const VariableConfig = forwardRef((props, ref) => {
               { name: '$accent-color', color: '#ff5722' },
             ]
           });
+          // オリジナル値として保存
+          originalVariables.current = {
+            lInner: '1000',
+            paddingPc: '25',
+            paddingSp: '20',
+            primaryColor: '#231815',
+            secondaryColor: '#0076ad',
+            accentColor: '#ff5722',
+            customColors: [
+              { name: '$primary-color', color: '#231815' },
+              { name: '$secondary-color', color: '#0076ad' },
+              { name: '$accent-color', color: '#ff5722' },
+            ]
+          };
           setIsInitialized(true);
           setIsSaved(true);
           setHasChanges(false);
@@ -377,16 +406,6 @@ const VariableConfig = forwardRef((props, ref) => {
     }
   };
 
-  // 変更があったことを記録
-  useEffect(() => {
-    // 初回レンダリング時は変更として記録しない
-    if (initialRender.current) {
-      return;
-    }
-
-    setHasChanges(true);
-    setIsSaved(false);
-  }, [variables]);
 
   // 別のタブに移動する前に未保存の変更があれば警告
   useEffect(() => {
@@ -728,6 +747,9 @@ const VariableConfig = forwardRef((props, ref) => {
       if (isElectronContext && activeProject.path) {
         await saveVariablesToFile(variables);
       }
+
+      // 保存後、現在の値を新しいオリジナルとして保存
+      originalVariables.current = JSON.parse(JSON.stringify(variables));
 
       setIsSaved(true);
       setHasChanges(false);
