@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import "@styles/css/main.css";
 import "@styles/css/components.css";
 import GenerateHTML from "./GenerateHTML";
@@ -92,21 +92,26 @@ const App = () => {
 
   const renderContent = () => {
     console.log('renderContent が呼び出されました。activeTab:', activeTab);  // デバッグログ追加
+
+    // activeProjectをメモ化してResponsiveConfigへの不要な再レンダリングを防止
+    const memoizedProject = useMemo(() => activeProject, [activeProject?.id]);
+
     switch (activeTab) {
       case "project-manager":
         console.log('ProjectManager コンポーネントをレンダリングします');  // デバッグログ追加
         return <ProjectManager onProjectChange={handleProjectChange} />;
       case "reset-css":
-        return <ResetCSS activeProject={activeProject} />;
+        return <ResetCSS activeProject={memoizedProject} />;
       case "responsive-config":
-        return <ResponsiveConfig activeProject={activeProject} />;
+        console.log('ResponsiveConfig コンポーネントをレンダリングします（activeTab === responsive-config）');
+        return <ResponsiveConfig key="responsive-config-page" activeProject={memoizedProject} />;
       case "variable-config":
-        return <VariableConfig ref={variableConfigRef} activeProject={activeProject} />;
+        return <VariableConfig ref={variableConfigRef} activeProject={memoizedProject} />;
       case "ai-code-generator":
-        return <AICodeGenerator activeProject={activeProject} />;
+        return <AICodeGenerator activeProject={memoizedProject} />;
       case "generate-html":
       default:
-        return <GenerateHTML activeProject={activeProject} />;
+        return <GenerateHTML activeProject={memoizedProject} />;
     }
   };
 

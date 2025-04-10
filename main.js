@@ -211,6 +211,16 @@ function createMainWindow() {
   // メインウィンドウの作成
   mainWindow = new BrowserWindow(windowOptions);
 
+  // CSP設定をセッションに直接適用
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"]
+      }
+    });
+  });
+
   // uploadsディレクトリを作成
   const uploadsDir = path.join(__dirname, "uploads");
   if (!fs.existsSync(uploadsDir)) {

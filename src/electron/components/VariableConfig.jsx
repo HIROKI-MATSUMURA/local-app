@@ -2,24 +2,25 @@ import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } f
 import ReactDOM from 'react-dom';
 import '../styles/VariableConfig.scss';
 import Header from './Header';
+import projectDataStore from '../utils/projectDataStore';
 
 const VariableConfig = forwardRef((props, ref) => {
-  // 初期状態をローカルストレージから取得
-  const [variables, setVariables] = useState(() => {
-    const savedVariables = localStorage.getItem('variables');
-    return savedVariables ? JSON.parse(savedVariables) : {
-      lInner: '1000',
-      paddingPc: '25',
-      paddingSp: '20',
-      primaryColor: '#231815',
-      secondaryColor: '#0076ad',
-      accentColor: '#ff5722',
-      customColors: [
-        { name: '$primary-color', color: '#231815' },
-        { name: '$secondary-color', color: '#0076ad' },
-        { name: '$accent-color', color: '#ff5722' },
-      ]
-    };
+  // アクティブプロジェクト情報を受け取る
+  const { activeProject } = props;
+
+  // 初期状態
+  const [variables, setVariables] = useState({
+    lInner: '1000',
+    paddingPc: '25',
+    paddingSp: '20',
+    primaryColor: '#231815',
+    secondaryColor: '#0076ad',
+    accentColor: '#ff5722',
+    customColors: [
+      { name: '$primary-color', color: '#231815' },
+      { name: '$secondary-color', color: '#0076ad' },
+      { name: '$accent-color', color: '#ff5722' },
+    ]
   });
 
   // 画像関連の状態
@@ -42,6 +43,36 @@ const VariableConfig = forwardRef((props, ref) => {
   const [hasChanges, setHasChanges] = useState(false);
   // 初回レンダリングを追跡するための参照
   const initialRender = useRef(true);
+  // 初期データロード完了フラグ
+  const initialLoadComplete = useRef(false);
+  // ファイルシステム操作のフラグ
+  const isElectronContext = typeof window !== 'undefined' && window.api;
+  // 処理中フラグと状態メッセージ
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isSaved, setIsSaved] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // パス操作のためのヘルパー関数（Node.jsのpathモジュールの代替）
+  const pathHelper = {
+    basename: (filePath) => {
+      if (!filePath) return '';
+      // 両方のパスセパレータに対応
+      const parts = filePath.replace(/\\/g, '/').split('/');
+      return parts[parts.length - 1] || '';
+    },
+
+    dirname: (filePath) => {
+      if (!filePath) return '';
+      // 両方のパスセパレータに対応
+      const normalizedPath = filePath.replace(/\\/g, '/');
+      const lastSlashIndex = normalizedPath.lastIndexOf('/');
+      return lastSlashIndex > -1 ? normalizedPath.substring(0, lastSlashIndex) : '';
+    },
+
+    join: (...parts) => {
+      return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+    }
+  };
 
   const fileInputRef = useRef(null);
   const imageRef = useRef(null);
@@ -55,21 +86,307 @@ const VariableConfig = forwardRef((props, ref) => {
     hasUnsavedChanges: () => hasChanges
   }));
 
-  // 変数変更時にローカルストレージに保存
+  // 変数の更新時にhasChangesフラグを設定するuseEffect - 修正
   useEffect(() => {
-    localStorage.setItem('variables', JSON.stringify(variables));
+    // 初期データロード完了前か初回レンダリング時は変更扱いにしない
+    if (!initialLoadComplete.current || initialRender.current) {
+      return;
+    }
+
+    // 変数が変更されたらhasChangesをtrueに設定
+    setHasChanges(true);
+    setIsSaved(false);
   }, [variables]);
+
+  // プロジェクト変更時のデータ初期化・読み込み
+  useEffect(() => {
+    console.log('VariableConfig: activeProject変更が検出されました', {
+      id: activeProject?.id,
+      name: activeProject?.name,
+      path: activeProject?.path
+    });
+
+    // 初期化フラグをリセット
+    initialRender.current = true;
+    initialLoadComplete.current = false;
+
+    // プロジェクト切り替え時にステートをリセット
+    setIsProcessing(false);
+    setIsSaved(true); // 初期状態は保存済みに設定
+    setStatusMessage('');
+    setIsInitialized(false);
+    setHasChanges(false);
+
+    // activeProjectが変更された場合に実行
+    if (activeProject && activeProject.id) {
+      console.log(`プロジェクト[${activeProject.id}]の変数設定を読み込みます`);
+
+      const loadVariableData = async () => {
+        try {
+          setIsProcessing(true);
+
+          // JSONからデータを読み込み
+          let savedVariables = null;
+          try {
+            savedVariables = await projectDataStore.loadProjectData(activeProject.id, 'variableSettings');
+            console.log('JSONから読み込んだ変数設定:', savedVariables);
+          } catch (jsonError) {
+            console.error('JSONからの変数読み込みエラー:', jsonError);
+          }
+
+          // ファイルシステムからも読み込みを試みる
+          let fileContentFromFile = null;
+          try {
+            fileContentFromFile = await loadVariablesFromFile();
+            console.log('ファイルシステムから読み込んだ変数設定:', fileContentFromFile);
+          } catch (fileError) {
+            console.error('ファイルからの変数読み込みエラー:', fileError);
+          }
+
+          if (fileContentFromFile && (!savedVariables || JSON.stringify(fileContentFromFile) !== JSON.stringify(savedVariables))) {
+            // ファイルシステムから読み込めた場合、そちらを優先
+            console.log('ファイルシステムから最新の変数設定を読み込みました');
+            setVariables(fileContentFromFile);
+
+            // JSONも更新
+            try {
+              await projectDataStore.saveProjectData(activeProject.id, 'variableSettings', fileContentFromFile);
+              // 初期設定時にはステータスメッセージを表示しない
+              // showStatus('ファイルシステムから最新の変数設定を読み込みました');
+            } catch (saveError) {
+              console.error('JSON保存エラー:', saveError);
+              showStatus('設定を読み込みましたが、JSON保存に失敗しました', false);
+            }
+          } else if (savedVariables) {
+            // JSONにデータがある場合
+            console.log('JSONから読み込んだ変数設定を適用します');
+            setVariables(savedVariables);
+            // showStatus('変数設定を読み込みました');
+          } else {
+            console.log('JSONに変数設定が存在しないため、デフォルト値を使用します');
+
+            // デフォルト値を保持
+            const defaultSettings = {
+              lInner: '1000',
+              paddingPc: '25',
+              paddingSp: '20',
+              primaryColor: '#231815',
+              secondaryColor: '#0076ad',
+              accentColor: '#ff5722',
+              customColors: [
+                { name: '$primary-color', color: '#231815' },
+                { name: '$secondary-color', color: '#0076ad' },
+                { name: '$accent-color', color: '#ff5722' },
+              ]
+            };
+
+            setVariables(defaultSettings);
+
+            // JSONに保存
+            try {
+              await projectDataStore.saveProjectData(activeProject.id, 'variableSettings', defaultSettings);
+            } catch (saveError) {
+              console.error('デフォルト設定の保存に失敗:', saveError);
+            }
+
+            // ファイルシステムにも反映
+            if (isElectronContext && activeProject.path) {
+              try {
+                await saveVariablesToFile(defaultSettings);
+              } catch (saveError) {
+                console.error('ファイルシステムへの保存に失敗:', saveError);
+              }
+            }
+
+            showStatus('デフォルトの変数設定を作成しました');
+          }
+
+          setIsInitialized(true);
+          setIsSaved(true);
+          setHasChanges(false);
+
+          // 初期化完了フラグを設定
+          initialRender.current = false;
+          initialLoadComplete.current = true;
+        } catch (error) {
+          console.error('変数設定読み込みエラー:', error);
+          showStatus('設定の読み込み中にエラーが発生しました: ' + error.message, false);
+
+          // エラー時にもデフォルト値を設定
+          setVariables({
+            lInner: '1000',
+            paddingPc: '25',
+            paddingSp: '20',
+            primaryColor: '#231815',
+            secondaryColor: '#0076ad',
+            accentColor: '#ff5722',
+            customColors: [
+              { name: '$primary-color', color: '#231815' },
+              { name: '$secondary-color', color: '#0076ad' },
+              { name: '$accent-color', color: '#ff5722' },
+            ]
+          });
+          setIsInitialized(true);
+          setIsSaved(true);
+          setHasChanges(false);
+          initialRender.current = false;
+          initialLoadComplete.current = true;
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+
+      loadVariableData();
+    }
+  }, [activeProject?.id, activeProject?.path]);
+
+  // 変数ファイルを読み込む関数
+  const loadVariablesFromFile = async () => {
+    if (!isElectronContext || !activeProject || !activeProject.path) {
+      console.log('Electron環境でないか、アクティブプロジェクトが設定されていません');
+      return null;
+    }
+
+    try {
+      const settingFilePath = pathHelper.join(activeProject.path, 'src', 'scss', 'global', '_setting.scss');
+
+      // ファイルが存在するか確認
+      const exists = await window.api.fs.exists(settingFilePath);
+      if (!exists) {
+        console.log('_setting.scssファイルが見つかりません:', settingFilePath);
+        return null;
+      }
+
+      console.log('_setting.scssファイルを読み込み開始:', settingFilePath);
+
+      // ファイルからSCSSの内容を読み込み
+      const fileResult = await window.api.fs.readFile(settingFilePath);
+
+      if (!fileResult || !fileResult.success) {
+        console.log('ファイル読み込みに失敗しました:', fileResult?.error || 'unknown error');
+        return null;
+      }
+
+      const fileContent = fileResult.data;
+
+      // 空のファイルや無効なデータをチェック
+      if (!fileContent) {
+        console.log('ファイルの内容が空です');
+        return null;
+      }
+
+      console.log('ファイルから読み込んだSCSS内容:', typeof fileContent, fileContent.length || 0);
+
+      // SCSS内容を解析して変数オブジェクトに変換
+      return parseScssToVariables(fileContent);
+    } catch (error) {
+      console.error('ファイルからの変数読み込みエラー:', error);
+      return null;
+    }
+  };
+
+  // SCSS内容を変数オブジェクトに変換
+  const parseScssToVariables = (scssContent) => {
+    try {
+      // デフォルト値の設定
+      const result = {
+        lInner: '1000',
+        paddingPc: '25',
+        paddingSp: '20',
+        primaryColor: '#231815',
+        secondaryColor: '#0076ad',
+        accentColor: '#ff5722',
+        customColors: []
+      };
+
+      // scssContentがオブジェクトの場合（JSON形式のデータなど）
+      if (typeof scssContent === 'object' && scssContent !== null) {
+        console.log('SCSSコンテンツがオブジェクト形式で渡されました:', scssContent);
+        return scssContent; // そのまま返す
+      }
+
+      // scssContentが文字列でない場合
+      if (typeof scssContent !== 'string') {
+        console.log('SCSSコンテンツが無効な形式です:', typeof scssContent);
+        return result; // デフォルト値を返す
+      }
+
+      // 正規表現でSCSSから変数を抽出
+      const lines = scssContent.split('\n');
+
+      for (const line of lines) {
+        // インナー幅設定
+        if (line.includes('$l-inner:')) {
+          const match = line.match(/\$l-inner:\s*([\d.]+)rem/);
+          if (match && match[1]) {
+            result.lInner = (parseFloat(match[1]) * 16).toString(); // remをpxに変換
+          }
+        }
+        else if (line.includes('$padding-pc:')) {
+          const match = line.match(/\$padding-pc:\s*([\d.]+)rem/);
+          if (match && match[1]) {
+            result.paddingPc = (parseFloat(match[1]) * 16).toString(); // remをpxに変換
+          }
+        }
+        else if (line.includes('$padding-sp:')) {
+          const match = line.match(/\$padding-sp:\s*([\d.]+)rem/);
+          if (match && match[1]) {
+            result.paddingSp = (parseFloat(match[1]) * 16).toString(); // remをpxに変換
+          }
+        }
+        // カラー設定
+        else if (line.includes('$primary-color:')) {
+          const match = line.match(/\$primary-color:\s*(#[0-9a-fA-F]{3,6})/);
+          if (match && match[1]) {
+            result.primaryColor = match[1];
+            // customColorsにも追加
+            result.customColors.push({ name: '$primary-color', color: match[1] });
+          }
+        }
+        else if (line.includes('$') && line.includes('#')) {
+          // その他の色変数
+          const match = line.match(/(\$[a-zA-Z0-9_-]+):\s*(#[0-9a-fA-F]{3,6})/);
+          if (match && match[1] && match[2]) {
+            const name = match[1];
+            const color = match[2];
+
+            // 主要な色以外をカスタム色として追加
+            if (name !== '$primary-color' && !result.customColors.some(c => c.name === name)) {
+              result.customColors.push({ name, color });
+            }
+          }
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('SCSS解析エラー:', error);
+      return {
+        lInner: '1000',
+        paddingPc: '25',
+        paddingSp: '20',
+        primaryColor: '#231815',
+        secondaryColor: '#0076ad',
+        accentColor: '#ff5722',
+        customColors: [
+          { name: '$primary-color', color: '#231815' },
+          { name: '$secondary-color', color: '#0076ad' },
+          { name: '$accent-color', color: '#ff5722' },
+        ]
+      };
+    }
+  };
 
   // 変更があったことを記録
   useEffect(() => {
     // 初回レンダリング時は変更として記録しない
     if (initialRender.current) {
-      initialRender.current = false;
       return;
     }
 
     setHasChanges(true);
-  }, [variables, extractedColors]);
+    setIsSaved(false);
+  }, [variables]);
 
   // 別のタブに移動する前に未保存の変更があれば警告
   useEffect(() => {
@@ -285,16 +602,159 @@ const VariableConfig = forwardRef((props, ref) => {
     };
   }, [isProcessing]);
 
+  // 変数をSCSSに変換して保存する関数
+  const saveVariablesToFile = async (data) => {
+    if (!isElectronContext || !activeProject || !activeProject.path) {
+      console.error('ファイルシステムへの保存ができない環境です');
+      return false;
+    }
+
+    try {
+      // 保存先ディレクトリの確認と作成
+      const scssDir = pathHelper.join(activeProject.path, 'src', 'scss', 'global');
+      console.log('SCSS保存先ディレクトリを作成します:', scssDir);
+
+      try {
+        await window.api.fs.mkdir(scssDir, { recursive: true });
+      } catch (mkdirError) {
+        console.error('ディレクトリ作成エラー:', mkdirError);
+        return false;
+      }
+
+      // 変数をSCSS形式に変換
+      const scssContent = generateScssContent(data);
+      if (!scssContent) {
+        console.error('SCSS生成に失敗しました');
+        return false;
+      }
+
+      // ファイルに保存
+      const settingFilePath = pathHelper.join(scssDir, '_setting.scss');
+      console.log('_setting.scssファイルに保存します:', settingFilePath);
+
+      const result = await window.api.fs.writeFile(settingFilePath, scssContent);
+
+      if (!result || !result.success) {
+        console.error('ファイル書き込みエラー:', result?.error || 'unknown error');
+        return false;
+      }
+
+      console.log('_setting.scssファイルを保存しました:', settingFilePath);
+      return true;
+    } catch (error) {
+      console.error('_setting.scss保存エラー:', error);
+      return false;
+    }
+  };
+
+  // 変数からSCSS形式の文字列を生成
+  const generateScssContent = (data) => {
+    // データ検証
+    if (!data || typeof data !== 'object') {
+      console.error('変数データが不正な形式です:', data);
+      return null;
+    }
+
+    try {
+      const toRem = (px) => {
+        if (!px || isNaN(parseInt(px, 10))) {
+          return '1rem'; // デフォルト値
+        }
+        return (parseInt(px, 10) / 16).toFixed(2) + 'rem';
+      };
+
+      let scss = '';
+
+      // インナー幅設定
+      scss += '// インナー幅設定\n';
+      scss += `$l-inner: ${toRem(data.lInner)};\n`;
+      scss += `$padding-pc: ${toRem(data.paddingPc)};\n`;
+      scss += `$padding-sp: ${toRem(data.paddingSp)};\n\n`;
+
+      // 色の指定
+      scss += '// 色の指定\n';
+
+      // カスタム色を追加
+      if (Array.isArray(data.customColors) && data.customColors.length > 0) {
+        data.customColors.forEach(item => {
+          if (item && item.name && item.color) {
+            scss += `${item.name}: ${item.color};\n`;
+          }
+        });
+      } else {
+        // デフォルト色の追加
+        scss += `$primary-color: ${data.primaryColor || '#231815'};\n`;
+        scss += `$blue: #408f95;\n`;
+        scss += `$text-color: #000000;\n`;
+      }
+
+      return scss;
+    } catch (error) {
+      console.error('SCSS生成エラー:', error);
+      return '// インナー幅設定\n$l-inner: 62.5rem;\n$padding-pc: 1.56rem;\n$padding-sp: 1.25rem;\n\n// 色の指定\n$primary-color: #231815;\n$blue: #408f95;\n$text-color: #000000;\n';
+    }
+  };
+
+  // ステータスメッセージを表示する関数
+  const showStatus = (message, isSuccess = true) => {
+    setStatusMessage(message);
+    setToast({
+      show: true,
+      message,
+      type: isSuccess ? 'success' : 'error'
+    });
+
+    // 3秒後に非表示
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 3000);
+  };
+
+  // 保存処理
+  const handleSave = async () => {
+    if (!activeProject || !activeProject.id) {
+      showStatus('プロジェクトが選択されていません', false);
+      return;
+    }
+
+    setIsProcessing(true);
+    showStatus('保存中...', false);
+
+    try {
+      // JSONに保存
+      await projectDataStore.saveProjectData(activeProject.id, 'variableSettings', variables);
+
+      // ファイルシステムにも保存
+      if (isElectronContext && activeProject.path) {
+        await saveVariablesToFile(variables);
+      }
+
+      setIsSaved(true);
+      setHasChanges(false);
+      showStatus('変更を保存しました');
+
+      console.log('変数設定を保存しました');
+    } catch (error) {
+      console.error('保存エラー:', error);
+      showStatus('保存中にエラーが発生しました: ' + error.message, false);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 色の変更ハンドラ
   const handleColorChange = (index, value) => {
     const updatedColors = [...variables.customColors];
     updatedColors[index].color = value;
     setVariables({ ...variables, customColors: updatedColors });
   };
 
+  // 色の追加ハンドラ
   const addColor = () => {
     setVariables({ ...variables, customColors: [...variables.customColors, { name: '', color: '#000000' }] });
   };
 
+  // 色の削除ハンドラ
   const removeColor = (index) => {
     const updatedColors = variables.customColors.filter((_, i) => i !== index);
     setVariables({ ...variables, customColors: updatedColors });
@@ -1316,58 +1776,6 @@ const VariableConfig = forwardRef((props, ref) => {
     return { x: adjustedX, y: adjustedY };
   };
 
-  const handleSave = () => {
-    // pxをremに変換する関数
-    const toRem = (px) => {
-      const remValue = px / 16;
-      return remValue % 1 === 0 ? `${remValue.toFixed(0)}rem` : `${remValue.toFixed(2)}rem`;
-    };
-
-    const colorVariables = variables.customColors
-      .map((color) => `${color.name}: ${color.color};`)
-      .join('\n');
-
-    const variablesInRem = {
-      ...variables,
-      lInner: toRem(variables.lInner),
-      paddingPc: toRem(variables.paddingPc),
-      paddingSp: toRem(variables.paddingSp),
-    };
-
-    const scssContent = `// インナー幅設定
-$l-inner: ${variablesInRem.lInner};
-$padding-pc: ${variablesInRem.paddingPc};
-$padding-sp: ${variablesInRem.paddingSp};
-
-// 色の指定
-${colorVariables}
-`;
-
-    // 従来の方法でJSON形式のデータを保存
-    localStorage.setItem('variables', JSON.stringify(variables));
-
-    // ヘッダー生成用にテキスト形式のCSS変数を保存
-    // これにより、ヘッダー生成側がcssVariablesキーから正しく変数を取得できる
-    localStorage.setItem('cssVariables', colorVariables);
-
-    console.log('Variables saved to localStorage:');
-    console.log('- variables key (JSON):', JSON.stringify(variables));
-    console.log('- cssVariables key (Text):', colorVariables);
-
-    window.api.send('save-scss-file', {
-      filePath: 'src/scss/global/_setting.scss',
-      content: scssContent,
-    });
-
-    console.log('Variables saved to file:', scssContent);
-
-    // 変更フラグをリセット
-    setHasChanges(false);
-
-    // トースト通知を表示
-    showToast('変更を保存しました', 'success');
-  };
-
   // トースト通知を表示する関数
   const showToast = (message, type = 'success') => {
     // トースト状態を更新（React制御部分）
@@ -1570,48 +1978,53 @@ ${colorVariables}
 
   return (
     <div className="variable-config">
-      <Header title="カラー・レイアウト設定" description="ウェブサイトのカラー設定と基本レイアウトを管理します" />
+      <Header title="変数設定" subtitle="CSSやSCSSで使用する変数を設定します" />
 
-      <div className="content">
-        <form className="variable-form">
-          {/* レイアウト設定 */}
+      <div className="content-wrapper">
+        <h1 className="page-title">変数設定</h1>
+
+        <div className="variable-form">
+          {/* ベーシック設定フォームグループ */}
           <div className="form-group">
-            <h3 className="group-title">レイアウト設定</h3>
+            <h2 className="group-title">ベーシック設定</h2>
 
+            {/* lInner設定 */}
             <div className="input-row">
-              <label className="input-label">インナー幅:</label>
+              <label className="input-label" htmlFor="lInner">最大コンテンツ幅:</label>
               <input
+                id="lInner"
+                className="input-field"
                 type="number"
-                name="lInner"
                 value={variables.lInner}
-                onChange={(e) => setVariables({ ...variables, lInner: e.target.value })}
-                className="input-field"
+                onChange={(e) => handleVariableChange('lInner', e.target.value)}
               />
-              <div className="input-description">pxで入力、自動的にremに変換されます</div>
+              <span className="input-description">コンテンツの最大幅をピクセル単位で指定します。PCでの表示幅に影響します。</span>
             </div>
 
+            {/* PC用パディング設定 */}
             <div className="input-row">
-              <label className="input-label">PC用Padding幅:</label>
+              <label className="input-label" htmlFor="paddingPc">PC用左右パディング:</label>
               <input
+                id="paddingPc"
+                className="input-field"
                 type="number"
-                name="paddingPc"
                 value={variables.paddingPc}
-                onChange={(e) => setVariables({ ...variables, paddingPc: e.target.value })}
-                className="input-field"
+                onChange={(e) => handleVariableChange('paddingPc', e.target.value)}
               />
-              <div className="input-description">pxで入力、自動的にremに変換されます</div>
+              <span className="input-description">PC表示時の左右パディングをピクセル単位で指定します。</span>
             </div>
 
+            {/* SP用パディング設定 */}
             <div className="input-row">
-              <label className="input-label">SP用Padding幅:</label>
+              <label className="input-label" htmlFor="paddingSp">SP用左右パディング:</label>
               <input
-                type="number"
-                name="paddingSp"
-                value={variables.paddingSp}
-                onChange={(e) => setVariables({ ...variables, paddingSp: e.target.value })}
+                id="paddingSp"
                 className="input-field"
+                type="number"
+                value={variables.paddingSp}
+                onChange={(e) => handleVariableChange('paddingSp', e.target.value)}
               />
-              <div className="input-description">pxで入力、自動的にremに変換されます</div>
+              <span className="input-description">スマホ表示時の左右パディングをピクセル単位で指定します。</span>
             </div>
           </div>
 
@@ -1754,7 +2167,7 @@ ${colorVariables}
                         backdropFilter: 'blur(6px)',
                         borderRadius: '8px'
                       }}>
-                        {/* AI処理中のオーバーレイコンテンツはそのまま */}
+                        {/* AI処理中のオーバーレイコンテンツ */}
                         <div className="ai-processing-content" style={{
                           backgroundColor: 'rgba(12, 20, 33, 0.9)',
                           borderRadius: '16px',
@@ -1766,8 +2179,8 @@ ${colorVariables}
                           border: '1px solid rgba(255, 255, 255, 0.1)',
                           overflow: 'hidden',
                           position: 'relative',
-                          transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                          willChange: 'transform'      // アニメーションの最適化を促進
+                          transform: 'translateZ(0)',
+                          willChange: 'transform'
                         }}>
                           {/* Particle Animation Background */}
                           <div className="particle-effect" style={{
@@ -1790,76 +2203,13 @@ ${colorVariables}
                                 backgroundColor: `rgba(${Math.random() * 155 + 100}, ${Math.random() * 155 + 100}, 255, 1)`,
                                 borderRadius: '50%',
                                 filter: 'blur(1px)',
-                                transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                                willChange: 'transform',     // アニメーションの最適化を促進
+                                transform: 'translateZ(0)',
+                                willChange: 'transform',
                               }} />
                             ))}
                           </div>
 
-                          {/* Hex Grid Animation */}
-                          <div style={{
-                            position: 'relative',
-                            zIndex: 2,
-                            marginBottom: '25px'
-                          }}>
-                            <div className="hex-grid" style={{
-                              display: 'flex',
-                              justifyContent: 'center',
-                              position: 'relative',
-                              height: '80px',
-                              marginBottom: '5px',
-                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                              willChange: 'transform'      // アニメーションの最適化を促進
-                            }}>
-                              {Array.from({ length: 7 }).map((_, i) => (
-                                <div key={i} className="hex" style={{
-                                  width: '32px',
-                                  height: '35px',
-                                  margin: '0 -4px',
-                                  background: `linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %)`,
-                                  clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
-                                  transformOrigin: 'center',
-                                  position: 'relative',
-                                  opacity: 0.9,
-                                  transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                                  willChange: 'transform, opacity'  // アニメーションの最適化を促進
-                                }} />
-                              ))}
-                            </div>
-
-                            <div className="ai-icon" style={{
-                              width: '60px',
-                              height: '60px',
-                              background: 'linear-gradient(180deg, #0076ad, #004a6b)',
-                              borderRadius: '30%',
-                              margin: '0 auto',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              boxShadow: '0 10px 25px rgba(0, 118, 173, 0.5)',
-                              position: 'relative',
-                              overflow: 'hidden',
-                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                              willChange: 'box-shadow'     // アニメーションの最適化を促進
-                            }}>
-                              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 2L21.5 7.5V16.5L12 22L2.5 16.5V7.5L12 2Z" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" />
-                                <path d="M12 22V12M12 12L2.5 7.5M12 12L21.5 7.5M17 14.5V10L7 5" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" strokeLinecap="round" />
-                                <circle cx="12" cy="12" r="2" fill="rgba(255,255,255,0.9)" />
-                              </svg>
-                              <div className="ai-icon-pulse" style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '100%',
-                                background: 'radial-gradient(circle, rgba(0,118,173,0) 30%, rgba(0,118,173,0.8) 100%)',
-                                animation: 'ai-process 2s infinite',
-                                opacity: 0.7
-                              }}></div>
-                            </div>
-                          </div>
-
+                          {/* AI処理中の表示コンテンツ */}
                           <div className="processing-title" style={{
                             fontSize: '24px',
                             fontWeight: 700,
@@ -1879,239 +2229,15 @@ ${colorVariables}
                             zIndex: 2
                           }}>高精度な色抽出には15〜30秒ほど時間がかかります</div>
 
-                          {/* Smart Progress Indicator */}
-                          <div className="progress-container" style={{
-                            position: 'relative',
-                            height: '10px',
-                            background: 'rgba(255, 255, 255, 0.06)',
-                            borderRadius: '10px',
-                            overflow: 'hidden',
-                            margin: '0 10px 25px',
-                            boxShadow: 'inset 0 1px 5px rgba(0, 0, 0, 0.3)',
-                            zIndex: 2
-                          }}>
-                            <div className="progress-waves" style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              height: '100%',
-                              width: '100%',
-                              background: 'linear-gradient(90deg, rgba(0, 118, 173, 0.8), rgba(110, 182, 219, 0.8))',
-                              backgroundSize: '200% 100%',
-                              borderRadius: '10px',
-                              boxShadow: '0 0 10px rgba(110, 182, 219, 0.5)',
-                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                              willChange: 'background-position'  // アニメーションの最適化を促進
-                            }}></div>
-
-                            <div className="progress-glow" style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: '-20%',
-                              height: '100%',
-                              width: '40%',
-                              background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent)',
-                              borderRadius: '10px',
-                              transform: 'translateZ(0)',  // ハードウェアアクセラレーションを有効化
-                              willChange: 'left'           // アニメーションの最適化を促進
-                            }}></div>
-                          </div>
-
-                          <div className="process-stages" style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            marginBottom: '20px',
-                            position: 'relative',
-                            padding: '0 10px',
-                            zIndex: 2
-                          }}>
-                            <div className="stage-item" style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              width: '25%'
-                            }}>
-                              <div className="stage-icon" style={{
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                background: 'rgba(0, 118, 173, 1)',
-                                marginBottom: '5px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: '0 0 10px rgba(0, 118, 173, 0.7)',
-                                animation: 'stage-active 0.5s ease-out'
-                              }}>
-                                <span style={{ color: 'white', fontSize: '12px' }}>✓</span>
-                              </div>
-                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>準備</div>
-                            </div>
-                            <div className="stage-item" style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              width: '25%'
-                            }}>
-                              <div className="stage-icon" style={{
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                background: 'rgba(0, 118, 173, 1)',
-                                marginBottom: '5px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: '0 0 10px rgba(0, 118, 173, 0.7)',
-                                animation: 'stage-active 0.5s ease-out 0.5s both'
-                              }}>
-                                <span style={{ color: 'white', fontSize: '12px' }}>✓</span>
-                              </div>
-                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>分析</div>
-                            </div>
-                            <div className="stage-item" style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              width: '25%'
-                            }}>
-                              <div className="stage-icon" style={{
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                background: 'rgba(0, 118, 173, 0.5)',
-                                marginBottom: '5px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                animation: 'stage-pulse 1.5s infinite'
-                              }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }}></div>
-                              </div>
-                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>抽出</div>
-                            </div>
-                            <div className="stage-item" style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              width: '25%'
-                            }}>
-                              <div className="stage-icon" style={{
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                marginBottom: '5px',
-                                border: '1px solid rgba(255, 255, 255, 0.2)'
-                              }}></div>
-                              <div className="stage-name" style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)' }}>完了</div>
-                            </div>
-                          </div>
-
-                          <div className="status-container" style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            position: 'relative',
-                            zIndex: 2
-                          }}>
-                            <div className="processing-status" style={{
-                              fontSize: '12px',
-                              color: '#6eb6db',
-                              fontWeight: 500,
-                              animation: 'status-blink 2s infinite',
-                              display: 'flex',
-                              alignItems: 'center'
-                            }}>
-                              <div className="status-dot" style={{
-                                width: '6px',
-                                height: '6px',
-                                borderRadius: '50%',
-                                backgroundColor: '#6eb6db',
-                                marginRight: '5px',
-                                animation: 'status-dot-pulse 1.5s infinite'
-                              }}></div>
-                              最適なカラーパレットを検出中...
-                            </div>
-                            <div className="processing-time" style={{
-                              fontSize: '12px',
-                              color: 'rgba(255, 255, 255, 0.6)',
-                              fontFamily: 'monospace',
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                              padding: '3px 8px',
-                              borderRadius: '10px'
-                            }}>経過時間: 0秒</div>
-                          </div>
-
-                          <style dangerouslySetInnerHTML={{
-                            __html: `
-    @keyframes particle - float {
-      0 % { transform: translateY(0) translateX(0); }
-      25 % { transform: translateY(10px) translateX(10px); }
-      50 % { transform: translateY(20px) translateX(0); }
-      75 % { transform: translateY(10px) translateX(- 10px);
-    }
-    100 % { transform: translateY(0) translateX(0); }
-  }
-
-  @keyframes hex - pulse {
-    0 %, 100 % { transform: scale(0.8); opacity: 0.4; }
-    50 % { transform: scale(1); opacity: 1; }
-  }
-
-  @keyframes hex - color - shift {
-    0 % { background: linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %); }
-    33 % { background: linear - gradient(135deg, rgba(0, 173, 118, 0.3) 0 %, rgba(0, 173, 118, 0.6) 100 %); }
-    66 % { background: linear - gradient(135deg, rgba(118, 0, 173, 0.3) 0 %, rgba(118, 0, 173, 0.6) 100 %); }
-    100 % { background: linear - gradient(135deg, rgba(0, 118, 173, 0.3) 0 %, rgba(0, 118, 173, 0.6) 100 %); }
-  }
-
-  @keyframes progress - wave - animation {
-    0 % { background- position: 100 % 50 %;
-  }
-  100 % { background- position: 0 % 50 %;
-}
-                          }
-
-@keyframes progress - glow - animation {
-  0 % { left: -20 %; }
-  100 % { left: 100 %; }
-}
-
-@keyframes pulse - glow {
-  0 %, 100 % { box- shadow: 0 0 15px rgba(0, 118, 173, 0.5);
-}
-50 % { box- shadow: 0 0 30px rgba(0, 118, 173, 0.8); }
-                          }
-
-@keyframes ai - process {
-  0 %, 100 % { opacity: 0.5; }
-  50 % { opacity: 0.9; }
-}
-
-@keyframes stage - pulse {
-  0 %, 100 % { transform: scale(1); opacity: 0.5; }
-  50 % { transform: scale(1.1); opacity: 1; box- shadow: 0 0 15px rgba(0, 118, 173, 0.7);
-}
-                          }
-
-@keyframes stage - active {
-  0 % { transform: scale(0); opacity: 0; }
-  80 % { transform: scale(1.2); opacity: 1; }
-  100 % { transform: scale(1); opacity: 1; }
-}
-
-@keyframes status - blink {
-  0 %, 100 % { opacity: 0.7; }
-  50 % { opacity: 1; }
-}
-
-@keyframes status - dot - pulse {
-  0 %, 100 % { transform: scale(1); opacity: 0.7; }
-  50 % { transform: scale(1.5); opacity: 1; box- shadow: 0 0 8px #6eb6db;
-}
-                          }
-`}} />
+                          {/* ステータス表示 */}
+                          <div className="processing-time" style={{
+                            fontSize: '12px',
+                            color: 'rgba(255, 255, 255, 0.6)',
+                            fontFamily: 'monospace',
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            padding: '3px 8px',
+                            borderRadius: '10px'
+                          }}>経過時間: 0秒</div>
                         </div>
                       </div>
                     )}
@@ -2308,98 +2434,6 @@ ${colorVariables}
                 新しい画像をアップロード
               </button>
             )}
-
-            {/* スタイルを設定 */}
-            <style dangerouslySetInnerHTML={{
-              __html: `
-                .buttons-container {
-                  display: flex;
-                  gap: 15px;
-                  margin: 20px 0;
-                  width: 100%;
-                }
-
-                .action-button {
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  gap: 10px;
-                  border: none;
-                  border-radius: 8px;
-                  padding: 12px 24px;
-                  font-size: 16px;
-                  font-weight: 600;
-                  cursor: pointer;
-                  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-                  position: relative;
-                  overflow: hidden;
-                  flex: 1;
-                  margin: 20px auto;
-                }
-
-                .action-button::before {
-                  content: "";
-                  position: absolute;
-                  top: 0;
-                  left: -100%;
-                  width: 100%;
-                  height: 100%;
-                  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-                  transition: 0.5s;
-                  z-index: 1;
-                }
-
-                .action-button:hover {
-                  transform: translateY(-2px);
-                }
-
-                .action-button:hover::before {
-                  left: 100%;
-                }
-
-                .action-button svg {
-                  transition: transform 0.5s ease;
-                }
-
-                .reset-button {
-                  background: linear-gradient(135deg, #f05d5e, #e63946);
-                  color: white;
-                  box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
-                }
-
-                .reset-button:hover {
-                  box-shadow: 0 6px 16px rgba(230, 57, 70, 0.4);
-                }
-
-                .reset-button:hover svg {
-                  transform: rotate(180deg);
-                }
-
-                .apply-button {
-                  background: linear-gradient(135deg, #2cc46b, #20a15b);
-                  color: white;
-                  box-shadow: 0 4px 12px rgba(32, 161, 91, 0.3);
-                }
-
-                .apply-button:hover {
-                  box-shadow: 0 6px 16px rgba(32, 161, 91, 0.4);
-                }
-
-                .apply-button:hover svg {
-                  transform: scale(1.2);
-                }
-
-                .full-width {
-                  width: 100%;
-                  max-width: 100%;
-                }
-
-                /* 既存のapply-colors-buttonスタイルを無効化 */
-                .apply-colors-button {
-                  display: none;
-                }
-              `
-            }} />
           </div>
 
           {/* 色設定 */}
@@ -2455,64 +2489,30 @@ ${colorVariables}
             <button type="button" onClick={addColor} className="add-button">
               色を追加
             </button>
-
-            {/* 色設定ヘッダーとボタンのスタイル */}
-            <style dangerouslySetInnerHTML={{
-              __html: `
-                .color-settings-header {
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  margin-bottom: 15px;
-                }
-
-                .color-count {
-                  font-size: 14px;
-                  color: #666;
-                  font-weight: 500;
-                }
-
-                .delete-all-button {
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-                  background-color: #f8d7da;
-                  color: #721c24;
-                  border: 1px solid #f5c6cb;
-                  border-radius: 6px;
-                  padding: 6px 12px;
-                  font-size: 14px;
-                  font-weight: 500;
-                  cursor: pointer;
-                  transition: all 0.2s ease;
-                }
-
-                .delete-all-button:hover {
-                  background-color: #f5c6cb;
-                  transform: translateY(-1px);
-                  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-                }
-
-                .delete-all-button svg {
-                  width: 16px;
-                  height: 16px;
-                  transition: transform 0.3s ease;
-                }
-
-                .delete-all-button:hover svg {
-                  transform: scale(1.1);
-                }
-              `
-            }} />
           </div>
 
           {/* 保存ボタン */}
-          <div className="action-buttons">
-            <button type="button" onClick={handleSave} className="save-button">
-              <span>変更を保存</span>
+          <div className="save-button-container">
+            <button
+              type="button"
+              onClick={handleSave}
+              className="save-button"
+              disabled={isProcessing || isSaved}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H16L21 8V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M17 21V13H7V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M7 3V8H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              変更を保存
             </button>
+            {!isSaved && (
+              <div className="unsaved-changes-indicator">
+                未保存の変更があります
+              </div>
+            )}
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

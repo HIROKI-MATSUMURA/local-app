@@ -47,7 +47,8 @@ export default defineConfig({
     strictPort: true,
     headers: {
       'Content-Type': 'application/javascript',
-      'Access-Control-Allow-Origin': '*'
+      'Access-Control-Allow-Origin': '*',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
     },
     middlewareMode: false,
     fs: {

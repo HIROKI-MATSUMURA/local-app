@@ -1,5 +1,6 @@
 
 
+
 *,
 *::before,
 *::after {
@@ -114,9 +115,9 @@ select::-ms-expand {
 }
 
 img[src^="path-to-"],
-          img[src^="path/to/"] {
-            background-color: #ccc;
-            min-height: 100px;
-            max-width: 100%;
-            object-fit: cover;
-          }
+img[src^="path/to/"] {
+  background-color: #ccc;
+  min-height: 100px;
+  max-width: 100%;
+  object-fit: cover;
+}

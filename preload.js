@@ -185,6 +185,19 @@ try {
             isDirectory: false
           };
         }
+      },
+      // ファイルやディレクトリの存在確認
+      exists: async (filePath) => {
+        try {
+          const absPath = path.resolve(filePath);
+          await fsPromises.access(absPath);
+          return { success: true, exists: true, path: absPath };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return { success: true, exists: false, path: filePath };
+          }
+          return { success: false, error: error.message, exists: false, path: filePath };
+        }
       }
     },
     // パス操作
