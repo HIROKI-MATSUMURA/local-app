@@ -1,0 +1,21 @@
+@use "sass:map";
+
+// どっちファーストの設定（"sp" or "pc"）
+$startFrom: sp;
+
+// ブレークポイント
+$breakpoints: (
+  md: 768px
+);
+
+// メディアクエリ
+$mediaquerys: (
+  md: "screen and (min-width: #{map.get($breakpoints,'md')})"
+);
+
+// スマホファースト用メディアクエリ
+@mixin mq($mediaquery: md) {
+  @media #{map.get($mediaquerys, $mediaquery)} {
+    @content;
+  }
+}

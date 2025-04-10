@@ -1,0 +1,261 @@
+@use "@styles/global.scss" as *;
+
+.reset-css {
+  padding: $spacing-xl;
+  background: linear-gradient(170deg, rgba($background-color, 0.8), rgba($surface-color, 0.9));
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+  max-width: 1000px;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 200px;
+    background: linear-gradient(135deg, rgba($primary-dark, 0.05), rgba($accent-color, 0.03));
+    z-index: -1;
+    border-radius: $radius-lg $radius-lg 50% 50%;
+    transform: scaleX(1.2);
+  }
+
+  .editor-container {
+    background: linear-gradient(145deg, #ffffff, rgba($background-color, 0.5));
+    border-radius: $radius-lg;
+    padding: $spacing-xl;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+    border: 1px solid rgba($border-color, 0.5);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    margin-bottom: $spacing-lg;
+
+    &:hover {
+      box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+      transform: translateY(-3px);
+    }
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, transparent, rgba($accent-color, 0.03), transparent);
+      border-radius: 0 0 0 100%;
+      z-index: 0;
+    }
+
+    .css-editor {
+      width: 100%;
+      height: 400px;
+      font-family: $font-code;
+      font-size: $font-size-sm;
+      line-height: 1.5;
+      padding: $spacing-md;
+      border: 1px solid $border-color;
+      border-radius: $radius-md;
+      background-color: rgba($surface-color, 0.8);
+      color: $text-primary;
+      resize: vertical;
+      transition: all 0.3s ease;
+      position: relative;
+      z-index: 1;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+
+      &:focus {
+        outline: none;
+        border-color: $accent-color;
+        box-shadow:
+          0 0 0 3px rgba($accent-color, 0.1),
+          inset 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+    }
+
+    // CodeMirror関連のスタイル
+    .code-editor-wrapper {
+      height: 500px;
+      border-radius: $radius-md;
+      overflow: hidden;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      z-index: 1;
+      position: relative;
+
+      .CodeMirror {
+        height: 100%;
+        font-family: $font-code;
+        font-size: 14px;
+        line-height: 1.6;
+        background-color: #263238; // materialテーマの背景色
+        border-radius: $radius-md;
+
+        pre {
+          font-family: $font-code !important;
+          padding: 0 8px;
+        }
+
+        .CodeMirror-gutters {
+          border-right: 1px solid rgba(255, 255, 255, 0.1);
+          background-color: #263238;
+        }
+
+        .CodeMirror-linenumber {
+          color: rgba(255, 255, 255, 0.3);
+        }
+
+        .CodeMirror-cursor {
+          border-left: 2px solid #fff;
+        }
+
+        .CodeMirror-selected {
+          background-color: rgba(124, 58, 237, 0.2);
+        }
+      }
+    }
+  }
+
+  .editor-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $spacing-xl;
+    padding: 0 $spacing-md;
+
+    .editor-hint {
+      background: rgba($primary-light, 0.05);
+      border-left: 3px solid $accent-color;
+      padding: $spacing-sm $spacing-md;
+      border-radius: 0 $radius-md $radius-md 0;
+
+      p {
+        color: $text-secondary;
+        font-size: $font-size-sm;
+        margin: 0;
+        display: flex;
+        align-items: center;
+
+        span {
+          margin-right: $spacing-sm;
+          font-size: 16px;
+        }
+      }
+    }
+
+    .save-button {
+      margin: 0;
+      max-width: 400px;
+    }
+  }
+
+  .save-button {
+    background: linear-gradient(135deg, #7c3aed, #4c1d95);
+    background-image: linear-gradient(135deg, #8b5cf6, #6d28d9, #4c1d95);
+    color: white;
+    border: none;
+    border-radius: $radius-md;
+    padding: $spacing-md $spacing-2xl;
+    font-size: $font-size-lg;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    box-shadow:
+      0 6px 15px rgba(124, 58, 237, 0.25),
+      0 1px 3px rgba(0, 0, 0, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: relative;
+    overflow: hidden;
+    z-index: 1;
+    min-width: 200px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    margin: 0 auto;
+    width: 100%;
+    max-width: 400px;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      z-index: -1;
+      transition: 0.5s ease;
+      transform: skewX(-15deg);
+    }
+
+    &::after {
+      content: "💾";
+      font-size: 1.2em;
+      margin-left: $spacing-md;
+      transition: all 0.3s ease;
+      opacity: 0.9;
+      transform: translateY(0);
+      filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+    }
+
+    &:hover {
+      transform: translateY(-4px) scale(1.01);
+      box-shadow:
+        0 12px 24px rgba(124, 58, 237, 0.4),
+        0 6px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      background-image: linear-gradient(135deg, #9f75ff, #7c3aed, #5b21b6);
+
+      &::before {
+        left: 100%;
+      }
+
+      &::after {
+        transform: translateY(-2px) rotate(10deg);
+        opacity: 1;
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
+      }
+    }
+
+    &:active {
+      transform: translateY(2px) scale(0.99);
+      box-shadow:
+        0 2px 5px rgba(124, 58, 237, 0.4),
+        0 1px 2px rgba(0, 0, 0, 0.1),
+        inset 0 1px 1px rgba(0, 0, 0, 0.15);
+      background-image: linear-gradient(135deg, #7c3aed, #6d28d9, #4c1d95);
+    }
+
+    &:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow:
+        0 4px 10px rgba(124, 58, 237, 0.2),
+        0 1px 2px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+      &::after {
+        opacity: 0.5;
+        transform: none;
+      }
+
+      &:hover {
+        transform: none;
+        box-shadow:
+          0 4px 10px rgba(124, 58, 237, 0.2),
+          0 1px 2px rgba(0, 0, 0, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      }
+    }
+  }
+}

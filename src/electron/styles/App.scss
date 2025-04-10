@@ -1,0 +1,148 @@
+@use "sass:color";
+@use "@styles/global.scss" as *;
+
+// App.scss
+// 基本レイアウト用のスタイル
+
+// レイアウト変数
+$sidebar-width: 292px;
+$header-height: 60px;
+$primary-color: #0076ad;
+$accent-color: #ff5722;
+$bg-color: #f8f9fa;
+$text-color: #333;
+$sidebar-bg: #2c3e50;
+$sidebar-text: #ecf0f1;
+
+// 全体のコンテナ
+.app-container {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+  font-family: "Roboto", sans-serif;
+  color: $text-color;
+  background-color: $bg-color;
+}
+
+// サイドバー
+.sidebar {
+  width: $sidebar-width;
+  background-color: $sidebar-bg;
+  color: $sidebar-text;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.sidebar-header {
+  padding: 1.5rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+  h2 {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 500;
+    color: white;
+  }
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 1rem 0;
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .nav-item {
+    padding: 0.8rem 1.5rem;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    &.active {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-left: 4px solid $accent-color;
+    }
+
+    .nav-icon {
+      margin-right: 0.8rem;
+      font-size: 1.4rem;
+    }
+
+    .nav-label {
+      font-size: 1rem;
+    }
+  }
+}
+
+// メインコンテンツエリア
+.main-content {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+  margin-left: $sidebar-width;
+  width: calc(100% - #{$sidebar-width});
+}
+
+.content-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  padding: 2rem;
+
+  h1 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-weight: 500;
+    color: $primary-color;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 0.5rem;
+  }
+}
+
+// ローディング画面
+#loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: $bg-color;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  z-index: 1000;
+
+  &:after {
+    content: "...";
+    animation: loading-dots 1.5s infinite;
+  }
+}
+
+@keyframes loading-dots {
+  0%,
+  20% {
+    content: ".";
+  }
+  40% {
+    content: "..";
+  }
+  60%,
+  100% {
+    content: "...";
+  }
+}
