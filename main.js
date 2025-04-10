@@ -352,24 +352,53 @@ app.whenReady().then(async () => {
       console.log(`userData ディレクトリを作成しました: ${userDataPath}`);
     }
 
-    // ファイル存在確認と強制作成（同期的に確実に実行）
-    // カテゴリファイル
-    const defaultCategories = ['制作会社', 'コミュニティ', 'エンド'];
-    fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
-    console.log('カテゴリファイルを作成/更新しました:', defaultCategories);
+    // ファイル存在確認と初期化（存在しない場合のみ）
+    const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+    if (!fs.existsSync(CATEGORIES_PATH)) {
+      fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
+      console.log('カテゴリファイルを作成しました:', defaultCategories);
+    } else {
+      // ファイルは存在するが、uncategorizedが含まれているか確認
+      try {
+        const currentCategories = JSON.parse(fs.readFileSync(CATEGORIES_PATH, 'utf8'));
+        if (Array.isArray(currentCategories) && !currentCategories.includes('uncategorized')) {
+          // uncategorizedが含まれていない場合は追加
+          const updatedCategories = ['uncategorized', ...currentCategories];
+          fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(updatedCategories), 'utf8');
+          console.log('既存のカテゴリにuncategorizedを追加しました:', updatedCategories);
+        } else {
+          console.log('カテゴリファイルは既に存在し、適切な内容のため初期化をスキップします');
+        }
+      } catch (err) {
+        console.error('カテゴリファイルの検証中にエラーが発生しました:', err);
+        console.log('カテゴリファイルは既に存在するため、初期化をスキップします');
+      }
+    }
 
     // タグファイル
     const defaultTags = ['A社', 'B社'];
-    fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
-    console.log('タグファイルを作成/更新しました:', defaultTags);
+    if (!fs.existsSync(TAGS_PATH)) {
+      fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
+      console.log('タグファイルを作成しました:', defaultTags);
+    } else {
+      console.log('タグファイルは既に存在するため、初期化をスキップします');
+    }
 
     // 選択中カテゴリファイル
-    fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify('all'), 'utf8');
-    console.log('選択中カテゴリファイルを作成/更新しました: all');
+    if (!fs.existsSync(SELECTED_CATEGORY_PATH)) {
+      fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify('all'), 'utf8');
+      console.log('選択中カテゴリファイルを作成しました: all');
+    } else {
+      console.log('選択中カテゴリファイルは既に存在するため、初期化をスキップします');
+    }
 
     // 選択中タグファイル
-    fs.writeFileSync(SELECTED_TAGS_PATH, JSON.stringify([]), 'utf8');
-    console.log('選択中タグファイルを作成/更新しました: []');
+    if (!fs.existsSync(SELECTED_TAGS_PATH)) {
+      fs.writeFileSync(SELECTED_TAGS_PATH, JSON.stringify([]), 'utf8');
+      console.log('選択中タグファイルを作成しました: []');
+    } else {
+      console.log('選択中タグファイルは既に存在するため、初期化をスキップします');
+    }
 
     // 読み込みテスト - 確実に作成されたか確認
     console.log('ファイル作成確認:');

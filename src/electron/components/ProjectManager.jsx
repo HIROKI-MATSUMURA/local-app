@@ -62,7 +62,7 @@ const ProjectManager = ({ onProjectChange }) => {
       if (!window.api) {
         console.error('ERROR: window.api が見つかりません。カテゴリとタグを読み込めません');
         // デフォルト値でフォールバック
-        setCategories(['uncategorized', 'work', 'personal']);
+        setCategories(['uncategorized', '制作会社', 'コミュニティ', 'エンド']);
         setTags(['important', 'urgent', 'in-progress', 'completed']);
         setCategoriesLoaded(true);
         return;
@@ -93,11 +93,24 @@ const ProjectManager = ({ onProjectChange }) => {
 
         if (savedCategories && Array.isArray(savedCategories)) {
           console.log('保存されたカテゴリを正常に読み込みました:', savedCategories);
-          setCategories(savedCategories);
+
+          // uncategorizedカテゴリが含まれていることを確認
+          if (!savedCategories.includes('uncategorized')) {
+            const updatedCategories = ['uncategorized', ...savedCategories];
+            setCategories(updatedCategories);
+            try {
+              await window.api.saveCategories(updatedCategories);
+              console.log('uncategorizedを追加したカテゴリを保存しました:', updatedCategories);
+            } catch (saveError) {
+              console.error('カテゴリの保存に失敗しました:', saveError);
+            }
+          } else {
+            setCategories(savedCategories);
+          }
         } else {
           console.log('保存されたカテゴリが見つからないか配列でないため、デフォルト値を使用します:', savedCategories);
           // デフォルトカテゴリ
-          const defaultCategories = ['uncategorized', 'work', 'personal'];
+          const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
           setCategories(defaultCategories);
 
           try {
@@ -150,7 +163,7 @@ const ProjectManager = ({ onProjectChange }) => {
         console.error('エラースタック:', error.stack);
 
         // エラー発生時にもデフォルト値を設定
-        const defaultCategories = ['uncategorized', 'work', 'personal'];
+        const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
         const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
 
         setCategories(defaultCategories);
@@ -562,7 +575,7 @@ const ProjectManager = ({ onProjectChange }) => {
 
       // プロジェクトの切り替え
       console.log('新規プロジェクトにスイッチします:', completeProject.id);
-      switchProject(completeProject.id);
+      switchProject(null, completeProject.id);
 
       // カテゴリのチェックと保存
       if (!categories.includes('uncategorized')) {
@@ -956,6 +969,17 @@ const ProjectManager = ({ onProjectChange }) => {
       return;
     }
 
+    // 追加前のカテゴリを確認
+    console.log('カテゴリ追加前の状態:', categories);
+
+    // カテゴリファイルの内容を直接読み込んで確認（デバッグ用）
+    try {
+      const savedCategories = await window.api.loadCategories();
+      console.log('追加前のカテゴリファイル内容:', savedCategories);
+    } catch (error) {
+      console.error('カテゴリファイル読み込みエラー:', error);
+    }
+
     const updatedCategories = [...categories, categoryName];
     setCategories(updatedCategories);
     setNewCategoryName('');
@@ -963,8 +987,17 @@ const ProjectManager = ({ onProjectChange }) => {
 
     // カテゴリを保存
     try {
+      console.log('保存するカテゴリ:', updatedCategories);
       await window.api.saveCategories(updatedCategories);
       console.log('カテゴリを保存しました:', updatedCategories);
+
+      // 保存後のカテゴリファイルを確認（デバッグ用）
+      try {
+        const savedCategories = await window.api.loadCategories();
+        console.log('保存後のカテゴリファイル内容:', savedCategories);
+      } catch (error) {
+        console.error('カテゴリファイル読み込みエラー:', error);
+      }
     } catch (error) {
       console.error('カテゴリの保存に失敗:', error);
       setError('カテゴリの保存に失敗しました');
