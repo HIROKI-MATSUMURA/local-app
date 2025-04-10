@@ -9,6 +9,28 @@ try {
 
   // APIをウェブコンテンツに公開
   contextBridge.exposeInMainWorld('api', {
+    // パス操作
+    path: {
+      join: (...paths) => path.join(...paths),
+      resolve: (...paths) => path.resolve(...paths),
+      dirname: (filePath) => path.dirname(filePath),
+      basename: (filePath, ext) => path.basename(filePath, ext),
+      extname: (filePath) => path.extname(filePath),
+    },
+
+    // ファイル操作（同期APIの一例）
+    fs: {
+      readFileSync: (filePath, encoding = 'utf8') => {
+        try {
+          const absPath = path.resolve(filePath);
+          const data = fs.readFileSync(absPath, encoding);
+          return { success: true, data };
+        } catch (error) {
+          return { success: false, error: error.message };
+        }
+      },
+    },
+
     // IPC通信
     send: (channel, data) => {
       // 許可されたチャンネルのみ

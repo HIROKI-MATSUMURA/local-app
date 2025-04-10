@@ -198,12 +198,14 @@ function createMainWindow() {
     show: false,
     title: 'CreAIte Code',
     webPreferences: {
-      nodeIntegration: true,  // trueに変更
-      contextIsolation: true,
+      nodeIntegration: false,        // ← ここを false に
+      contextIsolation: true,        // ← そのままでOK
+      enableRemoteModule: false,     // ← これを追加
       webSecurity: true,
-      sandbox: false,  // falseに変更
+      sandbox: false,                // ← そのままでOK（今回は問題なし）
       preload: preloadPath
     }
+
   };
 
   console.log('ウィンドウオプション:', windowOptions);  // デバッグログ追加

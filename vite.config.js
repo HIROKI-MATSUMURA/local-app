@@ -21,6 +21,7 @@ export default defineConfig({
     }
   },
   build: {
+    target: 'chrome105',
     outDir: '../../dist',
     emptyOutDir: true,
     rollupOptions: {
@@ -33,7 +34,9 @@ export default defineConfig({
         chunkFileNames: '[name].[hash].js',
         assetFileNames: '[name].[hash].[ext]'
       },
+      external: ['electron', 'fs', 'path'],
     },
+    polyfillModulePreload: false,
   },
   resolve: {
     alias: {
@@ -41,6 +44,9 @@ export default defineConfig({
       '@components': path.resolve(__dirname, 'src/electron/components'),
       '@styles': path.resolve(__dirname, 'src/electron/styles'),
     },
+  },
+  define: {
+    'process.env': {},
   },
   server: {
     port: 3000,
