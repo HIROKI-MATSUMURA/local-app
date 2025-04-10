@@ -50,6 +50,8 @@ try {
         console.warn(`チャンネル "${channel}" は許可されていません`);
       }
     },
+    // HTMLファイル一覧を取得する関数
+    getHtmlFiles: () => ipcRenderer.invoke('get-html-files'),
     // イベントリスナー登録関数
     onNewHtmlFile: (callback) => {
       ipcRenderer.on('new-html-file', (event, fileName) => {

@@ -89,17 +89,25 @@ def extract_colors(image_data):
     画像から主要な色を抽出
 
     Args:
-        image_data: Base64エンコードされた画像データ
+        image_data: Base64エンコードされた画像データ、またはOpenCVイメージ
 
     Returns:
         list: 主要な色のリスト
     """
     try:
-        img_data = decode_image(image_data)
-        if not img_data:
-            return {'error': 'Failed to decode image'}
+        # 画像データのデコード処理
+        if isinstance(image_data, str):
+            img_data = decode_image(image_data)
+            if not img_data:
+                return []
+            img = img_data['opencv']
+        elif isinstance(image_data, dict) and 'opencv' in image_data:
+            img = image_data['opencv']
+        elif isinstance(image_data, np.ndarray):
+            img = image_data
+        else:
+            return []
 
-        img = img_data['opencv']
         height, width = img.shape[:2]
 
         # 処理を高速化するためにリサイズ
@@ -183,17 +191,24 @@ def extract_text(image_data):
     画像からテキストを抽出
 
     Args:
-        image_data: Base64エンコードされた画像データ
+        image_data: Base64エンコードされた画像データ、またはOpenCVイメージ
 
     Returns:
         dict: 抽出されたテキストと位置情報
     """
     try:
-        img_data = decode_image(image_data)
-        if not img_data:
-            return {'error': 'Failed to decode image'}
-
-        img = img_data['opencv']
+        # 画像データのデコード処理
+        if isinstance(image_data, str):
+            img_data = decode_image(image_data)
+            if not img_data:
+                return {'error': 'Failed to decode image', 'text': '', 'textBlocks': []}
+            img = img_data['opencv']
+        elif isinstance(image_data, dict) and 'opencv' in image_data:
+            img = image_data['opencv']
+        elif isinstance(image_data, np.ndarray):
+            img = image_data
+        else:
+            return {'error': 'Invalid image data format', 'text': '', 'textBlocks': []}
 
         # Tesseractが利用可能かチェック
         if not TESSERACT_AVAILABLE:
@@ -254,52 +269,62 @@ def extract_text(image_data):
 
 def analyze_sections(image_data):
     """
-    画像をセクションに分割して分析
+    画像のセクションを分析
 
     Args:
-        image_data: Base64エンコードされた画像データ
+        image_data: Base64エンコードされた画像データ、またはOpenCVイメージ
 
     Returns:
-        list: セクション情報のリスト
+        dict: セクション情報のリスト
     """
     try:
-        img_data = decode_image(image_data)
-        if not img_data:
-            return {'error': 'Failed to decode image'}
+        # 画像データのデコード処理
+        if isinstance(image_data, str):
+            img_data = decode_image(image_data)
+            if not img_data:
+                return {'error': 'Failed to decode image', 'sections': []}
+            img = img_data['opencv']
+        elif isinstance(image_data, dict) and 'opencv' in image_data:
+            img = image_data['opencv']
+        elif isinstance(image_data, np.ndarray):
+            img = image_data
+        else:
+            return {'error': 'Invalid image data format', 'sections': []}
 
-        img = img_data['opencv']
         height, width = img.shape[:2]
 
         # グレースケールに変換
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # エッジ検出
-        edges = cv2.Canny(gray, 50, 150)
+        # ブラー処理
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        # 水平方向の射影を計算
-        h_projection = np.sum(edges, axis=1)
+        # 水平方向のエッジを検出
+        sobelx = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+        sobelx = np.abs(sobelx)
+        normalized_sobelx = cv2.normalize(sobelx, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
 
-        # 変化点を検出（セクションの境界）
-        thres = np.mean(h_projection) * 0.5
-        boundaries = [0]
+        # 水平勾配の平均を計算
+        gradient_means = np.mean(normalized_sobelx, axis=1)
 
-        for i in range(1, len(h_projection)):
-            if h_projection[i] > thres and h_projection[i-1] <= thres:
-                boundaries.append(i)
-            elif h_projection[i] <= thres and h_projection[i-1] > thres:
-                boundaries.append(i)
+        # ピークを検出してセクション境界を特定
+        peak_indices = []
+        min_peak_value = np.mean(gradient_means) * 1.5
+        min_peak_distance = height * 0.05  # 最小ピーク間距離
 
-        if height not in boundaries:
-            boundaries.append(height)
+        for i in range(1, len(gradient_means) - 1):
+            if gradient_means[i] > min_peak_value and gradient_means[i] > gradient_means[i - 1] and gradient_means[i] > gradient_means[i + 1]:
+                if not peak_indices or i - peak_indices[-1] > min_peak_distance:
+                    peak_indices.append(i)
 
-        # 小さすぎるセクションを除外
-        min_height = height * MIN_SECTION_HEIGHT_RATIO
+        # 追加の境界として上端と下端を設定
+        boundaries = [0] + peak_indices + [height - 1]
+
+        # セクションを構築
         sections = []
+        min_height = height * MIN_SECTION_HEIGHT_RATIO
 
-        for i in range(0, len(boundaries) - 1, 2):
-            if i + 1 >= len(boundaries):
-                break
-
+        for i in range(len(boundaries) - 1):
             y1 = boundaries[i]
             y2 = boundaries[i + 1]
 
@@ -315,7 +340,7 @@ def analyze_sections(image_data):
 
             # セクション情報を追加
             sections.append({
-                'section': f'section_{i//2}',
+                'section': f'section_{i}',
                 'position': {
                     'top': int(y1),
                     'left': 0,
@@ -328,11 +353,11 @@ def analyze_sections(image_data):
                 }
             })
 
-        return sections
+        return {'sections': sections}
     except Exception as e:
         print(f"セクション分析エラー: {str(e)}")
         traceback.print_exc()
-        return []
+        return {'error': str(e), 'sections': []}
 
 def get_dominant_color(img):
     """
@@ -366,17 +391,25 @@ def analyze_layout(image_data):
     画像のレイアウトパターンを分析
 
     Args:
-        image_data: Base64エンコードされた画像データ
+        image_data: Base64エンコードされた画像データ、またはOpenCVイメージ
 
     Returns:
         dict: レイアウト分析結果
     """
     try:
-        img_data = decode_image(image_data)
-        if not img_data:
-            return {'error': 'Failed to decode image'}
+        # 画像データのデコード処理
+        if isinstance(image_data, str):
+            img_data = decode_image(image_data)
+            if not img_data:
+                return {'error': 'Failed to decode image'}
+            img = img_data['opencv']
+        elif isinstance(image_data, dict) and 'opencv' in image_data:
+            img = image_data['opencv']
+        elif isinstance(image_data, np.ndarray):
+            img = image_data
+        else:
+            return {'error': 'Invalid image data format'}
 
-        img = img_data['opencv']
         height, width = img.shape[:2]
 
         # セクション分析
@@ -392,16 +425,16 @@ def analyze_layout(image_data):
                     'height': height,
                     'aspectRatio': width / height if height > 0 else 0
                 },
-                'sections': sections,
+                'sections': sections['sections'],
                 'styles': {
-                    'colors': extract_colors(image_data)
+                    'colors': extract_colors_from_image(image_data)
                 }
             }
         }
 
         # レイアウトパターンを推測
         aspect_ratio = width / height if height > 0 else 0
-        num_sections = len(sections)
+        num_sections = len(sections['sections'])
 
         if aspect_ratio > 2.0:
             layout_info['layoutType'] = 'horizontal_scroll'
@@ -455,6 +488,7 @@ def analyze_layout(image_data):
         print(f"レイアウト分析エラー: {str(e)}")
         traceback.print_exc()
         return {
+            'error': str(e),
             'layoutType': 'unknown',
             'confidence': 0.5,
             'layoutDetails': {
@@ -468,17 +502,25 @@ def detect_elements(image_data):
     画像からUIの主要な要素を検出
 
     Args:
-        image_data: Base64エンコードされた画像データ
+        image_data: Base64エンコードされた画像データ、またはOpenCVイメージ
 
     Returns:
         dict: 検出された要素
     """
     try:
-        img_data = decode_image(image_data)
-        if not img_data:
-            return {'error': 'Failed to decode image'}
+        # 画像データのデコード処理
+        if isinstance(image_data, str):
+            img_data = decode_image(image_data)
+            if not img_data:
+                return {'error': 'Failed to decode image', 'elements': []}
+            img = img_data['opencv']
+        elif isinstance(image_data, dict) and 'opencv' in image_data:
+            img = image_data['opencv']
+        elif isinstance(image_data, np.ndarray):
+            img = image_data
+        else:
+            return {'error': 'Invalid image data format', 'elements': []}
 
-        img = img_data['opencv']
         height, width = img.shape[:2]
 
         # グレースケールに変換
@@ -497,44 +539,40 @@ def detect_elements(image_data):
         for contour in contours:
             area = cv2.contourArea(contour)
 
-            # 小さすぎる輪郭はスキップ
+            # 小さすぎる輪郭は無視
             if area < min_area:
                 continue
 
-            # 輪郭の情報を取得
+            # 輪郭の外接矩形を取得
             x, y, w, h = cv2.boundingRect(contour)
 
-            # 要素のタイプを推測
-            element_type = classify_element(img[y:y+h, x:x+w], w/h)
+            # アスペクト比を計算
+            aspect_ratio = w / h if h > 0 else 0
+
+            # 要素の中心部分の画像を抽出
+            element_img = img[y:y+h, x:x+w]
+
+            # 要素の種類を推測
+            element_type = classify_element(element_img, aspect_ratio)
 
             # 要素情報を追加
             elements.append({
                 'type': element_type,
                 'position': {
-                    'x': int(x),
-                    'y': int(y),
-                    'width': int(w),
-                    'height': int(h)
+                    'x': x,
+                    'y': y,
+                    'width': w,
+                    'height': h,
+                    'center': [x + w // 2, y + h // 2]
                 },
-                'dominantColor': get_dominant_color(img[y:y+h, x:x+w])
+                'color': get_dominant_color(element_img)
             })
 
-        # レイアウト情報と組み合わせて返す
-        layout_info = analyze_layout(image_data)
-
-        return {
-            'layoutType': layout_info['layoutType'],
-            'layoutConfidence': layout_info['confidence'],
-            'elements': elements
-        }
+        return {'elements': elements}
     except Exception as e:
         print(f"要素検出エラー: {str(e)}")
         traceback.print_exc()
-        return {
-            'layoutType': 'unknown',
-            'layoutConfidence': 0.5,
-            'elements': []
-        }
+        return {'error': str(e), 'elements': []}
 
 def classify_element(element_img, aspect_ratio):
     """
@@ -621,3 +659,155 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# Python Bridge インターフェース用の関数
+def extract_colors_from_image(image, **options):
+    """
+    Python Bridgeインターフェース用の色抽出関数
+
+    Args:
+        image: decode_imageの結果、または画像データ
+        options: 追加オプション
+
+    Returns:
+        list: 色情報のリスト
+    """
+    try:
+        # 画像データが直接渡された場合は処理
+        if isinstance(image, str):
+            image = decode_image(image)
+
+        # 画像データが適切な形式かチェック
+        if isinstance(image, dict) and 'opencv' in image:
+            return extract_colors(image['opencv'])
+        elif isinstance(image, np.ndarray):
+            return extract_colors(image)
+        else:
+            return extract_colors(image)
+    except Exception as e:
+        print(f"色抽出エラー: {str(e)}")
+        traceback.print_exc()
+        return []
+
+def extract_text_from_image(image, **options):
+    """
+    Python Bridgeインターフェース用のテキスト抽出関数
+
+    Args:
+        image: decode_imageの結果、または画像データ
+        options: 追加オプション
+
+    Returns:
+        dict: テキスト情報
+    """
+    try:
+        # 画像データが直接渡された場合は処理
+        if isinstance(image, str):
+            image = decode_image(image)
+
+        # 画像データが適切な形式かチェック
+        if isinstance(image, dict) and 'opencv' in image:
+            return extract_text(image['opencv'])
+        elif isinstance(image, np.ndarray):
+            return extract_text(image)
+        else:
+            return extract_text(image)
+    except Exception as e:
+        print(f"テキスト抽出エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'text': '',
+            'error': str(e),
+            'textBlocks': []
+        }
+
+def analyze_image_sections(image, **options):
+    """
+    Python Bridgeインターフェース用の画像セクション分析関数
+
+    Args:
+        image: decode_imageの結果、または画像データ
+        options: 追加オプション
+
+    Returns:
+        dict: セクション情報
+    """
+    try:
+        # 画像データが直接渡された場合は処理
+        if isinstance(image, str):
+            image = decode_image(image)
+
+        # 画像データが適切な形式かチェック
+        if isinstance(image, dict) and 'opencv' in image:
+            return analyze_sections(image['opencv'])
+        elif isinstance(image, np.ndarray):
+            return analyze_sections(image)
+        else:
+            return analyze_sections(image)
+    except Exception as e:
+        print(f"セクション分析エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'sections': [],
+            'error': str(e)
+        }
+
+def analyze_layout_pattern(image, **options):
+    """
+    Python Bridgeインターフェース用のレイアウトパターン分析関数
+
+    Args:
+        image: decode_imageの結果、または画像データ
+        options: 追加オプション
+
+    Returns:
+        dict: レイアウトパターン情報
+    """
+    try:
+        # 画像データが直接渡された場合は処理
+        if isinstance(image, str):
+            image = decode_image(image)
+
+        # 画像データが適切な形式かチェック
+        if isinstance(image, dict) and 'opencv' in image:
+            return analyze_layout(image['opencv'])
+        elif isinstance(image, np.ndarray):
+            return analyze_layout(image)
+        else:
+            return analyze_layout(image)
+    except Exception as e:
+        print(f"レイアウト分析エラー: {str(e)}")
+        traceback.print_exc()
+        return {
+            'layout': 'unknown',
+            'confidence': 0.0,
+            'error': str(e)
+        }
+
+def detect_feature_elements(image, **options):
+    """
+    Python Bridgeインターフェース用の特徴要素検出関数
+
+    Args:
+        image: decode_imageの結果、または画像データ
+        options: 追加オプション
+
+    Returns:
+        list: 検出された要素のリスト
+    """
+    try:
+        # 画像データが直接渡された場合は処理
+        if isinstance(image, str):
+            image = decode_image(image)
+
+        # 画像データが適切な形式かチェック
+        if isinstance(image, dict) and 'opencv' in image:
+            return detect_elements(image['opencv'])
+        elif isinstance(image, np.ndarray):
+            return detect_elements(image)
+        else:
+            return detect_elements(image)
+    except Exception as e:
+        print(f"特徴要素検出エラー: {str(e)}")
+        traceback.print_exc()
+        return []

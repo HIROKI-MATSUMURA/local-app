@@ -1112,20 +1112,43 @@ function setupIPCHandlers() {
     });
   });
 
-  // HTMLファイル一覧を取得する
-  ipcMain.handle('get-html-files', async () => {
+  // HTMLファイル一覧を取得する関数
+  ipcMain.handle('get-html-files', async (event) => {
     try {
-      console.log('get-html-files ハンドラーが呼び出されました');
-      const srcDir = path.join(__dirname, 'src');
-
-      if (!fs.existsSync(srcDir)) {
-        console.log(`srcディレクトリが存在しません: ${srcDir}`);
+      // アクティブプロジェクトのIDを取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        console.error('アクティブプロジェクトが設定されていません');
         return [];
       }
 
-      const files = await fs.promises.readdir(srcDir);
-      const htmlFiles = files.filter(file => file.endsWith('.html'));
-      console.log('HTMLファイル一覧:', htmlFiles);
+      // プロジェクト設定を読み込み
+      const projectSettings = await loadProjectSettings(activeProjectId);
+      if (!projectSettings) {
+        console.error('プロジェクト設定が読み込めません:', activeProjectId);
+        return [];
+      }
+
+      // プロジェクトのルートパスを取得
+      const projectPath = projectSettings.path;
+      if (!projectPath || !fs.existsSync(projectPath)) {
+        console.error('プロジェクトパスが無効です:', projectPath);
+        return [];
+      }
+
+      // HTMLファイルを格納するディレクトリパス
+      const pagesDir = path.join(projectPath, 'src/pages');
+
+      // ディレクトリが存在しない場合は作成
+      if (!fs.existsSync(pagesDir)) {
+        await fs.promises.mkdir(pagesDir, { recursive: true });
+      }
+
+      // HTMLファイルの一覧を取得
+      const files = await fs.promises.readdir(pagesDir);
+      const htmlFiles = files.filter(file => file.endsWith('.html')).map(file => `pages/${file}`);
+
+      console.log(`プロジェクト ${projectSettings.name} のHTMLファイル一覧:`, htmlFiles);
       return htmlFiles;
     } catch (error) {
       console.error('HTMLファイル一覧の取得中にエラーが発生しました:', error);
@@ -1138,20 +1161,50 @@ function setupIPCHandlers() {
     try {
       console.log('check-file-exists ハンドラーが呼び出されました:', blockName);
 
-      const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
-      const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
+      // アクティブプロジェクトのIDを取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        console.error('アクティブプロジェクトが設定されていません');
+        return { fileExists: { scss: false, html: false } };
+      }
 
-      const scssFilePath = path.join(scssDir, `_${blockName}.scss`);
-      const htmlFilePath = path.join(htmlPartsDir, `${blockName}.html`);
+      // プロジェクト設定を読み込み
+      const projectSettings = await loadProjectSettings(activeProjectId);
+      if (!projectSettings) {
+        console.error('プロジェクト設定が読み込めません:', activeProjectId);
+        return { fileExists: { scss: false, html: false } };
+      }
+
+      // プロジェクトのルートパスを取得
+      const projectPath = projectSettings.path;
+      if (!projectPath || !fs.existsSync(projectPath)) {
+        console.error('プロジェクトパスが無効です:', projectPath);
+        return { fileExists: { scss: false, html: false } };
+      }
+
+      // SCSSファイルとHTMLファイルのパスを構築
+      const scssFilePath = path.join(projectPath, 'src/scss/object/AI_Component', `_${blockName}.scss`);
+      const htmlFilePath = path.join(projectPath, 'src/partsHTML', `${blockName}.html`);
+
+      // ファイルの存在をチェック
+      const scssExists = fs.existsSync(scssFilePath);
+      const htmlExists = fs.existsSync(htmlFilePath);
+
+      console.log(`ファイル存在チェック結果 [${blockName}]:`, {
+        scss: scssExists ? 'あり' : 'なし',
+        html: htmlExists ? 'あり' : 'なし',
+        scssPath: scssFilePath,
+        htmlPath: htmlFilePath
+      });
 
       return {
         fileExists: {
-          scss: fs.existsSync(scssFilePath),
-          html: fs.existsSync(htmlFilePath)
+          scss: scssExists,
+          html: htmlExists
         }
       };
     } catch (error) {
-      console.error('ファイル存在確認中にエラーが発生しました:', error);
+      console.error('ファイル存在チェック中にエラーが発生しました:', error);
       return {
         fileExists: { scss: false, html: false },
         error: error.message
@@ -1556,8 +1609,62 @@ $mediaquerys: (
       }
 
       // 画像情報のログ
+      let enhancedPrompt = prompt;
       if (uploadedImage) {
         console.log(`画像情報: ${uploadedImage.name || 'unknown'} (${uploadedImage.data ? uploadedImage.data.length + ' bytes' : 'no data'})`);
+
+        try {
+          // Python画像解析の結果をプロンプトに追加
+          console.log('Python画像解析を実行します...');
+
+          // PythonBridgeモジュールを動的にロード
+          const pythonBridge = require('./python_bridge');
+
+          // Pythonプロセスを起動
+          await pythonBridge.start();
+
+          // 画像解析を実行
+          const imageAnalysisResult = await pythonBridge.analyzeImage(uploadedImage.data, {
+            extractColors: true,
+            extractText: true,
+            analyzeLayout: true
+          });
+
+          // 解析結果をプロンプトに追加
+          if (imageAnalysisResult) {
+            console.log('画像解析結果:', JSON.stringify(imageAnalysisResult).substring(0, 100) + '...');
+
+            // 色情報の追加
+            if (imageAnalysisResult.colors && imageAnalysisResult.colors.length > 0) {
+              const colorInfo = imageAnalysisResult.colors
+                .map(c => `${c.hex} (${c.rgb})`)
+                .join(', ');
+              enhancedPrompt += `\n\n## 検出された主要な色:\n${colorInfo}`;
+            }
+
+            // テキスト情報の追加
+            if (imageAnalysisResult.text && imageAnalysisResult.text.text) {
+              enhancedPrompt += `\n\n## 画像内のテキスト:\n${imageAnalysisResult.text.text}`;
+            }
+
+            // レイアウト情報の追加
+            if (imageAnalysisResult.layout) {
+              enhancedPrompt += `\n\n## 検出されたレイアウト要素:\n`;
+              if (Array.isArray(imageAnalysisResult.layout)) {
+                imageAnalysisResult.layout.forEach(item => {
+                  enhancedPrompt += `- ${item.type}: 位置(${item.position.x}, ${item.position.y}), サイズ(${item.position.width}x${item.position.height})\n`;
+                });
+              }
+            }
+          }
+
+          // Pythonプロセスを停止
+          await pythonBridge.stop();
+        } catch (analysisError) {
+          console.error('画像解析エラー:', analysisError);
+          console.log('画像解析エラーが発生しましたが、通常のプロンプトでコード生成を続行します');
+          // エラーが発生しても処理を続行（フォールバック）
+        }
       } else {
         console.log('画像なし - テキストのみのリクエスト');
       }
@@ -1569,7 +1676,7 @@ $mediaquerys: (
         // OpenAI APIリクエスト
         console.log('OpenAI APIにリクエスト送信...');
 
-        const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+        const messages = [{ role: 'user', content: [{ type: 'text', text: enhancedPrompt }] }];
 
         // 画像がある場合
         if (uploadedImage && uploadedImage.data) {
@@ -1611,7 +1718,7 @@ $mediaquerys: (
         // 画像がある場合
         if (uploadedImage && uploadedImage.data) {
           messageContent = [
-            { type: 'text', text: prompt },
+            { type: 'text', text: enhancedPrompt },
             {
               type: 'image',
               source: {
@@ -1622,7 +1729,7 @@ $mediaquerys: (
             }
           ];
         } else {
-          messageContent = prompt;
+          messageContent = enhancedPrompt;
         }
 
         const requestData = {
@@ -1662,10 +1769,47 @@ $mediaquerys: (
     try {
       console.log('AI生成コードの保存処理を開始します:', { blockName, targetHtmlFile });
 
-      // ディレクトリの存在確認・作成
-      const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
-      const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
+      // アクティブプロジェクトのIDを取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        console.error('アクティブプロジェクトが設定されていません');
+        return {
+          success: false,
+          error: 'アクティブプロジェクトが設定されていません。プロジェクト設定から選択してください。'
+        };
+      }
 
+      // プロジェクト設定を読み込み
+      const projectSettings = await loadProjectSettings(activeProjectId);
+      if (!projectSettings) {
+        console.error('プロジェクト設定が読み込めません:', activeProjectId);
+        return {
+          success: false,
+          error: 'プロジェクト設定が読み込めません。プロジェクト設定を確認してください。'
+        };
+      }
+
+      // プロジェクトのルートパスを取得
+      const projectPath = projectSettings.path;
+      if (!projectPath || !fs.existsSync(projectPath)) {
+        console.error('プロジェクトパスが無効です:', projectPath);
+        return {
+          success: false,
+          error: `プロジェクトパスが無効です: ${projectPath}`
+        };
+      }
+
+      console.log('AIコード生成: プロジェクト情報', {
+        activeProjectId,
+        projectPath,
+        projectName: projectSettings.name
+      });
+
+      // プロジェクト内のディレクトリパスを設定
+      const scssDir = path.join(projectPath, 'src/scss/object/AI_Component');
+      const htmlPartsDir = path.join(projectPath, 'src/partsHTML');
+
+      // ディレクトリの存在確認・作成
       if (!fs.existsSync(scssDir)) {
         fs.mkdirSync(scssDir, { recursive: true });
         console.log(`SCSSディレクトリを作成しました: ${scssDir}`);
@@ -1733,7 +1877,7 @@ $mediaquerys: (
 
         // 対象のHTMLファイルにインクルード文を追加
         if (targetHtmlFile) {
-          const targetFilePath = path.join(__dirname, 'src', targetHtmlFile);
+          const targetFilePath = path.join(projectPath, 'src', targetHtmlFile);
 
           if (fs.existsSync(targetFilePath)) {
             let targetHtmlContent = await fs.promises.readFile(targetFilePath, 'utf8');
@@ -1845,9 +1989,45 @@ $mediaquerys: (
         newHtmlBlockName
       });
 
+      // アクティブプロジェクトのIDを取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        console.error('アクティブプロジェクトが設定されていません');
+        return {
+          success: false,
+          error: 'アクティブプロジェクトが設定されていません。プロジェクト設定から選択してください。'
+        };
+      }
+
+      // プロジェクト設定を読み込み
+      const projectSettings = await loadProjectSettings(activeProjectId);
+      if (!projectSettings) {
+        console.error('プロジェクト設定が読み込めません:', activeProjectId);
+        return {
+          success: false,
+          error: 'プロジェクト設定が読み込めません。プロジェクト設定を確認してください。'
+        };
+      }
+
+      // プロジェクトのルートパスを取得
+      const projectPath = projectSettings.path;
+      if (!projectPath || !fs.existsSync(projectPath)) {
+        console.error('プロジェクトパスが無効です:', projectPath);
+        return {
+          success: false,
+          error: `プロジェクトパスが無効です: ${projectPath}`
+        };
+      }
+
+      console.log('AIコード生成(リネーム): プロジェクト情報', {
+        activeProjectId,
+        projectPath,
+        projectName: projectSettings.name
+      });
+
       // SCSSとHTMLで異なるブロック名を処理
-      const scssDir = path.join(__dirname, 'src/scss/object/AI_Component');
-      const htmlPartsDir = path.join(__dirname, 'src/partsHTML');
+      const scssDir = path.join(projectPath, 'src/scss/object/AI_Component');
+      const htmlPartsDir = path.join(projectPath, 'src/partsHTML');
 
       if (!fs.existsSync(scssDir)) {
         fs.mkdirSync(scssDir, { recursive: true });
@@ -1896,7 +2076,7 @@ $mediaquerys: (
 
           // 対象のHTMLファイルにインクルード文を追加
           if (targetHtmlFile) {
-            const targetFilePath = path.join(__dirname, 'src', targetHtmlFile);
+            const targetFilePath = path.join(projectPath, 'src', targetHtmlFile);
 
             if (fs.existsSync(targetFilePath)) {
               let targetHtmlContent = await fs.promises.readFile(targetFilePath, 'utf8');
