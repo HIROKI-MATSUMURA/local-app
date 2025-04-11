@@ -37,9 +37,37 @@ const App = () => {
 
     // 出力ディレクトリの存在確認と作成（Electron環境の場合）
     if (isElectronContext && window.api.fs) {
-      window.api.fs.ensureDir(OUTPUT_PATH)
-        .then(() => console.log(`出力ディレクトリを確認しました: ${OUTPUT_PATH}`))
-        .catch(err => console.error('出力ディレクトリの確認に失敗しました:', err));
+      try {
+        // API存在確認
+        if (typeof window.api.fs.ensureDir === 'function') {
+          // 正しいAPI関数が存在する場合
+          window.api.fs.ensureDir(OUTPUT_PATH)
+            .then(result => {
+              if (result.success) {
+                console.log(`出力ディレクトリを確認しました: ${OUTPUT_PATH}`);
+              } else {
+                console.error('出力ディレクトリの確認に失敗しました:', result.error);
+              }
+            })
+            .catch(err => console.error('出力ディレクトリの確認でエラーが発生しました:', err));
+        } else {
+          // mkdir関数を使って代替
+          console.log('ensureDir関数が見つからないため、mkdir関数を使用します');
+          window.api.fs.mkdir(OUTPUT_PATH, { recursive: true })
+            .then(result => {
+              if (result.success) {
+                console.log(`出力ディレクトリを作成しました: ${OUTPUT_PATH}`);
+              } else {
+                console.error('出力ディレクトリの作成に失敗しました:', result.error);
+              }
+            })
+            .catch(err => console.error('出力ディレクトリの作成でエラーが発生しました:', err));
+        }
+      } catch (error) {
+        console.error('ディレクトリ確認処理中にエラーが発生しました:', error);
+      }
+    } else {
+      console.log('Electron APIが利用できないか、fsオブジェクトが存在しないため、ディレクトリ確認をスキップします');
     }
   }, [activeProject, activeTab]);
 

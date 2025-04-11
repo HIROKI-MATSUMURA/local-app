@@ -1,15 +1,60 @@
-const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const axios = require('axios');
-const { exec } = require('child_process');
-const { promisify } = require('util');
+// Node.jsモジュール読み込みエラー処理関数
+function requireModule(moduleName) {
+  try {
+    // node:プレフィックスを試す（Node.js 14以降で推奨）
+    try {
+      return require(`node:${moduleName}`);
+    } catch (e) {
+      // 従来の方法でフォールバック
+      console.log(`node:${moduleName}の読み込みに失敗、標準的な方法を試します`);
+      return require(moduleName);
+    }
+  } catch (error) {
+    console.error(`モジュール "${moduleName}" の読み込みに失敗しました:`, error);
+    throw new Error(`モジュール "${moduleName}" が見つかりません: ${error.message}`);
+  }
+}
+
+// 基本モジュールの読み込み
+const electron = requireModule('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = electron;
+const path = requireModule('path');
+const fs = requireModule('fs');
+const axios = requireModule('axios');
+const { exec } = requireModule('child_process');
+const { promisify } = requireModule('util');
 const execAsync = promisify(exec);
-const { v4: uuidv4 } = require('uuid');
-const url = require('url');
-const chokidar = require('chokidar'); // Chokidarをインポート
-const glob = require('glob'); // Globをインポート
-require('dotenv').config();
+const { v4: uuidv4 } = requireModule('uuid');
+const url = requireModule('url');
+const chokidar = requireModule('chokidar'); // Chokidarをインポート
+const glob = requireModule('glob'); // Globをインポート
+
+try {
+  require('dotenv').config();
+} catch (error) {
+  console.warn('dotenvモジュールの読み込みに失敗しました。環境変数は.envから読み込まれません:', error);
+}
+
+// Pythonブリッジをロード
+let pythonBridge, pythonAdapter;
+try {
+  pythonBridge = require('./python_bridge');
+  pythonAdapter = require('./python_bridge_adapter');
+} catch (error) {
+  console.error('Pythonブリッジの読み込みに失敗しました:', error);
+  pythonBridge = { checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }) };
+  pythonAdapter = {};
+}
+
+// Electron設定のデバッグ情報
+console.log('Electron設定情報:');
+console.log('- isPackaged:', app.isPackaged);
+console.log('- appPath:', app.getAppPath());
+console.log('- 実行中のNode.jsバージョン:', process.versions.node);
+console.log('- 実行中のElectronバージョン:', process.versions.electron);
+console.log('- __dirname:', __dirname);
+console.log('- preloadPath:', path.join(__dirname, 'preload.js'));
+console.log('- preloadファイル存在確認:', fs.existsSync(path.join(__dirname, 'preload.js')));
 
 // プロジェクト設定ファイルのパスを定義
 const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
@@ -188,6 +233,9 @@ function createMainWindow() {
   console.log('preloadスクリプトのパス:', preloadPath);  // デバッグログ追加
   console.log('preloadスクリプトが存在するか:', fs.existsSync(preloadPath));  // デバッグログ追加
 
+  // Python環境の初期化
+  initializePythonEnvironment();
+
   // ウィンドウオプションを設定
   const windowOptions = {
     width: windowWidth,
@@ -198,20 +246,48 @@ function createMainWindow() {
     show: false,
     title: 'CreAIte Code',
     webPreferences: {
-      nodeIntegration: false,        // ← ここを false に
-      contextIsolation: true,        // ← そのままでOK
-      enableRemoteModule: false,     // ← これを追加
-      webSecurity: true,
-      sandbox: false,                // ← そのままでOK（今回は問題なし）
-      preload: preloadPath
+      nodeIntegration: true,
+      contextIsolation: true,
+      preload: preloadPath,
+      // 開発環境ではdevToolsを自動で開く
+      devTools: isDevelopment,
+      // モジュール解決を有効化
+      enableRemoteModule: true,
+      // サンドボックスを一時的に無効化
+      sandbox: false,
+      // アプリケーション内からNodeモジュールへのアクセスを許可
+      nodeIntegrationInWorker: true,
+      // 安全でないevalを許可
+      webSecurity: false
     }
-
   };
 
-  console.log('ウィンドウオプション:', windowOptions);  // デバッグログ追加
-
-  // メインウィンドウの作成
+  // メインウィンドウを作成
   mainWindow = new BrowserWindow(windowOptions);
+
+  // メインウィンドウへの診断情報を設定
+  mainWindow.ELECTRON_DISABLE_SECURITY_WARNINGS = false;
+
+  // メインウィンドウのdevToolsを開く
+  if (isDevelopment) {
+    mainWindow.webContents.openDevTools();
+  }
+
+  // 環境変数情報をログ出力
+  console.log('環境情報:', {
+    isDevelopment: isDevelopment,
+    appPath: app.getAppPath(),
+    userData: app.getPath('userData'),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath
+  });
+
+  // スプラッシュウィンドウが存在すれば閉じる関数
+  const closeSplashWindow = () => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+    }
+  };
 
   // CSP設定をセッションに直接適用
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -228,11 +304,6 @@ function createMainWindow() {
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
     console.log(`Created uploads directory at: ${uploadsDir}`);
-  }
-
-  // ブラウザの開発者ツールを開く（開発時のみ）
-  if (isDevelopment) {
-    mainWindow.webContents.openDevTools();
   }
 
   console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -329,8 +400,83 @@ function createMainWindow() {
   return mainWindow;
 }
 
-// アプリの起動が完了したら
+// Python環境を初期化する関数
+async function initializePythonEnvironment() {
+  try {
+    console.log('Python環境の初期化を開始します...');
+
+    // Pythonが利用可能かチェック
+    const pythonVersion = await checkPythonVersion();
+    console.log(`Python ${pythonVersion} が検出されました`);
+
+    // Python環境を初期化
+    const initResult = await pythonAdapter.initializePythonBridge();
+    if (initResult) {
+      console.log('Python環境の初期化に成功しました');
+
+      // Pythonブリッジを起動
+      await pythonBridge.start();
+      console.log('Pythonブリッジが正常に起動しました');
+
+      // 環境チェック
+      const checkResult = await pythonBridge.checkPythonEnvironment();
+      console.log('Python環境チェック結果:', checkResult);
+
+      if (checkResult.status !== 'ok') {
+        console.log('Python環境のセットアップを実行します...');
+        console.log('必要なPythonパッケージをインストールしています...');
+
+        const setupResult = await pythonBridge.setupPythonEnvironment();
+        console.log('Python環境セットアップ結果:', setupResult);
+
+        if (setupResult.success) {
+          // セットアップ成功後に再起動
+          await pythonBridge.restart();
+          console.log('Pythonブリッジを再起動しました');
+        }
+      }
+
+      return true;
+    } else {
+      console.error('Python環境の初期化に失敗しました');
+      return false;
+    }
+  } catch (error) {
+    console.error('Python環境初期化エラー:', error);
+    return false;
+  }
+}
+
+// Pythonバージョンを確認する関数
+async function checkPythonVersion() {
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    const pythonCmd = process.platform === 'win32' ? 'python --version' : 'python3 --version';
+    const { stdout } = await execAsync(pythonCmd);
+
+    const versionMatch = stdout.match(/Python\s+(\d+\.\d+\.\d+)/i);
+    if (versionMatch && versionMatch[1]) {
+      return versionMatch[1];
+    } else {
+      return '不明なバージョン';
+    }
+  } catch (error) {
+    console.error('Pythonバージョン確認エラー:', error);
+    return '確認失敗';
+  }
+}
+
+// アプリケーションが起動したら
 app.whenReady().then(async () => {
+  // Python環境のセットアップを実行
+  await initializePythonEnvironment();
+
+  // スプラッシュウィンドウを作成
+  createSplashWindow();
+
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
   console.log('ユーザーデータディレクトリ:', userDataPath);
@@ -446,9 +592,6 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('出力ディレクトリの作成に失敗しました:', err);
   }
-
-  // スプラッシュウィンドウを作成
-  createSplashWindow();
 
   // メインウィンドウの作成をわずかに遅延させる
   setTimeout(() => {
@@ -2629,13 +2772,18 @@ $mediaquerys: (
     console.log(`プロジェクト ${projectId} の定期的なスキャンをセットアップしました(2分間隔)`);
   }
 
-  // イメージ分析ハンドラーを追加（将来の実装のために残しておく）
-  /*
+  // イメージ分析ハンドラーを追加
   ipcMain.handle('analyze-image', async (event, data) => {
     try {
       console.log('画像分析リクエストを受信:', data);
-      // TODO: 本番環境では実際のPython処理を実装する
-      // 現在はダミーデータを返す
+
+      // Python橋渡し機能があれば使用
+      const pythonBridge = require('./python_bridge');
+      if (pythonBridge && pythonBridge.analyzeImage) {
+        return await pythonBridge.analyzeImage(data.image_data || data.imageData);
+      }
+
+      // フォールバック: ダミーデータを返す
       return {
         success: true,
         text: "サンプルテキスト",
@@ -2662,7 +2810,135 @@ $mediaquerys: (
       return { success: false, error: error.message || String(error) };
     }
   });
-  */
+
+  // Python画像処理関連のハンドラ
+  ipcMain.handle('extract-colors-from-image', async (event, imageData) => {
+    try {
+      console.log('画像から色を抽出します...');
+      const result = await pythonBridge.extractColorsFromImage(imageData);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('画像からの色抽出に失敗しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('extract-text-from-image', async (event, imageData) => {
+    try {
+      console.log('画像からテキストを抽出します...');
+      const result = await pythonBridge.extractTextFromImage(imageData);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('画像からのテキスト抽出に失敗しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('analyze-image-sections', async (event, imageData) => {
+    try {
+      console.log('画像のセクションを分析します...');
+      const result = await pythonBridge.analyzeImageSections(imageData);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('画像セクション分析に失敗しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Python処理関連の機能
+  ipcMain.handle('check-python-bridge', async () => {
+    try {
+      const isRunning = pythonBridge && pythonBridge.pythonProcess !== null;
+      return {
+        success: true,
+        isRunning: isRunning,
+        status: isRunning ? 'running' : 'stopped'
+      };
+    } catch (error) {
+      console.error('Pythonブリッジ状態チェックエラー:', error);
+      return {
+        success: false,
+        isRunning: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('start-python-bridge', async () => {
+    try {
+      if (!pythonBridge || pythonBridge.pythonProcess === null) {
+        await pythonBridge.start();
+        return {
+          success: true,
+          message: 'Pythonブリッジが正常に起動しました'
+        };
+      } else {
+        return {
+          success: true,
+          message: 'Pythonブリッジは既に起動しています'
+        };
+      }
+    } catch (error) {
+      console.error('Pythonブリッジ起動エラー:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  // Python処理関連の機能
+  ipcMain.handle('check-python-environment-status', async () => {
+    try {
+      // 環境情報を収集
+      const pythonVersion = await checkPythonVersion();
+      const isRunning = pythonBridge && pythonBridge.pythonProcess !== null;
+      const pythonPath = process.env.PYTHON_PATH || 'python3';
+
+      // Python環境の詳細情報
+      return {
+        success: true,
+        pythonVersion: pythonVersion,
+        isRunning: isRunning,
+        status: isRunning ? 'running' : 'stopped',
+        pythonPath: pythonPath,
+        platform: process.platform,
+        arch: process.arch,
+        nodeVersion: process.version,
+        electronVersion: process.versions.electron,
+        appPath: app.getAppPath(),
+        userData: app.getPath('userData')
+      };
+    } catch (error) {
+      console.error('Python環境ステータスチェックエラー:', error);
+      return {
+        success: false,
+        error: error.message,
+        isRunning: false
+      };
+    }
+  });
+
+  ipcMain.handle('install-python-packages', async () => {
+    try {
+      console.log('Python環境のセットアップを開始します...');
+      const result = await pythonBridge.setupPythonEnvironment();
+      console.log('Python環境セットアップ結果:', result);
+
+      if (result.success) {
+        // ブリッジを再起動
+        await pythonBridge.restart();
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Pythonパッケージインストールエラー:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
 }
 
 // ファイル内容をJSONデータに同期

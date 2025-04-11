@@ -33,13 +33,27 @@ if (isNode) {
   }
 }
 
-// ブラウザ環境では、ダミーのログオブジェクトを作成
+// ブラウザ環境では、ダミーのログオブジェクトとパスオブジェクトを作成
 if (!isNode) {
   log = {
     info: (...args) => console.info('[Log]', ...args),
     warn: (...args) => console.warn('[Log]', ...args),
     error: (...args) => console.error('[Log]', ...args),
     debug: (...args) => console.debug('[Log]', ...args)
+  };
+
+  // ブラウザ環境用のダミーパスオブジェクト
+  path = {
+    join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+    resolve: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+    dirname: (p) => p.split('/').slice(0, -1).join('/'),
+    basename: (p) => p.split('/').pop()
+  };
+
+  // ダミーのosオブジェクト
+  os = {
+    tmpdir: () => '/tmp',
+    platform: () => 'browser'
   };
 }
 

@@ -199,6 +199,10 @@ const AICodeGenerator = () => {
   // 画像アップロード用
   const [pcImage, setPcImage] = useState(null);
   const [spImage, setSpImage] = useState(null);
+  const [pcImageBase64, setPcImageBase64] = useState(null);
+  const [spImageBase64, setSpImageBase64] = useState(null);
+  const [imageAnalysisResult, setImageAnalysisResult] = useState(null);
+  const [analyzingImage, setAnalyzingImage] = useState(false);
 
   // 生成コード修正用のステート
   const [editingHTML, setEditingHTML] = useState("");
@@ -232,10 +236,6 @@ const AICodeGenerator = () => {
     // アクティブなブレークポイントのみを設定
     setAiBreakpoints(storedBreakpoints.filter((bp) => bp.active).map((bp) => ({ ...bp, aiActive: true })));
   }, []);
-
-
-  const [pcImageBase64, setPcImageBase64] = useState(null);
-  const [spImageBase64, setSpImageBase64] = useState(null);
 
   // コード生成後に編集モードを有効化
   useEffect(() => {
@@ -3129,6 +3129,231 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     if (window.api && window.api.setPreventReload) {
       window.api.setPreventReload(false);
     }
+  };
+
+  // 画像分析ボタンがクリックされたときの処理
+  const handleAnalyzeImage = async (type) => {
+    if (!pcImageBase64 && !spImageBase64) {
+      alert("分析する画像をアップロードしてください");
+      return;
+    }
+
+    // 分析対象の画像を選択
+    const imageToAnalyze = type === 'pc' ? pcImageBase64 : spImageBase64;
+    if (!imageToAnalyze) {
+      alert(`${type.toUpperCase()}画像がアップロードされていません`);
+      return;
+    }
+
+    setAnalyzingImage(true);
+    try {
+      console.log(`画像分析開始 (${type}):`, imageToAnalyze.substring(0, 50) + '...');
+
+      // APIが利用可能か確認
+      if (window.api && window.api.analyzeImage) {
+        console.log('Electron APIを使用して画像分析を実行します');
+        const result = await window.api.analyzeImage({ image_data: imageToAnalyze });
+
+        if (result.success) {
+          console.log('画像分析結果:', result);
+          setImageAnalysisResult({
+            ...result,
+            type,
+            timestamp: new Date().toISOString()
+          });
+
+          // 分析結果に基づいてデータを更新
+          if (type === 'pc') {
+            if (result.text) setPcText(result.text);
+            if (result.dominant_color && result.dominant_color.rgb) {
+              const colorArray = result.dominant_color.rgb.map(color => `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+              setPcColors(colorArray);
+            }
+          } else {
+            if (result.text) setSpText(result.text);
+            if (result.dominant_color && result.dominant_color.rgb) {
+              const colorArray = result.dominant_color.rgb.map(color => `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+              setSpColors(colorArray);
+            }
+          }
+        } else {
+          console.error('画像分析エラー:', result.error);
+          alert(`画像分析中にエラーが発生しました: ${result.error}`);
+        }
+      } else {
+        console.error('画像分析APIが利用できません');
+        alert('画像分析APIが利用できません。Electron環境で実行してください。');
+      }
+    } catch (error) {
+      console.error('画像分析エラー:', error);
+      alert(`画像分析中にエラーが発生しました: ${error.message || error}`);
+    } finally {
+      setAnalyzingImage(false);
+    }
+  };
+
+  // 画像アップロード部分のレンダリング
+  const renderImageUploader = () => {
+    return (
+      <div className="image-uploaders">
+        <div className="uploader-container pc-uploader">
+          <h3>PC画像 <span className="help-text">（デスクトップレイアウト）</span></h3>
+          <div className="image-upload-area" onClick={() => document.getElementById('pc-image-upload').click()}>
+            <input
+              type="file"
+              id="pc-image-upload"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'pc')}
+              style={{ display: 'none' }}
+            />
+            {pcImage ? (
+              <div className="preview-container">
+                <img src={pcImage.preview} alt="PC layout preview" className="image-preview" />
+                <button
+                  className="remove-image-btn"
+                  onClick={handleRemovePcImage}
+                  title="画像を削除"
+                >
+                  ✕
+                </button>
+                <button
+                  className="analyze-image-btn"
+                  onClick={() => handleAnalyzeImage('pc')}
+                  disabled={analyzingImage}
+                  title="詳細分析"
+                >
+                  {analyzingImage ? '分析中...' : '詳細分析'}
+                </button>
+              </div>
+            ) : (
+              <div className="upload-placeholder">
+                <span className="upload-icon">📷</span>
+                <span className="upload-text">クリックして画像をアップロード</span>
+                <span className="upload-subtext">または、ここにドラッグ&ドロップ</span>
+              </div>
+            )}
+          </div>
+          {pcColors.length > 0 && (
+            <div className="color-palette">
+              {pcColors.map((color, index) => (
+                <div key={index} className="color-chip" style={{ backgroundColor: color }} title={color}></div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="uploader-container sp-uploader">
+          <h3>SP画像 <span className="help-text">（モバイルレイアウト）</span></h3>
+          <div className="image-upload-area" onClick={() => document.getElementById('sp-image-upload').click()}>
+            <input
+              type="file"
+              id="sp-image-upload"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'sp')}
+              style={{ display: 'none' }}
+            />
+            {spImage ? (
+              <div className="preview-container">
+                <img src={spImage.preview} alt="SP layout preview" className="image-preview" />
+                <button
+                  className="remove-image-btn"
+                  onClick={handleRemoveSpImage}
+                  title="画像を削除"
+                >
+                  ✕
+                </button>
+                <button
+                  className="analyze-image-btn"
+                  onClick={() => handleAnalyzeImage('sp')}
+                  disabled={analyzingImage}
+                  title="詳細分析"
+                >
+                  {analyzingImage ? '分析中...' : '詳細分析'}
+                </button>
+              </div>
+            ) : (
+              <div className="upload-placeholder">
+                <span className="upload-icon">📷</span>
+                <span className="upload-text">クリックして画像をアップロード</span>
+                <span className="upload-subtext">または、ここにドラッグ&ドロップ</span>
+              </div>
+            )}
+          </div>
+          {spColors.length > 0 && (
+            <div className="color-palette">
+              {spColors.map((color, index) => (
+                <div key={index} className="color-chip" style={{ backgroundColor: color }} title={color}></div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // 画像分析結果の表示
+  const renderAnalysisResult = () => {
+    if (!imageAnalysisResult) return null;
+
+    return (
+      <div className="analysis-result">
+        <h3>画像分析結果 ({imageAnalysisResult.type === 'pc' ? 'デスクトップ' : 'モバイル'})</h3>
+        <div className="result-content">
+          {imageAnalysisResult.text && (
+            <div className="result-section">
+              <h4>抽出テキスト</h4>
+              <div className="result-text">{imageAnalysisResult.text}</div>
+            </div>
+          )}
+
+          {imageAnalysisResult.dominant_color && (
+            <div className="result-section">
+              <h4>主要な色</h4>
+              <div className="color-info">
+                <div
+                  className="color-preview"
+                  style={{ backgroundColor: imageAnalysisResult.dominant_color.hex }}
+                ></div>
+                <div className="color-value">
+                  <div>{imageAnalysisResult.dominant_color.hex}</div>
+                  <div>RGB: {imageAnalysisResult.dominant_color.rgb.join(', ')}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {imageAnalysisResult.sections && imageAnalysisResult.sections.length > 0 && (
+            <div className="result-section">
+              <h4>セクション分析</h4>
+              <div className="sections-list">
+                {imageAnalysisResult.sections.map((section, index) => (
+                  <div key={index} className="section-item">
+                    <div className="section-name">{section.name}</div>
+                    <div className="section-color-preview" style={{ backgroundColor: section.color }}></div>
+                    <div className="section-position">
+                      x: {section.position.x}, y: {section.position.y},
+                      w: {section.position.width}, h: {section.position.height}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="result-meta">
+            <div>分析時間: {imageAnalysisResult.analysis_time}秒</div>
+            <div>分析日時: {new Date(imageAnalysisResult.timestamp).toLocaleString()}</div>
+          </div>
+
+          <button
+            className="close-analysis-btn"
+            onClick={() => setImageAnalysisResult(null)}
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (

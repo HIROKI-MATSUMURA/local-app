@@ -1,77 +1,133 @@
 /**
  * 画像分析ユーティリティ
- * 内部的にはPythonスクリプトを使用して画像処理を行います
+ * Electronモードの場合はMainプロセス経由でPython処理を実行、
+ * ブラウザモードの場合はテスト/デモ用の警告を表示
  */
 
 import { createWorker } from 'tesseract.js';
 
-// Electronコンテキストかどうかをチェック
-const isElectron = typeof window !== 'undefined' && window.api;
+// 開発モードかどうかを確認
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+// ブラウザ環境でWindow APIの初期化を確認
+if (typeof window !== 'undefined' && !window.api) {
+  console.log('window.apiが存在しないため、最小限のAPIをセットアップします');
+
+  // 最小限のダミーAPIを提供
+  window.api = {
+    isElectron: false,
+    extractColorsFromImage: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではPython処理は利用できません' }),
+    extractTextFromImage: () => Promise.resolve({ success: false, data: '', error: 'ブラウザ環境ではPython処理は利用できません' }),
+    analyzeImageSections: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではPython処理は利用できません' })
+  };
+}
+
+// Electronコンテキストかどうかをチェック (複数の方法でチェック)
+const isElectron = () => {
+  // 早期チェック - window自体が存在するか
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  // 1. window.apiの存在をチェック (これが最も信頼性が高い)
+  const hasApi = window.api && window.api.isElectron === true;
+
+  // 2. window.electronの存在をチェック
+  const hasElectron = window.electron !== undefined;
+
+  // 3. window.requireの存在をチェック
+  const hasRequire = window.require !== undefined;
+
+  // 4. userAgentをチェック
+  const userAgent = navigator.userAgent.toLowerCase();
+  const containsElectron = userAgent.indexOf(' electron/') > -1;
+
+  // 詳細ログ (開発時のみ)
+  if (isDevelopment) {
+    console.log('Electron環境チェック:', {
+      hasApi,
+      hasElectron,
+      hasRequire,
+      containsElectron,
+      userAgent
+    });
+  }
+
+  return hasApi || hasElectron || hasRequire || containsElectron;
+};
 
 // Node.jsモジュールを安全に読み込む
 let fs, path;
-if (isElectron) {
+if (isElectron()) {
   try {
-    const _require = window.require || require;
-    fs = _require('fs');
-    path = _require('path');
+    // 異なる方法を試行
+    if (window.require) {
+      // 1. window.requireを使用
+      fs = window.require('fs');
+      path = window.require('path');
+    } else if (window.api && window.api.fs && window.api.path) {
+      // 2. window.api経由でアクセス
+      fs = window.api.fs;
+      path = window.api.path;
+    } else {
+      console.warn('Node.jsモジュールへのアクセス方法が見つかりません');
+    }
   } catch (err) {
     console.warn('Nodeモジュールのロードに失敗しました。一部の機能が制限されます。', err);
   }
 }
 
-// Python版の画像分析ユーティリティをインポート
+// Python版の画像分析ユーティリティをインポート（ただしブラウザでは使用しない）
 import * as pythonAnalyzer from './python_bridge_adapter';
 
 /**
  * 画像の主要な色を抽出する
  */
 const extractColorsFromImage = async (imageBase64) => {
+  const electronEnv = isElectron();
+
+  if (!electronEnv) {
+    console.log("Electron環境外での実行 - ダミーデータを返します");
+
+    // ブラウザ環境用のダミーデータ
+    return [
+      'rgb(51, 51, 51)',    // ダークグレー
+      'rgb(255, 255, 255)', // ホワイト
+      'rgb(0, 123, 255)',   // ブルー
+      'rgb(220, 53, 69)',   // レッド
+      'rgb(40, 167, 69)'    // グリーン
+    ];
+  }
+
   try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.extractColorsFromImage(imageBase64);
+    // Electronのメインプロセス経由でPython処理を実行
+    const result = await window.api.extractColorsFromImage(imageBase64);
+
+    if (result.success) {
+      return result.data;
+    } else {
+      console.error("Python処理エラー:", result.error);
+
+      // エラー時のフォールバックカラー
+      return [
+        'rgb(200, 200, 200)', // ライトグレー
+        'rgb(150, 150, 150)', // ミディアムグレー
+        'rgb(100, 100, 100)', // ダークグレー
+        'rgb(50, 50, 50)',    // ベリーダークグレー
+        'rgb(0, 0, 0)'        // ブラック
+      ];
+    }
   } catch (error) {
-    console.error("Python版色抽出でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+    console.error("Python画像処理エラー:", error);
 
-    // フォールバック: JavaScriptでの実装（元のコード）
-    return new Promise((resolve) => {
-      if (!imageBase64) {
-        resolve([]);
-        return;
-      }
-
-      const img = new Image();
-      img.crossOrigin = "Anonymous"; // CORSエラー回避
-      img.src = imageBase64;
-
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0, img.width, img.height);
-
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
-        const data = imageData.data;
-
-        const colorMap = {};
-        for (let i = 0; i < data.length; i += 4) {
-          const color = `${data[i]},${data[i + 1]},${data[i + 2]}`;
-          colorMap[color] = (colorMap[color] || 0) + 1;
-        }
-
-        // 出現回数が多い順に並べて上位5色を取得
-        const sortedColors = Object.entries(colorMap).sort((a, b) => b[1] - a[1]);
-
-        // RGB形式で返す
-        resolve(sortedColors.slice(0, 5).map(([rgb]) => `rgb(${rgb})`));
-      };
-
-      img.onerror = () => {
-        console.error("画像の読み込みに失敗しました");
-        resolve([]);
-      };
-    });
+    // エラー時のフォールバックカラー
+    return [
+      'rgb(200, 200, 200)', // ライトグレー
+      'rgb(150, 150, 150)', // ミディアムグレー
+      'rgb(100, 100, 100)', // ダークグレー
+      'rgb(50, 50, 50)',    // ベリーダークグレー
+      'rgb(0, 0, 0)'        // ブラック
+    ];
   }
 };
 
@@ -79,16 +135,24 @@ const extractColorsFromImage = async (imageBase64) => {
  * 画像からテキストを抽出する（OCR）
  */
 const extractTextFromImage = async (imageBase64) => {
-  try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.extractTextFromImage(imageBase64);
-  } catch (error) {
-    console.error("Python版テキスト抽出でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+  if (!isElectron()) {
+    console.log("Electron環境外での実行 - ダミーテキストを返します");
+    return "これはダミーのテキストです。実際のOCR処理はElectronアプリケーション内でのみ利用可能です。";
+  }
 
-    // フォールバック: JavaScriptでの実装（元のコード）
-    console.log('OCR処理をスキップしています (CSP制限のため)');
-    // 一時的なダミーテキストを返す
-    return 'OCR処理は現在無効化されています。CSP設定の制限により、Web Workerが使用できません。';
+  try {
+    // Electronのメインプロセス経由でPython処理を実行
+    const result = await window.api.extractTextFromImage(imageBase64);
+
+    if (result.success) {
+      return result.data;
+    } else {
+      console.error("Python OCR処理エラー:", result.error);
+      return "OCR処理中にエラーが発生しました。";
+    }
+  } catch (error) {
+    console.error("Python OCR処理エラー:", error);
+    return "OCR処理中に例外が発生しました。";
   }
 };
 
@@ -96,55 +160,53 @@ const extractTextFromImage = async (imageBase64) => {
  * 画像のセクション分析機能
  */
 const analyzeImageSections = async (imageBase64) => {
-  try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.analyzeImageSections(imageBase64);
-  } catch (error) {
-    console.error("Python版セクション分析でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+  if (!isElectron()) {
+    console.log("Electron環境外での実行 - ダミーセクションデータを返します");
 
-    // フォールバック: JavaScriptでの実装（元のコード）
-    return new Promise((resolve) => {
-      if (!imageBase64) {
-        resolve([]);
-        return;
+    // ダミーのセクションデータを返す
+    return [
+      {
+        section: 1,
+        position: { top: 0, height: 100 },
+        dominantColor: { rgb: 'rgb(240, 240, 240)', hex: '#f0f0f0' }
+      },
+      {
+        section: 2,
+        position: { top: 100, height: 100 },
+        dominantColor: { rgb: 'rgb(220, 220, 220)', hex: '#dcdcdc' }
+      },
+      {
+        section: 3,
+        position: { top: 200, height: 100 },
+        dominantColor: { rgb: 'rgb(200, 200, 200)', hex: '#c8c8c8' }
+      },
+      {
+        section: 4,
+        position: { top: 300, height: 100 },
+        dominantColor: { rgb: 'rgb(180, 180, 180)', hex: '#b4b4b4' }
+      },
+      {
+        section: 5,
+        position: { top: 400, height: 100 },
+        dominantColor: { rgb: 'rgb(160, 160, 160)', hex: '#a0a0a0' }
       }
+    ];
+  }
 
-      const img = new Image();
-      img.src = imageBase64;
+  try {
+    // Electronのメインプロセス経由でPython処理を実行
+    const result = await window.api.analyzeImageSections(imageBase64);
 
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0, img.width, img.height);
-
-        // 画像を水平方向に5セクションに分析
-        const sectionHeight = img.height / 5;
-        const sections = [];
-
-        for (let i = 0; i < 5; i++) {
-          const y = i * sectionHeight;
-          const imageData = ctx.getImageData(0, y, img.width, sectionHeight);
-
-          // 各セクションの代表色を抽出
-          const dominantColor = getDominantColor(imageData.data);
-
-          sections.push({
-            section: i + 1,
-            position: { top: y, height: sectionHeight },
-            dominantColor: dominantColor
-          });
-        }
-
-        resolve(sections);
-      };
-
-      img.onerror = () => {
-        console.error("画像の読み込みに失敗しました");
-        resolve([]);
-      };
-    });
+    if (result.success) {
+      return result.data;
+    } else {
+      console.error("Python セクション分析エラー:", result.error);
+      // エラー時のダミーデータを返す
+      return [];
+    }
+  } catch (error) {
+    console.error("Python セクション分析エラー:", error);
+    return [];
   }
 };
 

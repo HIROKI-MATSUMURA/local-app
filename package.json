@@ -12,6 +12,8 @@
     "vite-build": "vite build",
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
+    "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron .",
+    "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run vite-build && npm run electron-dev",
     "package-mac": "electron-builder --mac",
     "package-win": "electron-builder --win",
     "package-linux": "electron-builder --linux",
@@ -68,18 +70,32 @@
       "main.js",
       "preload.js",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "python_bridge.js",
+      "python_bridge_adapter.js"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "public/icon.icns"
+      "icon": "public/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "icon": "public/icon.ico"
+      "icon": "public/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
       "icon": "public/icon.png",
-      "category": "Development"
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     },
     "extraResources": [
       {
@@ -89,9 +105,24 @@
           "python_check.py",
           "python_installer.py",
           "python_setup.py",
-          "image_analyzer.py"
+          "python_server.py",
+          "image_analyzer.py",
+          "requirements.txt",
+          "python_bridge.js",
+          "python_bridge_adapter.js"
         ]
       }
-    ]
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    }
+  },
+  "electronWebpack": {
+    "renderer": {
+      "webpackConfig": "webpack.renderer.config.js"
+    },
+    "main": {
+      "webpackConfig": "webpack.main.config.js"
+    }
   }
 }

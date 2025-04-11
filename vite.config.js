@@ -34,7 +34,24 @@ export default defineConfig({
         chunkFileNames: '[name].[hash].js',
         assetFileNames: '[name].[hash].[ext]'
       },
-      external: ['electron', 'fs', 'path', 'child_process', 'os'],
+      external: [
+        'electron',
+        'fs',
+        'path',
+        'child_process',
+        'os',
+        'util',
+        'url',
+        'crypto',
+        'stream',
+        'module',
+        'zlib',
+        'http',
+        'https',
+        'net',
+        'tls',
+        'events'
+      ],
     },
     polyfillModulePreload: false,
   },
@@ -69,6 +86,24 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
-    exclude: ['vite', 'electron', 'fs', 'path', 'child_process', 'os']
+    exclude: [
+      'vite',
+      'electron',
+      'fs',
+      'path',
+      'child_process',
+      'os',
+      'util',
+      'url',
+      'crypto',
+      'stream',
+      'module',
+      'zlib',
+      'http',
+      'https',
+      'net',
+      'tls',
+      'events'
+    ]
   }
 });
