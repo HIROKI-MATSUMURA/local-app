@@ -2628,6 +2628,41 @@ $mediaquerys: (
     projectIntervals.set(projectId, intervalId);
     console.log(`プロジェクト ${projectId} の定期的なスキャンをセットアップしました(2分間隔)`);
   }
+
+  // イメージ分析ハンドラーを追加（将来の実装のために残しておく）
+  /*
+  ipcMain.handle('analyze-image', async (event, data) => {
+    try {
+      console.log('画像分析リクエストを受信:', data);
+      // TODO: 本番環境では実際のPython処理を実装する
+      // 現在はダミーデータを返す
+      return {
+        success: true,
+        text: "サンプルテキスト",
+        dominant_color: {
+          rgb: [120, 180, 210],
+          hex: "#78B4D2"
+        },
+        sections: [
+          {
+            name: "header",
+            position: { x: 0, y: 0, width: 100, height: 50 },
+            color: "#FFFFFF"
+          },
+          {
+            name: "content",
+            position: { x: 0, y: 50, width: 100, height: 200 },
+            color: "#F5F5F5"
+          }
+        ],
+        analysis_time: 0.45
+      };
+    } catch (error) {
+      console.error('画像分析エラー:', error);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+  */
 }
 
 // ファイル内容をJSONデータに同期

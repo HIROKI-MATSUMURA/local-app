@@ -4,8 +4,21 @@
  */
 
 import { createWorker } from 'tesseract.js';
-import fs from 'fs';
-import path from 'path';
+
+// Electronコンテキストかどうかをチェック
+const isElectron = typeof window !== 'undefined' && window.api;
+
+// Node.jsモジュールを安全に読み込む
+let fs, path;
+if (isElectron) {
+  try {
+    const _require = window.require || require;
+    fs = _require('fs');
+    path = _require('path');
+  } catch (err) {
+    console.warn('Nodeモジュールのロードに失敗しました。一部の機能が制限されます。', err);
+  }
+}
 
 // Python版の画像分析ユーティリティをインポート
 import * as pythonAnalyzer from './python_bridge_adapter';

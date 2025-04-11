@@ -2,9 +2,23 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import sassGlobImports from "vite-plugin-sass-glob-import";
 import viteImagemin from "vite-plugin-imagemin";
-import path from "path";
-import fs from "fs";
-import sharp from "sharp";
+
+// 直接インポートを避け、window.apiを通じて間接的に使用します
+// Electronコンテキストかどうかをチェック
+const isElectron = typeof window !== 'undefined' && window.api;
+
+// Node.jsモジュールを安全に読み込む
+let path, fs, sharp;
+if (isElectron) {
+  try {
+    const _require = window.require || require;
+    path = _require('path');
+    fs = _require('fs');
+    sharp = _require('sharp');
+  } catch (err) {
+    console.warn('Nodeモジュールのロードに失敗しました。一部の機能が制限されます。', err);
+  }
+}
 
 export default defineConfig({
   root: "src",

@@ -312,6 +312,18 @@ try {
 
     loadProjectData: (projectId, section) =>
       ipcRenderer.invoke('load-project-data', { projectId, section }),
+
+    /*
+    // 画像分析API
+    analyzeImage: async (data) => {
+      try {
+        return await ipcRenderer.invoke('analyze-image', data);
+      } catch (error) {
+        console.error('画像分析エラー:', error);
+        return { success: false, error: error.message || String(error) };
+      }
+    },
+    */
   });
 
   // コンソール情報のイベントリスナー

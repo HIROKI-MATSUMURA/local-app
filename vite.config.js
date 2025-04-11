@@ -34,7 +34,7 @@ export default defineConfig({
         chunkFileNames: '[name].[hash].js',
         assetFileNames: '[name].[hash].[ext]'
       },
-      external: ['electron', 'fs', 'path'],
+      external: ['electron', 'fs', 'path', 'child_process', 'os'],
     },
     polyfillModulePreload: false,
   },
@@ -47,6 +47,7 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
+    global: {},
   },
   server: {
     port: 3000,
@@ -68,6 +69,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
-    exclude: ['vite']
+    exclude: ['vite', 'electron', 'fs', 'path', 'child_process', 'os']
   }
 });
