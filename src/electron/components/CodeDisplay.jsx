@@ -11,16 +11,36 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
   const cssRef = useRef(null);
   const jsRef = useRef(null);
 
-  // コードブロックをハイライト
+  // コードブロックをハイライト - シンプルな方法に変更
   useEffect(() => {
     if (htmlRef.current) {
-      htmlRef.current.innerHTML = hljs.highlight(htmlCode, { language: 'html' }).value;
+      try {
+        // テキストとして直接表示するシンプルな方法に切り替え
+        htmlRef.current.textContent = htmlCode || "";
+      } catch (error) {
+        console.error('HTMLコード表示エラー:', error);
+        htmlRef.current.textContent = "HTMLコードの表示中にエラーが発生しました";
+      }
     }
+
     if (cssRef.current) {
-      cssRef.current.innerHTML = hljs.highlight(cssCode, { language: 'scss' }).value;
+      try {
+        // テキストとして直接表示するシンプルな方法に切り替え
+        cssRef.current.textContent = cssCode || "";
+      } catch (error) {
+        console.error('CSSコード表示エラー:', error);
+        cssRef.current.textContent = "CSSコードの表示中にエラーが発生しました";
+      }
     }
+
     if (jsRef.current && jsCode) {
-      jsRef.current.innerHTML = hljs.highlight(jsCode, { language: 'javascript' }).value;
+      try {
+        // テキストとして直接表示するシンプルな方法に切り替え
+        jsRef.current.textContent = jsCode || "";
+      } catch (error) {
+        console.error('JSコード表示エラー:', error);
+        jsRef.current.textContent = "JavaScriptコードの表示中にエラーが発生しました";
+      }
     }
   }, [htmlCode, cssCode, jsCode]);
 

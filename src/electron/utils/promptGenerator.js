@@ -7,13 +7,46 @@ const handleAnalysisError = (operation, error, defaultValue) => {
   return defaultValue;
 };
 
-// ローカルストレージから設定を取得する関数
-const getSettingsFromLocalStorage = () => {
+// アクティブプロジェクトから設定を取得する関数（非同期）
+const getSettingsFromActiveProject = async () => {
   try {
-    // ローカルストレージからリセットCSSと変数設定を取得
-    const resetCSS = localStorage.getItem('resetCSS') || '';
-    const cssVariables = localStorage.getItem('cssVariables') || '';
-    const responsiveSettings = localStorage.getItem('responsiveSettings') || '';
+    console.log('プロジェクト設定の取得を開始します...');
+
+    // アクティブプロジェクトIDの取得
+    if (!window.api || !window.api.loadActiveProjectId) {
+      console.warn('window.api.loadActiveProjectIdが利用できません。デフォルト設定を使用します。');
+      return {
+        resetCSS: '',
+        cssVariables: '',
+        responsiveSettings: ''
+      };
+    }
+
+    const projectId = await window.api.loadActiveProjectId();
+    if (!projectId) {
+      console.warn('アクティブプロジェクトが設定されていません。デフォルト設定を使用します。');
+      return {
+        resetCSS: '',
+        cssVariables: '',
+        responsiveSettings: ''
+      };
+    }
+
+    console.log(`アクティブプロジェクトID: ${projectId} の設定を読み込みます`);
+
+    // 各設定の取得（並列処理）
+    const [resetCSSResult, cssVariablesResult, responsiveSettingsResult] = await Promise.all([
+      window.api.loadProjectData(projectId, 'resetCSS'),
+      window.api.loadProjectData(projectId, 'cssVariables'),
+      window.api.loadProjectData(projectId, 'responsiveSettings')
+    ]);
+
+    // 結果のサニタイズと処理
+    const resetCSS = resetCSSResult?.data || '';
+    const cssVariables = cssVariablesResult?.data || '';
+    const responsiveSettings = responsiveSettingsResult?.data || '';
+
+    console.log('プロジェクト設定の取得が完了しました');
 
     return {
       resetCSS,
@@ -21,8 +54,8 @@ const getSettingsFromLocalStorage = () => {
       responsiveSettings
     };
   } catch (error) {
-    // ローカルストレージの問題を詳細に記録するが、元の動作は維持
-    console.error('ローカルストレージからの設定取得エラー:', error.message || error);
+    // エラー処理
+    console.error('プロジェクト設定の取得エラー:', error.message || error);
     return {
       resetCSS: '',
       cssVariables: '',
@@ -50,35 +83,67 @@ const extractHexValuesFromVariables = (cssVars) => {
   return hexValues;
 };
 
-// 画像解析を実行して結果を取得する関数
+// 画像解析を実行して結果を取得する関数（Python APIを使用）
 const analyzeImage = async (imageBase64, imageType) => {
   if (!imageBase64) return { colors: [], text: '', sections: [], elements: { elements: [] } };
 
-  // 各分析処理は同じだが、同時に開始してパフォーマンスを向上
-  const colorPromise = extractColorsFromImage(imageBase64)
-    .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, []));
+  console.log(`${imageType}画像の解析を開始します...`);
 
-  const textPromise = extractTextFromImage(imageBase64)
-    .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, ''));
+  try {
+    // Python APIが利用可能かチェック
+    if (!window.api) {
+      console.warn('window.apiが利用できません。空の結果を返します。');
+      return { colors: [], text: '', sections: [], elements: { elements: [] } };
+    }
 
-  const sectionsPromise = analyzeImageSections(imageBase64)
-    .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, []));
+    // 各分析処理を同時に開始（Python APIを使用）
+    const colorPromise = window.api.extractColorsFromImage ?
+      window.api.extractColorsFromImage(imageBase64)
+        .then(result => result.success ? result.data : [])
+        .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, [])) :
+      Promise.resolve([]);
 
-  const elementsPromise = detectFeatureElements(imageBase64)
-    .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] }));
+    const textPromise = window.api.extractTextFromImage ?
+      window.api.extractTextFromImage(imageBase64)
+        .then(result => result.success ? result.data : '')
+        .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, '')) :
+      Promise.resolve('');
 
-  // すべてのPromiseを同時に解決
-  const [colors, text, sections, elements] = await Promise.all([
-    colorPromise, textPromise, sectionsPromise, elementsPromise
-  ]);
+    const sectionsPromise = window.api.analyzeImageSections ?
+      window.api.analyzeImageSections(imageBase64)
+        .then(result => result.success ? result.data : [])
+        .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, [])) :
+      Promise.resolve([]);
 
-  // 元のログを維持
-  console.log(`${imageType}画像から色を抽出しました:`, colors.length, "色");
-  console.log(`${imageType}画像からテキストを抽出しました`);
-  console.log(`${imageType}画像のセクション分析が完了しました:`, sections.length, "セクション");
-  console.log(`${imageType}画像の要素検出が完了しました:`, elements ? elements.elements?.length || 0 : 0, "要素");
+    const elementsPromise = window.api.analyzeImage ?
+      window.api.analyzeImage({ image: imageBase64, type: 'features' })
+        .then(result => result.success ? result.data : { elements: [] })
+        .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] })) :
+      Promise.resolve({ elements: [] });
 
-  return { colors, text, sections, elements };
+    // すべてのPromiseを同時に解決
+    const [colors, text, sections, elements] = await Promise.all([
+      colorPromise, textPromise, sectionsPromise, elementsPromise
+    ]);
+
+    // 結果のログと形式確認
+    console.log(`${imageType}画像から色を抽出しました:`, colors?.length || 0, "色");
+    console.log(`${imageType}画像からテキストを抽出しました`);
+    console.log(`${imageType}画像のセクション分析が完了しました:`, sections?.length || 0, "セクション");
+    console.log(`${imageType}画像の要素検出が完了しました:`,
+      elements && elements.elements ? elements.elements.length : 0, "要素");
+
+    // 結果の形式を正規化して返す
+    return {
+      colors: Array.isArray(colors) ? colors : [],
+      text: typeof text === 'string' ? text : '',
+      sections: Array.isArray(sections) ? sections : [],
+      elements: elements || { elements: [] }
+    };
+  } catch (error) {
+    console.error(`${imageType}画像の解析でエラーが発生しました:`, error);
+    return { colors: [], text: '', sections: [], elements: { elements: [] } };
+  }
 };
 
 // コアプロンプト部分を構築する関数
@@ -115,24 +180,27 @@ ${spAnalysis.text}
   }
 
   // 色情報
-  if (pcAnalysis.colors.length > 0 || spAnalysis.colors.length > 0) {
+  if ((pcAnalysis.colors && pcAnalysis.colors.length > 0) || (spAnalysis.colors && spAnalysis.colors.length > 0)) {
     section += `
 ### Detected Colors:
-${pcAnalysis.colors.length > 0 ? `- PC Image Main Colors: ${pcAnalysis.colors.join(", ")}` : ""}
-${spAnalysis.colors.length > 0 ? `- SP Image Main Colors: ${spAnalysis.colors.join(", ")}` : ""}
+${pcAnalysis.colors && pcAnalysis.colors.length > 0 ? `- PC Image Main Colors: ${pcAnalysis.colors.join(", ")}` : ""}
+${spAnalysis.colors && spAnalysis.colors.length > 0 ? `- SP Image Main Colors: ${spAnalysis.colors.join(", ")}` : ""}
 
 `;
   }
 
-  // セクション情報
-  if (pcAnalysis.sections.length > 0 || spAnalysis.sections.length > 0) {
+  // セクション情報 - null/undefinedチェックを追加
+  const pcSections = pcAnalysis.sections || [];
+  const spSections = spAnalysis.sections || [];
+
+  if (pcSections.length > 0 || spSections.length > 0) {
     section += `
 ### Detected Section Structure:
-${pcAnalysis.sections.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.sections.map(section => ({
+${pcSections.length > 0 ? `- PC Image: ${JSON.stringify(pcSections.map(section => ({
       position: `section ${section.section} from top`,
       dominantColor: section.dominantColor
     })))}` : ""}
-${spAnalysis.sections.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.sections.map(section => ({
+${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section => ({
       position: `section ${section.section} from top`,
       dominantColor: section.dominantColor
     })))}` : ""}
@@ -140,15 +208,15 @@ ${spAnalysis.sections.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.sect
 `;
   }
 
-  // 要素情報 - オプショナルチェイニングを使用してnullチェックを改善
+  // 要素情報 - null/undefinedのチェックを強化
   const pcElements = pcAnalysis.elements?.elements || [];
   const spElements = spAnalysis.elements?.elements || [];
 
   if (pcElements.length > 0 || spElements.length > 0) {
     section += `
 ### Detected Main Elements:
-${pcElements.length > 0 ? `- PC Image: ${JSON.stringify(pcAnalysis.elements.elements)}` : ""}
-${spElements.length > 0 ? `- SP Image: ${JSON.stringify(spAnalysis.elements.elements)}` : ""}
+${pcElements.length > 0 ? `- PC Image: ${JSON.stringify(pcElements)}` : ""}
+${spElements.length > 0 ? `- SP Image: ${JSON.stringify(spElements)}` : ""}
 
 `;
   }
@@ -192,10 +260,13 @@ ${settings.resetCSS}
 `;
     }
 
-    // PC画像とSP画像から抽出した色も追加
-    if (pcColors.length > 0 || spColors.length > 0) {
+    // PC画像とSP画像から抽出した色も追加（null/undefinedチェックを追加）
+    const validPcColors = Array.isArray(pcColors) ? pcColors : [];
+    const validSpColors = Array.isArray(spColors) ? spColors : [];
+
+    if (validPcColors.length > 0 || validSpColors.length > 0) {
       // 重複を除去してマージ
-      const allColors = [...pcColors, ...spColors];
+      const allColors = [...validPcColors, ...validSpColors];
       const uniqueColors = [...new Set(allColors)]; // Setを使用して重複を効率的に除去
 
       section += `- Additional colors from the image:
@@ -608,107 +679,63 @@ After going through this checklist, ensure your HTML and SCSS accurately reprodu
 `;
 };
 
-// プロンプト生成の主要関数
-const generatePrompt = async ({ responsiveMode, aiBreakpoints, pcImageBase64, spImageBase64 }) => {
+// メイン関数を修正して非同期対応
+export const generatePrompt = async (options) => {
+  console.log('プロンプト生成処理を開始');
+  const {
+    pcImage, spImage,
+    responsiveMode = "pc",
+    aiBreakpoints = []
+  } = options;
+
   try {
-    console.log("プロンプト生成処理を開始");
-
     // 画像解析を実行
-    console.log("画像解析を実行中...");
-    const pcAnalysis = await analyzeImage(pcImageBase64, "PC");
-    const spAnalysis = await analyzeImage(spImageBase64, "SP");
+    console.log('画像解析を実行中...');
+    const pcAnalysis = pcImage ? await analyzeImage(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+    const spAnalysis = spImage ? await analyzeImage(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
 
-    // ローカルストレージから設定を取得
-    const settings = getSettingsFromLocalStorage();
+    // プロジェクト設定を取得（非同期）
+    const settings = await getSettingsFromActiveProject();
 
-    console.log("プロンプトの構築を開始");
+    // プロンプトの構築を開始
+    console.log('プロンプトの構築を開始');
 
-    // プロンプトの各セクションを構築（処理は同じだが、効率的に文字列を構築）
-    const promptParts = [
-      buildCorePrompt(responsiveMode, aiBreakpoints),
-      buildAnalysisSection(pcAnalysis, spAnalysis),
-      buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors),
-      buildGuidelinesSection(responsiveMode),
-      buildResponsiveGuidelinesSection(),
-      buildFinalInstructionsSection()
-    ];
+    // 1. コアプロンプト
+    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
 
-    // 最後に一度だけ結合して効率化
-    const prompt = promptParts.join('');
+    // 2. 解析結果
+    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
 
-    console.log("プロンプト生成が完了しました");
+    // 3. 設定情報
+    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
+
+    // 4. 要件
+    prompt += `
+## Requirements
+- Create clean, semantic HTML5 and SCSS
+- Use BEM methodology for class naming
+- Ensure the design is responsive and works well across all device sizes
+- Pay attention to spacing, alignment, and typography
+- Include all necessary hover states and transitions
+`;
+
+    // 5. 出力形式
+    prompt += `
+## Output Format
+- Provide the HTML code first, followed by the SCSS code
+- Make sure both codes are properly formatted and organized
+- Include comments for major sections
+`;
+
+    console.log('プロンプト生成が完了しました');
     return prompt;
   } catch (error) {
-    console.error('プロンプト生成中にエラーが発生しました:', error.message || error);
-
-    // エラーが発生しても最低限のプロンプトを返す
+    console.error('プロンプト生成中にエラーが発生しました:', error);
+    // 簡易的なフォールバックプロンプトを返す
     return `
-# HTML/SCSS Code Generation from Design Comp
-
-Analyze the uploaded image and generate HTML and SCSS code.
-Accurately reproduce the layout, elements, text, and colors in the image.
-
-## Important Instructions
-- **❗❗MOST CRITICAL: FAITHFULLY REPRODUCE THE DESIGN COMP❗❗** - match exact layout, spacing, sizing, and visual details
-- **Compare your output with the provided image before submitting** - make adjustments to match design details precisely
-- ONLY code elements visible in the image - no assumed or extra elements
-- Be faithful to the design - accurate colors, spacing, and layout
-- Use FLOCSS methodology instead of BEM
-- **❗ALWAYS USE CSS GRID LAYOUT❗** - **NEVER** use Flexbox unless absolutely impossible
-- No SCSS nesting - write flat SCSS structure
-- **❗❗ALWAYS PUT MEDIA QUERIES INSIDE SELECTORS - AND THEY ARE THE *ONLY* NESTING ALLOWED❗❗**
-
-## ❌ FORBIDDEN: SCSS Nesting - Critical Warning
-- **❌❌❌ ABSOLUTELY NO NESTING IN SCSS USING & SYMBOL! ❌❌❌**
-- **❌ NEVER use &__element notation**
-- **❌ NEVER use &:hover or other nested pseudo-selectors**
-- **✅ ONLY MEDIA QUERIES MAY BE NESTED** inside selectors like this:
-\`\`\`scss
-// CORRECT - FLAT STRUCTURE WITH MEDIA QUERIES INSIDE
-.p-hoge__content {
-  display: grid;
-  grid-template-columns: 1fr;
-
-  @include mq(md) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-\`\`\`
-
-## ❌ NEVER DO THIS:
-\`\`\`scss
-// WRONG - NEVER USE THIS NESTED STRUCTURE
-.p-hoge {
-  background-color: #e9f5f9;
-
-  &__title {  // WRONG
-    font-size: 2rem;
-  }
-}
-\`\`\`
-
-## ✅ ALWAYS DO THIS:
-\`\`\`scss
-// CORRECT - ALWAYS USE THIS FLAT STRUCTURE
-.p-hoge {
-  background-color: #e9f5f9;
-}
-
-.p-hoge__title {  // CORRECT
-  font-size: 2rem;
-}
-\`\`\`
-
-## Output Format:
-\`\`\`html
-<!-- HTML code here -->
-\`\`\`
-
-\`\`\`scss
-// SCSS code here (flat structure, except for media queries which should be nested)
-\`\`\`
+# HTML/SCSS Code Generation
+Please generate HTML and SCSS code for a design matching the uploaded image.
+Use clean, semantic HTML5 and BEM methodology for class naming.
 `;
   }
-};
-
-export { generatePrompt };
+}
