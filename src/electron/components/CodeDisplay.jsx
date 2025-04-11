@@ -7,6 +7,9 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
   const [copyHtmlText, setCopyHtmlText] = useState("コピー");
   const [copyCssText, setCopyCssText] = useState("コピー");
   const [copyJsText, setCopyJsText] = useState("コピー");
+  const [htmlCopied, setHtmlCopied] = useState(false);
+  const [cssCopied, setCssCopied] = useState(false);
+  const [jsCopied, setJsCopied] = useState(false);
   const htmlRef = useRef(null);
   const cssRef = useRef(null);
   const jsRef = useRef(null);
@@ -47,19 +50,31 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
   const handleHtmlCopy = () => {
     navigator.clipboard.writeText(htmlCode);
     setCopyHtmlText("コピーしました！");
-    setTimeout(() => setCopyHtmlText("コピー"), 2000);
+    setHtmlCopied(true);
+    setTimeout(() => {
+      setCopyHtmlText("コピー");
+      setHtmlCopied(false);
+    }, 3000);
   };
 
   const handleCssCopy = () => {
     navigator.clipboard.writeText(cssCode);
     setCopyCssText("コピーしました！");
-    setTimeout(() => setCopyCssText("コピー"), 2000);
+    setCssCopied(true);
+    setTimeout(() => {
+      setCopyCssText("コピー");
+      setCssCopied(false);
+    }, 3000);
   };
 
   const handleJsCopy = () => {
     navigator.clipboard.writeText(jsCode);
     setCopyJsText("コピーしました！");
-    setTimeout(() => setCopyJsText("コピー"), 2000);
+    setJsCopied(true);
+    setTimeout(() => {
+      setCopyJsText("コピー");
+      setJsCopied(false);
+    }, 3000);
   };
 
   // `htmlCode` と `cssCode` の値をデバッグ表示
@@ -74,14 +89,19 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
       {/* HTMLコードの表示 */}
       <div className="code-box">
         <div className="code-header">
-          <h3>
-            <span className="code-icon">🌐</span>
-            HTMLコード
-          </h3>
-          <button onClick={handleHtmlCopy} className="copy-button">
-            <span className="copy-icon">📋</span>
-            {copyHtmlText}
-          </button>
+          <div className="title-with-copy">
+            <h3>
+              <span className="code-icon">🌐</span>
+              HTMLコード
+            </h3>
+            <button
+              onClick={handleHtmlCopy}
+              className={`copy-button ${htmlCopied ? 'copied' : ''}`}
+            >
+              <span className="copy-icon">{htmlCopied ? '✓' : '📋'}</span>
+              {copyHtmlText}
+            </button>
+          </div>
         </div>
         <pre className="code-block">
           <code ref={htmlRef} className="html"></code>
@@ -91,14 +111,19 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
       {/* CSSコードの表示 */}
       <div className="code-box">
         <div className="code-header">
-          <h3>
-            <span className="code-icon">🎨</span>
-            CSSコード
-          </h3>
-          <button onClick={handleCssCopy} className="copy-button">
-            <span className="copy-icon">📋</span>
-            {copyCssText}
-          </button>
+          <div className="title-with-copy">
+            <h3>
+              <span className="code-icon">🎨</span>
+              CSSコード
+            </h3>
+            <button
+              onClick={handleCssCopy}
+              className={`copy-button ${cssCopied ? 'copied' : ''}`}
+            >
+              <span className="copy-icon">{cssCopied ? '✓' : '📋'}</span>
+              {copyCssText}
+            </button>
+          </div>
         </div>
         <pre className="code-block">
           <code ref={cssRef} className="scss"></code>
@@ -109,14 +134,19 @@ const CodeDisplay = ({ htmlCode = "HTMLがありません", cssCode = "CSSがあ
       {jsCode && (
         <div className="code-box js-code-box">
           <div className="code-header">
-            <h3>
-              <span className="code-icon">⚙️</span>
-              JavaScriptコード
-            </h3>
-            <button onClick={handleJsCopy} className="copy-button">
-              <span className="copy-icon">📋</span>
-              {copyJsText}
-            </button>
+            <div className="title-with-copy">
+              <h3>
+                <span className="code-icon">⚙️</span>
+                JavaScriptコード
+              </h3>
+              <button
+                onClick={handleJsCopy}
+                className={`copy-button ${jsCopied ? 'copied' : ''}`}
+              >
+                <span className="copy-icon">{jsCopied ? '✓' : '📋'}</span>
+                {copyJsText}
+              </button>
+            </div>
           </div>
           <pre className="code-block">
             <code ref={jsRef} className="javascript"></code>

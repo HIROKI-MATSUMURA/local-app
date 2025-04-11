@@ -3422,6 +3422,31 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     setSelectedHtmlFile(e.target.value);
   };
 
+  const [copyHtmlText, setCopyHtmlText] = useState("コピー");
+  const [copyCssText, setCopyCssText] = useState("コピー");
+  const [htmlCopied, setHtmlCopied] = useState(false);
+  const [cssCopied, setCssCopied] = useState(false);
+
+  const handleHtmlCopy = () => {
+    navigator.clipboard.writeText(editingHTML);
+    setCopyHtmlText("コピーしました！");
+    setHtmlCopied(true);
+    setTimeout(() => {
+      setCopyHtmlText("コピー");
+      setHtmlCopied(false);
+    }, 3000);
+  };
+
+  const handleCssCopy = () => {
+    navigator.clipboard.writeText(editingCSS);
+    setCopyCssText("コピーしました！");
+    setCssCopied(true);
+    setTimeout(() => {
+      setCopyCssText("コピー");
+      setCssCopied(false);
+    }, 3000);
+  };
+
   return (
     <div className="ai-code-generator">
       <Header
@@ -3778,14 +3803,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               <h3>HTML</h3>
               <div className="editor-actions">
                 <button
-                  className="copy-code-button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(editingHTML);
-                    alert('HTMLコードをクリップボードにコピーしました');
-                  }}
+                  className={`copy-code-button ${htmlCopied ? 'copied' : ''}`}
+                  onClick={handleHtmlCopy}
                   title="HTMLをコピー"
                 >
-                  コピー
+                  <span className="copy-icon">{htmlCopied ? '✓' : '📋'}</span>
+                  {copyHtmlText}
                 </button>
               </div>
               <CodeMirror
@@ -3826,14 +3849,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               <h3>CSS</h3>
               <div className="editor-actions">
                 <button
-                  className="copy-code-button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(editingCSS);
-                    alert('CSSコードをクリップボードにコピーしました');
-                  }}
+                  className={`copy-code-button ${cssCopied ? 'copied' : ''}`}
+                  onClick={handleCssCopy}
                   title="CSSをコピー"
                 >
-                  コピー
+                  <span className="copy-icon">{cssCopied ? '✓' : '📋'}</span>
+                  {copyCssText}
                 </button>
               </div>
               <CodeMirror

@@ -777,7 +777,7 @@ $radius-xl: 16px;
         border: 1px solid rgba($border-color, 0.6);
         position: relative;
         transition: all 0.3s ease;
-
+        position: relative;
         &:hover {
           box-shadow: 0 15px 35px rgba(15, 23, 42, 0.1);
           transform: translateY(-3px);
@@ -808,6 +808,81 @@ $radius-xl: 16px;
             width: 60px;
             height: 3px;
             background: linear-gradient(90deg, $accent-color, transparent);
+          }
+        }
+
+        .editor-actions {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: $spacing-md;
+          position: absolute;
+          top: 20px;
+        }
+
+        .copy-code-button {
+          background-color: rgba($primary-color, 0.1);
+          color: $primary-color;
+          border: 1px solid rgba($primary-color, 0.2);
+          border-radius: $radius-sm;
+          padding: $spacing-xs $spacing-md;
+          font-size: $font-size-sm;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.25s ease;
+          display: inline-flex;
+          align-items: center;
+          gap: $spacing-xs;
+          position: relative;
+          overflow: hidden;
+          min-width: 100px;
+          justify-content: center;
+
+          &::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to right, rgba($primary-color, 0.05), rgba($primary-color, 0.1));
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+          }
+
+          .copy-icon {
+            font-size: 1em;
+            transition: transform 0.3s ease;
+          }
+
+          &:hover {
+            background-color: rgba($primary-color, 0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 3px 6px rgba($primary-color, 0.15);
+
+            &::before {
+              transform: translateX(0);
+            }
+          }
+
+          &:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 3px rgba($primary-color, 0.1);
+          }
+
+          &.copied {
+            background-color: rgba(39, 174, 96, 0.15);
+            color: #27ae60;
+            border-color: rgba(39, 174, 96, 0.3);
+            animation: button-pulse 1s ease;
+
+            &::before {
+              background: linear-gradient(to right, rgba(39, 174, 96, 0.05), rgba(39, 174, 96, 0.15));
+              transform: translateX(0);
+            }
+
+            .copy-icon {
+              transform: scale(1.2);
+            }
           }
         }
 
@@ -2948,5 +3023,17 @@ $radius-xl: 16px;
         }
       }
     }
+  }
+}
+
+@keyframes button-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(39, 174, 96, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
   }
 }
