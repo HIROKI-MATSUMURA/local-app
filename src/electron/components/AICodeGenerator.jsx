@@ -1140,7 +1140,14 @@ const AICodeGenerator = () => {
 
     try {
       // API設定コンポーネントから保存されたAPIキーを取得
-      const apiKey = localStorage.getItem("aiCodeGeneratorAPIKey");
+      const apiKey = await window.api.getClaudeApiKey?.(); // Electron経由で取得
+
+      if (!apiKey) {
+        alert("APIキーが取得できませんでした。/secret/api_key.json を確認してください。");
+        setLoading(false);
+        clearInterval(progressTimer);
+        return;
+      }
 
       if (!apiKey) {
         alert("API設定から APIキーを設定してください。");
@@ -1402,10 +1409,19 @@ ${editingCSS}
 
   const handleGenerateCode = async () => {
     // API設定コンポーネントから保存されたAPIキーを取得
-    const apiKey = localStorage.getItem("aiCodeGeneratorAPIKey");
+    const apiKey = await window.api.getClaudeApiKey?.(); // Electron経由で取得
+
+    if (!apiKey) {
+      alert("APIキーが取得できませんでした。/secret/api_key.json を確認してください。");
+      setLoading(false);
+      clearInterval(progressTimer);
+      return;
+    }
 
     if (!apiKey) {
       alert("API設定から APIキーを設定してください。");
+      setLoading(false);
+      clearInterval(progressTimer);
       return;
     }
 

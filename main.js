@@ -66,10 +66,19 @@ const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.jso
 
 // 新しいファイルパスを追加（app.getName()を使用）
 const appName = app.getName() || 'electron-app';
+// Claude APIキー読み込み処理をここに追加
+const apiKeyPath = path.join(__dirname, 'secret', 'api_key.json');
+let CLAUDE_API_KEY = '';
 
+try {
+  const keyData = JSON.parse(fs.readFileSync(apiKeyPath, 'utf-8'));
+  CLAUDE_API_KEY = keyData.claudeKey || '';
+  console.log('[INFO] Claude APIキーを /secret/api_key.json から読み込みました');
+} catch (e) {
+  console.error('[ERROR] Claude APIキーの読み込みに失敗:', e);
+}
 // ハードコードされたAPIキー
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
 
 // グローバルエラーハンドリング
@@ -1730,6 +1739,11 @@ $mediaquerys: (
   // APIキー取得ハンドラ
   ipcMain.handle('get-api-key', async () => {
     return getApiKey();
+  });
+
+  // IPCでフロントに提供する
+  ipcMain.handle('get-claude-api-key', async () => {
+    return CLAUDE_API_KEY;
   });
 
   // AIコード生成ハンドラ

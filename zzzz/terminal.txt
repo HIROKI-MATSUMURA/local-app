@@ -1,0 +1,254 @@
+> creait-code@1.0.0 electron-dev
+> NODE_ENV=development electron .
+
+node:electronの読み込みに失敗、標準的な方法を試します
+node:axiosの読み込みに失敗、標準的な方法を試します
+node:uuidの読み込みに失敗、標準的な方法を試します
+node:chokidarの読み込みに失敗、標準的な方法を試します
+node:globの読み込みに失敗、標準的な方法を試します
+Electron設定情報:
+- isPackaged: false
+- appPath: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app
+- 実行中のNode.jsバージョン: 20.18.1
+- 実行中のElectronバージョン: 33.3.1
+- __dirname: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app
+- preloadPath: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/preload.js
+- preloadファイル存在確認: true
+[INFO] Claude APIキーを /secret/api_key.json から読み込みました
+Python環境の初期化を開始します...
+Python 3.10.4 が検出されました
+Python Bridge: 初期化を開始します
+Python Bridge: Python 3.10.4 を検出しました
+Python Bridge: スクリプトが見つかりました: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/image_analyzer.py
+Python Bridge: スクリプトが見つかりました: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/python_setup.py
+Python Bridge: 環境検証を開始します
+Python setup stdout: [2025-04-11 19:05:06] [INFO] Pythonセットアップスクリプトを開始します
+[2025-04-11 19:05:06] [INFO] 検証モードで実行します
+[2025-04-11 19:05:06] [INFO] 環境検証を開始します...
+[2025-04-11 19:05:06] [INFO] 必要なパッケージはすべてインストールされています
+[2025-04-11 19:05:06] [INFO] インストール済みのオプショナルパッケージ: tensorflow, torch
+[2025-04-11 19:05:06] [INFO] 環境検証に成功しました
+
+Python Bridge: 初期化に成功しました
+Python環境の初期化に成功しました
+Pythonプロセスを起動中...
+Python stderr: 2025-04-11 19:05:06,747 - python_server - INFO - Pythonサーバーを起動しています...
+
+Pythonプロセスが起動しました
+Pythonブリッジが正常に起動しました
+Python環境をチェックしています...
+Python stderr: 2025-04-11 19:05:10,012 - python_server - INFO - image_analyzer モジュールが正常に初期化されました
+2025-04-11 19:05:10,012 - python_server - INFO - リクエスト待機中...
+
+Python環境チェック結果: {
+  status: 'ok',
+  python_version: '3.10.4 (main, Jun 22 2024, 16:06:52) [Clang 15.0.0 (clang-1500.0.40.1)]',
+  missing_modules: [],
+  analyzer_status: '正常',
+  timestamp: '2025-04-11T19:05:10.012436'
+}
+Python環境チェック結果: {
+  status: 'ok',
+  python_version: '3.10.4 (main, Jun 22 2024, 16:06:52) [Clang 15.0.0 (clang-1500.0.40.1)]',
+  missing_modules: [],
+  analyzer_status: '正常',
+  timestamp: '2025-04-11T19:05:10.012436'
+}
+ユーザーデータディレクトリ: /Users/matsu/Library/Application Support/creait-code
+設定ファイルパス:
+- PROJECTS_CONFIG_PATH: /Users/matsu/Library/Application Support/creait-code/projects.json
+- ACTIVE_PROJECT_PATH: /Users/matsu/Library/Application Support/creait-code/active-project.json
+- CATEGORIES_PATH: /Users/matsu/Library/Application Support/creait-code/categories.json
+- TAGS_PATH: /Users/matsu/Library/Application Support/creait-code/tags.json
+- SELECTED_CATEGORY_PATH: /Users/matsu/Library/Application Support/creait-code/selected-category.json
+- SELECTED_TAGS_PATH: /Users/matsu/Library/Application Support/creait-code/selected-tags.json
+カテゴリとタグの初期化を開始します...
+カテゴリファイルは既に存在し、適切な内容のため初期化をスキップします
+タグファイルは既に存在するため、初期化をスキップします
+選択中カテゴリファイルは既に存在するため、初期化をスキップします
+選択中タグファイルは既に存在するため、初期化をスキップします
+ファイル作成確認:
+- カテゴリファイル存在: true
+- タグファイル存在: true
+- 選択カテゴリファイル存在: true
+- 選択タグファイル存在: true
+カテゴリファイル内容: ["uncategorized","制作会社","コミュニティ","エンド","確認用"]
+カテゴリとタグの初期化が完了しました
+アプリ起動時にIPCハンドラーを設定します
+グローバルファイル監視を設定しました
+メインウィンドウの作成を開始します
+preloadスクリプトのパス: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/preload.js
+preloadスクリプトが存在するか: true
+Python環境の初期化を開始します...
+環境情報: {
+  isDevelopment: true,
+  appPath: '/Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app',
+  userData: '/Users/matsu/Library/Application Support/creait-code',
+  isPackaged: false,
+  resourcesPath: '/Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/node_modules/electron/dist/Electron.app/Contents/Resources'
+}
+NODE_ENV: development
+isDevelopment: true
+開発モード: ビルド済みファイルを読み込みます: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/dist/index.html
+ディレクトリ監視を初期化します
+Python 3.10.4 が検出されました
+Python Bridge: 初期化を開始します
+Python Bridge: Python 3.10.4 を検出しました
+Python Bridge: スクリプトが見つかりました: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/image_analyzer.py
+Python Bridge: スクリプトが見つかりました: /Users/matsu/Documents/新CodeUps/sampleApps/electron-sample-app/python_setup.py
+Python Bridge: 環境検証を開始します
+[WebContents] Preload script loaded successfully
+Python setup stdout: [2025-04-11 19:05:11] [INFO] Pythonセットアップスクリプトを開始します
+[2025-04-11 19:05:11] [INFO] 検証モードで実行します
+[2025-04-11 19:05:11] [INFO] 環境検証を開始します...
+[2025-04-11 19:05:11] [INFO] 必要なパッケージはすべてインストールされています
+[2025-04-11 19:05:11] [INFO] インストール済みのオプショナルパッケージ: tensorflow, torch
+[2025-04-11 19:05:11] [INFO] 環境検証に成功しました
+
+Python Bridge: 初期化に成功しました
+Python環境の初期化に成功しました
+Pythonブリッジが正常に起動しました
+Python環境をチェックしています...
+Python環境チェック結果: {
+  status: 'ok',
+  python_version: '3.10.4 (main, Jun 22 2024, 16:06:52) [Clang 15.0.0 (clang-1500.0.40.1)]',
+  missing_modules: [],
+  analyzer_status: '正常',
+  timestamp: '2025-04-11T19:05:11.143214'
+}
+Python環境チェック結果: {
+  status: 'ok',
+  python_version: '3.10.4 (main, Jun 22 2024, 16:06:52) [Clang 15.0.0 (clang-1500.0.40.1)]',
+  missing_modules: [],
+  analyzer_status: '正常',
+  timestamp: '2025-04-11T19:05:11.143214'
+}
+[78351:0411/190511.273979:ERROR:CONSOLE(1)] "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+[78351:0411/190511.274156:ERROR:CONSOLE(1)] "Request Autofill.setAddresses failed. {"code":-32601,"message":"'Autofill.setAddresses' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+[WebContents] Electronモジュールをロードできませんでした - ブラウザ環境として続行します: ReferenceError: require is not defined
+[WebContents] Electron環境チェック: [object Object]
+[WebContents] Electron API 利用可能: はい
+[WebContents] Initializing React application
+[WebContents] React app rendered successfully
+[WebContents] ページが読み込まれました
+[WebContents] Electronの可用性をチェックしています...
+[WebContents] Electron API が見つかりました
+[WebContents] API インターフェースを検証しています...
+[WebContents] window.api が見つかりました: isElectron,path,fs,send,receive,getHtmlFiles,requestFileContent,onNewHtmlFile,onFileDeleted,onFileChanged,loadCategories,saveCategories,loadTags,saveTags,saveActiveProjectId,loadActiveProjectId,loadProjectsConfig,loadProjectSettings,saveProjectSettings,deleteProjectSettings,loadDefaultSettings,saveDefaultSettings,loadProjectData,saveProjectData,onNewFile,watchProjectFiles,unwatchProjectFiles,checkPythonBridge,startPythonBridge,checkPythonEnvironmentStatus,installPythonPackages,analyzeImage,extractColorsFromImage,extractTextFromImage,analyzeImageSections
+DOMの準備が完了しました
+ウィンドウの読み込みが完了しました
+[WebContents] App コンポーネントがレンダリングされました
+[WebContents] 現在のアクティブタブ: project-manager
+[WebContents] renderContent が呼び出されました。activeTab: project-manager
+[WebContents] ProjectManager コンポーネントをレンダリングします
+[WebContents] ProjectManager コンポーネントが初期化されました
+[WebContents] window.api の状態: [object Object]
+[WebContents] === カテゴリとタグの読み込み処理開始 ===
+[WebContents] window.api状態: API使用可能
+[WebContents] API関数確認: [object Object]
+[WebContents] カテゴリとタグのデータを読み込み開始...
+[WebContents] カテゴリ読み込み処理を開始...
+[WebContents] 初期プロジェクト読み込みの useEffect が実行されました、カテゴリ読み込み状態: false
+[WebContents] カテゴリとタグの読み込みが完了していないため、プロジェクト読み込みを待機します
+[WebContents] Appコンポーネントがマウントされました
+[WebContents] 初期タブ: project-manager
+[WebContents] Electron API 利用可能: はい
+[WebContents] 現在のプロジェクト: null
+[WebContents] %cElectron Security Warning (Disabled webSecurity) font-weight: bold; This renderer process has "webSecurity" disabled. This
+  exposes users of this app to severe security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+[WebContents] %cElectron Security Warning (allowRunningInsecureContent) font-weight: bold; This renderer process has "allowRunningInsecureContent"
+  enabled. This exposes users of this app to severe security risks.
+
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+メインウィンドウの表示準備完了
+スプラッシュウィンドウを閉じます
+スプラッシュウィンドウが閉じられました
+[WebContents] 出力ディレクトリを確認しました: ../output
+[WebContents] カテゴリ読み込み結果: uncategorized,制作会社,コミュニティ,エンド,確認用
+[WebContents] 保存されたカテゴリを正常に読み込みました: uncategorized,制作会社,コミュニティ,エンド,確認用
+[WebContents] タグ読み込み処理を開始...
+[WebContents] ProjectManager コンポーネントが初期化されました
+[WebContents] タグ読み込み結果: A社,B社,株式会社〇〇,進行中,Bさん,対応中
+[WebContents] 保存されたタグを正常に読み込みました: A社,B社,株式会社〇〇,進行中,Bさん,対応中
+[WebContents] === カテゴリとタグの読み込み完了 ===
+[WebContents] ProjectManager コンポーネントが初期化されました
+[WebContents] 初期プロジェクト読み込みの useEffect が実行されました、カテゴリ読み込み状態: true
+[WebContents] loadInitialProjects が呼び出されました
+[WebContents] プロジェクト設定を読み込みます...
+アクティブプロジェクトIDを読み込みました: 3d7ec575-1c1b-4313-834e-20418d37584d
+[WebContents] 保存されていたアクティブプロジェクトID: 3d7ec575-1c1b-4313-834e-20418d37584d
+プロジェクト設定ファイルとprojects.jsonの同期を開始します
+プロジェクトディレクトリからファイルを読み込みます。ファイル数: 5
+プロジェクトディレクトリから読み込んだプロジェクト数: 5
+projects.jsonに登録されているプロジェクト数: 5
+同期後の合計プロジェクト数: 5
+projects.jsonファイルを更新しました
+[WebContents] プロジェクト設定を読み込みました: [object Object]
+[WebContents] プロジェクト変更: [object Object]
+[WebContents] プロジェクト変更: [object Object]
+[WebContents] App コンポーネントがレンダリングされました
+[WebContents] 現在のアクティブタブ: project-manager
+[WebContents] renderContent が呼び出されました。activeTab: project-manager
+[WebContents] ProjectManager コンポーネントをレンダリングします
+[WebContents] ProjectManager コンポーネントが初期化されました
+[WebContents] プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を開始します
+[WebContents] プロジェクトパス: /Users/matsu/Documents/新CodeUps/CreAIte用開発環境/for-CreAIteCode_確認用
+[WebContents] ファイル監視リクエストを送信: [object Object]
+ファイル監視要求を受信: {
+  projectId: '3d7ec575-1c1b-4313-834e-20418d37584d',
+  projectPath: '/Users/matsu/Documents/新CodeUps/CreAIte用開発環境/for-CreAIteCode_確認用',
+  patterns: [ '**/*.json', '**/*.js', '**/*.html' ]
+}
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を停止します
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]の監視は既に停止しています
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を開始: /Users/matsu/Documents/新CodeUps/CreAIte用開発環境/for-CreAIteCode_確認用
+監視パターン: [ '**/*.json', '**/*.js', '**/*.html' ]
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を開始しました: true
+[WebContents] Appコンポーネントがマウントされました
+[WebContents] 初期タブ: project-manager
+[WebContents] Electron API 利用可能: はい
+[WebContents] 現在のプロジェクト: [object Object]
+[WebContents] 出力ディレクトリを確認しました: ../output
+[WebContents] ファイル監視の開始結果: true
+Detected new HTML file: about-us.html
+Detected new HTML file: company.html
+Detected new HTML file: index.html
+[WebContents] メニュー項目クリック: ai-code-generator
+[WebContents] タブ切り替え開始: ai-code-generator
+[WebContents] タブを切り替えます: ai-code-generator
+[WebContents] App コンポーネントがレンダリングされました
+[WebContents] 現在のアクティブタブ: ai-code-generator
+[WebContents] renderContent が呼び出されました。activeTab: ai-code-generator
+[WebContents] プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を停止します
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を停止します
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]のファイル監視を停止しました
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]の定期スキャンを停止しました
+プロジェクト[3d7ec575-1c1b-4313-834e-20418d37584d]の定期スキャンを停止しました
+[WebContents] Appコンポーネントがマウントされました
+[WebContents] 初期タブ: ai-code-generator
+[WebContents] Electron API 利用可能: はい
+[WebContents] 現在のプロジェクト: [object Object]
+アクティブプロジェクトIDを読み込みました: 3d7ec575-1c1b-4313-834e-20418d37584d
+プロジェクト for-CreAIteCode_確認用 のHTMLファイル一覧: [ 'pages/about.html', 'pages/index.html', 'pages/text.html' ]
+[WebContents] ファイル監視の停止結果: true
+[WebContents] 出力ディレクトリを確認しました: ../output
+[WebContents] 画像アップロード開始: ダイビング情報.png, タイプ: pc, サイズ: 528KB
+[WebContents] FileReaderでDataURLとして読み込み開始...
+[WebContents] 画像の読み込みが完了しました: 704KB
+[WebContents] 検出された画像形式: image/png
+[WebContents] image/png形式はClaudeがサポートするので、そのまま使用します
+[WebContents] 画像の最適化が完了しました: 704KB
+画像からテキストを抽出します...
+[WebContents] PC画像からテキストを抽出しました
+画像から色を抽出します...
+[WebContents] PC画像の色を抽出しました: 5色
+[WebContents] 画像の処理が完了しました（pc）

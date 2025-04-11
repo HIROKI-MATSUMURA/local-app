@@ -111,39 +111,34 @@ def verify_package(package_name):
         return False
 
 
-
 def verify_environment():
     """環境が正しく設定されているか検証する"""
-    import pkg_resources
-
     log_message("環境検証を開始します...")
 
-    installed = {pkg.key for pkg in pkg_resources.working_set}
-    required = [
-        "numpy",
-        "opencv-python",
-        "pillow",
-        "scikit-image",
-        "scikit-learn",
-        "pytesseract",
-        "matplotlib",
-        "imutils"
-    ]
-    optional = [
-        "tensorflow",
-        "torch"
-    ]
+    # すべての必須パッケージが揃っているかチェック
+    missing_packages = []
 
-    missing = [pkg for pkg in required if pkg.lower() not in installed]
+    for package in REQUIRED_PACKAGES:
+        package_name = package.split(">=")[0].split("==")[0]
+        if not verify_package(package_name):
+            missing_packages.append(package)
 
-    if missing:
-        log_message(f"不足しているパッケージ: {', '.join(missing)}", "WARNING")
+    if missing_packages:
+        log_message(f"不足しているパッケージ: {', '.join(missing_packages)}", "WARNING")
         return False
     else:
         log_message("必要なパッケージはすべてインストールされています")
 
-        installed_optional = [pkg for pkg in optional if pkg.lower() in installed]
-        missing_optional = [pkg for pkg in optional if pkg.lower() not in installed]
+        # オプショナルパッケージの確認
+        installed_optional = []
+        missing_optional = []
+
+        for package in OPTIONAL_PACKAGES:
+            package_name = package.split(">=")[0].split("==")[0]
+            if verify_package(package_name):
+                installed_optional.append(package_name)
+            else:
+                missing_optional.append(package_name)
 
         if installed_optional:
             log_message(f"インストール済みのオプショナルパッケージ: {', '.join(installed_optional)}")

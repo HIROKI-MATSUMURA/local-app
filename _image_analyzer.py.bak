@@ -52,24 +52,19 @@ def decode_image(image_data):
     import numpy as np
 
     try:
-        # bytesの場合も str に変換しない → base64として扱う必要あり
+        # bytesで来る場合があるため str に変換
         if isinstance(image_data, bytes):
-            # PythonのBridge経由ではbytesで来ることがあるのでここでbase64処理してOK
-            decoded = image_data
-        elif isinstance(image_data, str):
-            if 'base64,' in image_data:
-                image_data = image_data.split('base64,')[1]
-            decoded = base64.b64decode(image_data)
-        else:
-            raise ValueError("画像データはbase64文字列またはbytes形式である必要があります")
+            image_data = image_data.decode("utf-8")
 
-        nparr = np.frombuffer(decoded, np.uint8)
+        if 'base64,' in image_data:
+            image_data = image_data.split('base64,')[1]
+
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         return img
     except Exception as e:
         raise ValueError(f"画像のデコードエラー: {e}")
-
-
 
 
 def extract_colors(image_data):
