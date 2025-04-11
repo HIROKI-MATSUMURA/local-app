@@ -307,7 +307,7 @@ const VariableConfig = forwardRef((props, ref) => {
     }
 
     try {
-      const settingFilePath = pathHelper.join(activeProject.path, 'src', 'scss', 'global', '_setting.scss');
+      const settingFilePath = pathHelper.join(activeProject.path, 'src', 'scss', 'globals', '_setting.scss');
 
       // ファイルが存在するか確認
       const exists = await window.api.fs.exists(settingFilePath);

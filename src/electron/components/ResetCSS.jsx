@@ -241,7 +241,7 @@ select {
             setResetCssContent(fileContent);
 
             // JSONも更新
-            await projectDataStore.saveProjectData(activeProject.id, 'resetCss', fileContent);
+            await projectDataStore.saveProjectData(activeProject.id, 'resetCSS', fileContent);
             showStatus('ファイルシステムから最新のリセットCSSを読み込みました');
           } else if (savedContent) {
             // JSONにデータがある場合
@@ -320,7 +320,7 @@ select {
 
               // JSONにも保存
               if (activeProject.id) {
-                await projectDataStore.saveProjectData(activeProject.id, 'resetCss', fileContent);
+                await projectDataStore.saveProjectData(activeProject.id, 'resetCSS', fileContent);
               }
 
               showStatus('ファイルシステムの変更を読み込みました');

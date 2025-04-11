@@ -548,9 +548,9 @@ const AICodeGenerator = () => {
 
               if (projectId) {
                 // プロジェクトからCSS変数データを取得
-                let variableSettingsResult;
+                let cssVariablesResult;
                 try {
-                  variableSettingsResult = await window.api.loadProjectData(projectId, 'variableSettings');
+                  cssVariablesResult = await window.api.loadProjectData(projectId, 'cssVariables');
                 } catch (err) {
                   console.error('CSS変数データの取得に失敗しました:', err);
                   definedVars.set('$primary-color', '#DDF0F1');
@@ -560,7 +560,7 @@ const AICodeGenerator = () => {
                   return definedVars;
                 }
 
-                const variableSettings = variableSettingsResult?.data || '';
+                const cssVariables = cssVariablesResult?.data || '';
 
                 // 変数の抽出
                 const varRegex = /\$([\w-]+):\s*([^;]+);/g;
@@ -570,7 +570,7 @@ const AICodeGenerator = () => {
                 console.log('変数抽出を開始...');
 
                 try {
-                  while ((match = varRegex.exec(variableSettings)) !== null) {
+                  while ((match = varRegex.exec(cssVariables)) !== null) {
                     if (match && match.length >= 3) {
                       const [fullMatch, varName, varValue] = match;
                       const variableWithDollar = `$${varName}`;
@@ -1875,90 +1875,143 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // 定義済みの色変数を取得する関数
   const getDefinedColorVariables = async () => {
-    const definedVars = new Map();
-    console.group('🔎 アクティブプロジェクトから色変数を取得');
-
-    // APIが使えない場合のフォールバック
-    if (!window.api || !window.api.loadActiveProjectId || !window.api.loadProjectData) {
-      console.warn('APIが利用できません。デフォルト値を使用します。');
-      definedVars.set('$primary-color', '#DDF0F1');
-      definedVars.set('$blue', '#408F95');
-      console.table(Object.fromEntries(definedVars));
-      console.groupEnd();
-      return definedVars;
-    }
-
-    // アクティブプロジェクトIDの取得
-    let projectId;
     try {
-      projectId = await window.api.loadActiveProjectId();
-    } catch (err) {
-      console.error('アクティブプロジェクトIDの取得に失敗:', err);
-      definedVars.set('$primary-color', '#DDF0F1');
-      definedVars.set('$blue', '#408F95');
-      console.table(Object.fromEntries(definedVars));
-      console.groupEnd();
-      return definedVars;
-    }
+      const definedVars = new Map();
 
-    if (!projectId) {
-      console.warn('アクティブプロジェクトが見つかりません。');
-      definedVars.set('$primary-color', '#DDF0F1');
-      definedVars.set('$blue', '#408F95');
-      console.table(Object.fromEntries(definedVars));
-      console.groupEnd();
-      return definedVars;
-    }
+      console.group('🔎 アクティブプロジェクトから色変数を取得');
 
-    try {
-      const variableSettingsResult = await window.api.loadProjectData(projectId, 'variableSettings');
-      console.log('✅ 取得した variableSettingsResult:', variableSettingsResult);
-
-      // 旧形式（dataあり）と新形式（dataなし）両対応
-      const rawSettings = variableSettingsResult?.data || variableSettingsResult;
-
-      console.log(`プロジェクトID ${projectId} から色変数を取得しました`);
-      console.log('取得したCSS変数内容（生）:', rawSettings);
-
-      const customColors = Array.isArray(rawSettings?.customColors) ? rawSettings.customColors : [];
-      console.log('customColors（配列）:', customColors);
-
-      const variableSettings = customColors.reduce((acc, item) => {
-        if (item?.name && item?.color) {
-          acc[item.name] = item.color;
-        }
-        return acc;
-      }, {});
-
-      console.log('変換後のCSS変数マップ:', variableSettings);
-
-      if (Object.keys(variableSettings).length === 0) {
-        console.log('色変数が定義されていません。デフォルト値を使用します。');
+      // APIが利用可能かチェック
+      if (!window.api || !window.api.loadActiveProjectId || !window.api.loadProjectData) {
+        console.warn('APIが利用できません。デフォルト値を使用します。');
         definedVars.set('$primary-color', '#DDF0F1');
         definedVars.set('$blue', '#408F95');
         console.table(Object.fromEntries(definedVars));
+        console.groupEnd();
         return definedVars;
       }
 
-      Object.entries(variableSettings).forEach(([key, value]) => {
-        definedVars.set(key, value);
-      });
+      // アクティブプロジェクトのIDを取得
+      let projectId;
+      try {
+        projectId = await window.api.loadActiveProjectId();
+      } catch (err) {
+        console.error('アクティブプロジェクトIDの取得に失敗しました:', err);
+        definedVars.set('$primary-color', '#DDF0F1');
+        definedVars.set('$blue', '#408F95');
+        console.table(Object.fromEntries(definedVars));
+        console.groupEnd();
+        return definedVars;
+      }
 
-      console.log('✅ 最終的な definedVars:');
-      console.table(Object.fromEntries(definedVars));
+      if (!projectId) {
+        console.warn('アクティブプロジェクトが見つかりません。デフォルト値を使用します。');
+        definedVars.set('$primary-color', '#DDF0F1');
+        definedVars.set('$blue', '#408F95');
+        console.table(Object.fromEntries(definedVars));
+        console.groupEnd();
+        return definedVars;
+      }
+
+      // プロジェクトからCSS変数データを取得
+      const cssVariablesResult = await window.api.loadProjectData(projectId, 'cssVariables');
+      const cssVariables = cssVariablesResult?.data || '';
+
+      console.log(`プロジェクトID ${projectId} から色変数を取得しました`);
+      console.log('取得したCSS変数内容:', cssVariables);
+
+      if (!cssVariables || cssVariables.trim() === '') {
+        console.log('プロジェクトに色変数が定義されていません。デフォルト値を使用します。');
+        // 何も設定されていない場合はデフォルト値を使用
+        definedVars.set('$primary-color', '#DDF0F1');
+        definedVars.set('$blue', '#408F95');
+        console.table(Object.fromEntries(definedVars));
+        console.groupEnd();
+        return definedVars;
+      }
+
+      // 変数の抽出
+      const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+      let match;
+      let count = 0;
+
+      console.log('変数抽出を開始...');
+
+      try {
+        while ((match = varRegex.exec(cssVariables)) !== null) {
+          if (match && match.length >= 3) {
+            const [fullMatch, varName, varValue] = match;
+            const variableWithDollar = `$${varName}`;
+            definedVars.set(variableWithDollar, varValue.trim());
+            console.log(`抽出: ${fullMatch} → 変数名: ${variableWithDollar}, 値: ${varValue.trim()}`);
+            count++;
+          }
+        }
+      } catch (err) {
+        console.error('正規表現での変数抽出中にエラーが発生しました:', err);
+      }
+
+      console.log(`合計 ${count} 個の変数を抽出しました`);
+
+      // 抽出結果の確認
+      if (definedVars.size === 0) {
+        console.warn('正規表現で変数を抽出できませんでした。フォーマットが正しいか確認してください。');
+        console.log('変数フォーマット例: $primary-color: #DDF0F1;');
+
+        // フォールバックとして手動でパース試行
+        try {
+          const lines = cssVariables.split('\n');
+          console.log('手動パース試行:', lines);
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine && trimmedLine.includes(':')) {
+              const parts = trimmedLine.split(':');
+              if (parts.length >= 2) {
+                const varName = parts[0].trim();
+                let varValue = parts[1].trim();
+
+                // 終端のセミコロンを削除
+                if (varValue.endsWith(';')) {
+                  varValue = varValue.slice(0, -1);
+                }
+
+                if (varName.startsWith('$')) {
+                  definedVars.set(varName, varValue);
+                  console.log(`手動抽出: ${varName} = ${varValue}`);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('手動パース中にエラーが発生しました:', e);
+        }
+      }
+
+      // 依然として変数が取得できない場合はデフォルト値を使用
+      if (definedVars.size === 0) {
+        console.warn('いずれの方法でも変数を抽出できませんでした。デフォルト値を使用します。');
+        definedVars.set('$primary-color', '#DDF0F1');
+        definedVars.set('$blue', '#408F95');
+      }
+
+      try {
+        console.log('最終的な定義済み変数リスト:');
+        console.table(Object.fromEntries(definedVars));
+      } catch (err) {
+        console.error('変数リストの表示中にエラーが発生しました:', err);
+      }
 
       return definedVars;
-
-    } catch (err) {
-      console.error('色変数の取得中にエラー:', err);
-      definedVars.set('$primary-color', '#DDF0F1');
-      definedVars.set('$blue', '#408F95');
-      console.table(Object.fromEntries(definedVars));
+    } catch (error) {
+      console.error('色変数の取得中にエラーが発生しました:', error);
+      // エラー時のフォールバック
+      const fallbackVars = new Map();
+      fallbackVars.set('$primary-color', '#DDF0F1');
+      fallbackVars.set('$blue', '#408F95');
       console.groupEnd();
-      return definedVars;
+      return fallbackVars;
     }
   };
-
 
   // 2つのHEX色の類似度を計算する関数
   const getColorSimilarity = (hex1, hex2) => {
@@ -3771,114 +3824,130 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             </div>
           </div>
 
-
-
-          <div className="code-editor-container">
-            <div className="html-editor">
-              <h3>HTML</h3>
-              <div className="editor-actions">
-                <button
-                  className="copy-code-button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(editingHTML);
-                    alert('HTMLコードをクリップボードにコピーしました');
-                  }}
-                  title="HTMLをコピー"
-                >
-                  コピー
-                </button>
-              </div>
-              <CodeMirror
-                value={editingHTML}
-                options={{
-                  mode: 'text/html',
-                  theme: 'material',
-                  lineNumbers: true,
-                  lineWrapping: true,
-                  smartIndent: true,
-                  tabSize: 2,
-                  indentWithTabs: false,
-                  matchBrackets: true,
-                  autoCloseBrackets: true,
-                  foldGutter: true,
-                  gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
-                  extraKeys: {
-                    'Ctrl-Space': 'autocomplete',
-                    'Ctrl-/': 'toggleComment',
-                    'Cmd-/': 'toggleComment',
-                    Tab: (cm) => {
-                      if (cm.somethingSelected()) {
-                        cm.indentSelection('add');
-                      } else {
-                        cm.replaceSelection('  ', 'end');
-                      }
-                    },
-                  },
-                }}
-                onBeforeChange={(editor, data, value) => {
-                  setEditingHTML(value);
-                }}
-                className="code-editor-wrapper"
-              />
-            </div>
-
-            <div className="css-editor">
-              <h3>CSS</h3>
-              <div className="editor-actions">
-                <button
-                  className="copy-code-button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(editingCSS);
-                    alert('CSSコードをクリップボードにコピーしました');
-                  }}
-                  title="CSSをコピー"
-                >
-                  コピー
-                </button>
-              </div>
-              <CodeMirror
-                value={editingCSS}
-                options={{
-                  mode: 'text/x-scss',
-                  theme: 'material',
-                  lineNumbers: true,
-                  lineWrapping: true,
-                  smartIndent: true,
-                  tabSize: 2,
-                  indentWithTabs: false,
-                  matchBrackets: true,
-                  autoCloseBrackets: true,
-                  foldGutter: true,
-                  gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
-                  extraKeys: {
-                    'Ctrl-Space': 'autocomplete',
-                    'Ctrl-/': 'toggleComment',
-                    'Cmd-/': 'toggleComment',
-                    Tab: (cm) => {
-                      if (cm.somethingSelected()) {
-                        cm.indentSelection('add');
-                      } else {
-                        cm.replaceSelection('  ', 'end');
-                      }
-                    },
-                  },
-                }}
-                onBeforeChange={(editor, data, value) => {
-                  setEditingCSS(value);
-                }}
-                className="code-editor-wrapper"
-              />
-            </div>
-
-            <div className="editor-hint">
-              <p><span>💡</span> タブや自動インデント、シンタックスハイライトに対応</p>
-            </div>
-
-            <button className="update-button" onClick={handleUpdateCode}>
-              変更を適用
+          <div className="tabs">
+            <button
+              onClick={() => setIsEditing(false)}
+              className={!isEditing ? "active" : ""}
+            >
+              表示
+            </button>
+            <button
+              onClick={() => setIsEditing(true)}
+              className={isEditing ? "active" : ""}
+            >
+              編集
             </button>
           </div>
 
+          {isEditing ? (
+            <div className="code-editor-container">
+              <div className="html-editor">
+                <h3>HTML</h3>
+                <div className="editor-actions">
+                  <button
+                    className="copy-code-button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(editingHTML);
+                      alert('HTMLコードをクリップボードにコピーしました');
+                    }}
+                    title="HTMLをコピー"
+                  >
+                    コピー
+                  </button>
+                </div>
+                <CodeMirror
+                  value={editingHTML}
+                  options={{
+                    mode: 'text/html',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingHTML(value);
+                  }}
+                  className="code-editor-wrapper"
+                />
+              </div>
+
+              <div className="css-editor">
+                <h3>CSS</h3>
+                <div className="editor-actions">
+                  <button
+                    className="copy-code-button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(editingCSS);
+                      alert('CSSコードをクリップボードにコピーしました');
+                    }}
+                    title="CSSをコピー"
+                  >
+                    コピー
+                  </button>
+                </div>
+                <CodeMirror
+                  value={editingCSS}
+                  options={{
+                    mode: 'text/x-scss',
+                    theme: 'material',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    smartIndent: true,
+                    tabSize: 2,
+                    indentWithTabs: false,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    foldGutter: true,
+                    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+                    extraKeys: {
+                      'Ctrl-Space': 'autocomplete',
+                      'Ctrl-/': 'toggleComment',
+                      'Cmd-/': 'toggleComment',
+                      Tab: (cm) => {
+                        if (cm.somethingSelected()) {
+                          cm.indentSelection('add');
+                        } else {
+                          cm.replaceSelection('  ', 'end');
+                        }
+                      },
+                    },
+                  }}
+                  onBeforeChange={(editor, data, value) => {
+                    setEditingCSS(value);
+                  }}
+                  className="code-editor-wrapper"
+                />
+              </div>
+
+              <div className="editor-hint">
+                <p><span>💡</span> タブや自動インデント、シンタックスハイライトに対応</p>
+              </div>
+
+              <button className="update-button" onClick={handleUpdateCode}>
+                変更を適用
+              </button>
+            </div>
+          ) : (
+            <CodeDisplay htmlCode={generatedHTML} cssCode={generatedCSS} />
+          )}
 
           <div
             className="preview-container"

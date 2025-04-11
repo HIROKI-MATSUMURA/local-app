@@ -17,7 +17,7 @@ const getSettingsFromActiveProject = async () => {
       console.warn('window.api.loadActiveProjectIdが利用できません。デフォルト設定を使用します。');
       return {
         resetCSS: '',
-        cssVariables: '',
+        variableSettings: '',
         responsiveSettings: ''
       };
     }
@@ -27,7 +27,7 @@ const getSettingsFromActiveProject = async () => {
       console.warn('アクティブプロジェクトが設定されていません。デフォルト設定を使用します。');
       return {
         resetCSS: '',
-        cssVariables: '',
+        variableSettings: '',
         responsiveSettings: ''
       };
     }
@@ -35,22 +35,22 @@ const getSettingsFromActiveProject = async () => {
     console.log(`アクティブプロジェクトID: ${projectId} の設定を読み込みます`);
 
     // 各設定の取得（並列処理）
-    const [resetCSSResult, cssVariablesResult, responsiveSettingsResult] = await Promise.all([
+    const [resetCSSResult, variableSettingsResult, responsiveSettingsResult] = await Promise.all([
       window.api.loadProjectData(projectId, 'resetCSS'),
-      window.api.loadProjectData(projectId, 'cssVariables'),
+      window.api.loadProjectData(projectId, 'variableSettings'),
       window.api.loadProjectData(projectId, 'responsiveSettings')
     ]);
 
     // 結果のサニタイズと処理
     const resetCSS = resetCSSResult?.data || '';
-    const cssVariables = cssVariablesResult?.data || '';
+    const variableSettings = variableSettingsResult?.data || '';
     const responsiveSettings = responsiveSettingsResult?.data || '';
 
     console.log('プロジェクト設定の取得が完了しました');
 
     return {
       resetCSS,
-      cssVariables,
+      variableSettings: generatevariableSettingsFromSettings(variableSettings),
       responsiveSettings
     };
   } catch (error) {
@@ -58,9 +58,46 @@ const getSettingsFromActiveProject = async () => {
     console.error('プロジェクト設定の取得エラー:', error.message || error);
     return {
       resetCSS: '',
-      cssVariables: '',
+      variableSettings: '',
       responsiveSettings: ''
     };
+  }
+};
+
+// variableSettings形式からCSS変数文字列に変換する関数
+const generatevariableSettingsFromSettings = (settings) => {
+  // 設定がない場合は空の文字列を返す
+  if (!settings) return '';
+
+  try {
+    let variableSettingsStr = '';
+
+    // customColorsから変数を抽出
+    if (settings.customColors && Array.isArray(settings.customColors)) {
+      settings.customColors.forEach(item => {
+        if (item && item.name && item.color) {
+          variableSettingsStr += `${item.name}: ${item.color};\n`;
+        }
+      });
+    } else {
+      // 旧形式や、customColorsがない場合は直接プロパティから生成
+      if (settings.primaryColor) {
+        variableSettingsStr += `$primary-color: ${settings.primaryColor};\n`;
+      }
+      if (settings.secondaryColor) {
+        variableSettingsStr += `$secondary-color: ${settings.secondaryColor};\n`;
+      }
+      if (settings.accentColor) {
+        variableSettingsStr += `$accent-color: ${settings.accentColor};\n`;
+      }
+      variableSettingsStr += `$blue: #408F95;\n`;
+      variableSettingsStr += `$text-color: #000000;\n`;
+    }
+
+    return variableSettingsStr;
+  } catch (error) {
+    console.error('CSS変数生成エラー:', error);
+    return '';
   }
 };
 
@@ -226,7 +263,7 @@ ${spElements.length > 0 ? `- SP Image: ${JSON.stringify(spElements)}` : ""}
 
 // 設定セクションを構築する関数
 const buildSettingsSection = (settings, pcColors, spColors) => {
-  if (!settings.resetCSS && !settings.cssVariables && !settings.responsiveSettings) {
+  if (!settings.resetCSS && !settings.variableSettings && !settings.responsiveSettings) {
     return '';
   }
 
@@ -243,7 +280,7 @@ ${settings.resetCSS}
 `;
   }
 
-  if (settings.cssVariables) {
+  if (settings.variableSettings) {
     section += `
 ### Color Guidelines:
 - Use ONLY HEX color values directly in your CSS
@@ -252,7 +289,7 @@ ${settings.resetCSS}
 `;
 
     // 変数からHEX値を抽出
-    const hexValues = extractHexValuesFromVariables(settings.cssVariables);
+    const hexValues = extractHexValuesFromVariables(settings.variableSettings);
 
     // 抽出した色を追加
     if (hexValues.length > 0) {
@@ -278,10 +315,10 @@ ${settings.resetCSS}
 
 `;
   } else {
-    // cssVariablesがない場合
+    // variableSettingsがない場合
     section += `### CSS Variables:
 \`\`\`css
-${settings.cssVariables}
+${settings.variableSettings}
 \`\`\`
 
 `;
