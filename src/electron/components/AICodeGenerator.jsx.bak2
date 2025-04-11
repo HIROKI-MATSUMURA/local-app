@@ -1445,7 +1445,7 @@ ${editingCSS}
         if (flattenedCSS !== cssContent) {
           console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
           // 次回のAI生成時の参考情報として表示
-          
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
         }
 
         // pxをremに変換
@@ -1719,7 +1719,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         if (flattenedCSS !== css) {
           console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
           // 次回のAI生成時の参考情報として表示
-          
+          alert("AIが生成したSCSSにネスト構造が含まれていました。\n自動的にフラット構造に変換しましたが、プロンプトを強化して再生成することをお勧めします。");
         }
 
         // pxをremに変換

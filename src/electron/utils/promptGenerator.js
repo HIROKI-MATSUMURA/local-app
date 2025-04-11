@@ -288,12 +288,58 @@ ${settings.cssVariables}
   }
 
   if (settings.responsiveSettings) {
-    section += `### Responsive Settings:
-\`\`\`css
-${settings.responsiveSettings}
+    // JSONオブジェクトの場合の処理
+    try {
+      let responsiveSettingsContent = '';
+
+      // レスポンシブモードの取得
+      const respMode = settings.responsiveSettings.responsiveMode || 'sp';
+      responsiveSettingsContent += `- Responsive Mode: ${respMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}\n`;
+
+      // ブレークポイント情報の取得
+      if (settings.responsiveSettings.breakpoints && Array.isArray(settings.responsiveSettings.breakpoints)) {
+        const activeBreakpoints = settings.responsiveSettings.breakpoints
+          .filter(bp => bp.active)
+          .sort((a, b) => a.value - b.value);
+
+        if (activeBreakpoints.length > 0) {
+          responsiveSettingsContent += '- Breakpoints:\n';
+          activeBreakpoints.forEach(bp => {
+            responsiveSettingsContent += `  * ${bp.name}: ${bp.value}px\n`;
+          });
+        }
+      }
+
+      // メディアクエリの使用例を追加
+      responsiveSettingsContent += `
+- Media Query Usage:
+\`\`\`scss
+// ${respMode === 'sp' ? 'Mobile-first approach' : 'Desktop-first approach'}
+.selector {
+  ${respMode === 'sp' ? '// Base style for mobile' : '// Base style for desktop'}
+
+  @include mq(md) {
+    ${respMode === 'sp' ? '// Style for desktop' : '// Style for mobile'}
+  }
+}
+\`\`\``;
+
+      section += `### Responsive Settings:
+${responsiveSettingsContent}
+
+`;
+    } catch (error) {
+      // エラーが発生した場合は単純に文字列として扱う
+      console.error('レスポンシブ設定の処理中にエラーが発生しました:', error);
+      section += `### Responsive Settings:
+\`\`\`
+${typeof settings.responsiveSettings === 'string'
+          ? settings.responsiveSettings
+          : JSON.stringify(settings.responsiveSettings, null, 2)}
 \`\`\`
 
 `;
+    }
   }
 
   return section;
