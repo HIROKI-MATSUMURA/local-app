@@ -35,10 +35,7 @@ const isElectron = () => {
   // 2. window.electronの存在をチェック
   const hasElectron = window.electron !== undefined;
 
-  // 3. window.requireの存在をチェック
-  const hasRequire = window.require !== undefined;
-
-  // 4. userAgentをチェック
+  // 3. userAgentをチェック
   const userAgent = navigator.userAgent.toLowerCase();
   const containsElectron = userAgent.indexOf(' electron/') > -1;
 
@@ -47,26 +44,20 @@ const isElectron = () => {
     console.log('Electron環境チェック:', {
       hasApi,
       hasElectron,
-      hasRequire,
       containsElectron,
       userAgent
     });
   }
 
-  return hasApi || hasElectron || hasRequire || containsElectron;
+  return hasApi || hasElectron || containsElectron;
 };
 
 // Node.jsモジュールを安全に読み込む
 let fs, path;
 if (isElectron()) {
   try {
-    // 異なる方法を試行
-    if (window.require) {
-      // 1. window.requireを使用
-      fs = window.require('fs');
-      path = window.require('path');
-    } else if (window.api && window.api.fs && window.api.path) {
-      // 2. window.api経由でアクセス
+    // window.api経由でのみアクセス
+    if (window.api && window.api.fs && window.api.path) {
       fs = window.api.fs;
       path = window.api.path;
     } else {

@@ -244,6 +244,7 @@ function createMainWindow() {
 
   // Python環境の初期化
   initializePythonEnvironment();
+  const isDev = !app.isPackaged; // 開発モード判定
 
   // ウィンドウオプションを設定
   const windowOptions = {
@@ -255,21 +256,20 @@ function createMainWindow() {
     show: false,
     title: 'CreAIte Code',
     webPreferences: {
-      nodeIntegration: true,
+      nodeIntegration: false,
       contextIsolation: true,
-      preload: preloadPath,
-      // 開発環境ではdevToolsを自動で開く
-      devTools: isDevelopment,
-      // モジュール解決を有効化
-      enableRemoteModule: true,
-      // サンドボックスを一時的に無効化
       sandbox: false,
-      // アプリケーション内からNodeモジュールへのアクセスを許可
-      nodeIntegrationInWorker: true,
-      // 安全でないevalを許可
-      webSecurity: false
-    }
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: !isDev, // 本番では true（開発では false）
+      allowRunningInsecureContent: isDev, // 本番では false（開発では true）
+      devTools: isDev,
+    },
   };
+
+  console.log('=== Electron起動ディレクトリ ===');
+  console.log('__dirname:', __dirname);
+  console.log('preload path:', path.join(__dirname, 'preload.js'));
+
 
   // メインウィンドウを作成
   mainWindow = new BrowserWindow(windowOptions);

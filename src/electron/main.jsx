@@ -22,15 +22,11 @@ function isElectronEnvironment() {
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
   const containsElectron = userAgent.indexOf(' electron/') > -1;
 
-  // 4. process.versionsにelectronプロパティが存在するか
-  const hasElectronProcess = typeof process !== 'undefined' &&
-    process.versions && process.versions.electron;
-
   console.log('Electron環境チェック:', {
-    hasApi, hasElectron, containsElectron, hasElectronProcess
+    hasApi, hasElectron, containsElectron
   });
 
-  return hasApi || hasElectron || containsElectron || hasElectronProcess;
+  return hasApi || hasElectron || containsElectron;
 }
 
 // Electronのポリフィルとフォールバック

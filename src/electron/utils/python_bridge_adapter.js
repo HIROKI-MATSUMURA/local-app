@@ -6,43 +6,7 @@
 
 // Electron環境かどうかチェック
 const isElectron = typeof window !== 'undefined' && window.api;
-let childProcess, path, fs, os, electronLog, app, uuid, isDev, pythonBridge;
-
-// Electron環境の場合のみモジュールをロード
-if (isElectron) {
-  try {
-    // Electronのrequireを使用
-    const _require = window.require || require;
-
-    if (typeof _require === 'function') {
-      const electron = _require('electron');
-      childProcess = _require('child_process');
-      path = _require('path');
-      fs = _require('fs');
-      os = _require('os');
-      electronLog = _require('electron-log');
-      app = electron.remote ? electron.remote.app : null;
-      try {
-        const { v4: uuidv4 } = _require('uuid');
-        uuid = { v4: uuidv4 };
-      } catch (err) {
-        console.warn('UUID モジュールをロードできませんでした:', err);
-        uuid = { v4: () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` };
-      }
-      isDev = _require('electron-is-dev');
-
-      try {
-        pythonBridge = _require('../../../python_bridge');
-      } catch (bridgeErr) {
-        console.warn('Python ブリッジをロードできませんでした:', bridgeErr);
-      }
-    } else {
-      console.warn('requireが利用できません - ブラウザ環境と判断します');
-    }
-  } catch (err) {
-    console.warn('Electronモジュールをロードできませんでした - ブラウザ環境として続行します:', err);
-  }
-}
+// すべてのAPIアクセスはwindow.apiを通して行う
 
 // リクエストIDカウンター
 let requestCounter = 0;
@@ -81,13 +45,12 @@ const logger = {
 function getPythonScriptPath(scriptName) {
   if (!isElectron) return null;
 
-  if (isDev) {
-    // 開発モードでは、プロジェクトルートからのパス
-    return path.join(process.cwd(), scriptName);
-  } else {
-    // 本番モードでは、extraResourcesからのパス
-    return path.join(app.getAppPath(), '..', 'extraResources', scriptName);
+  // パス操作はwindow.api.pathを使用
+  if (window.api && window.api.path) {
+    return window.api.path.join(scriptName);
   }
+
+  return scriptName;
 }
 
 /**
@@ -96,19 +59,11 @@ function getPythonScriptPath(scriptName) {
 function getPythonInterpreter() {
   if (!isElectron) return null;
 
-  // 環境変数からPythonパスを取得試行
-  const pythonEnvPath = process.env.PYTHON_PATH;
-
-  if (pythonEnvPath && fs.existsSync(pythonEnvPath)) {
-    return pythonEnvPath;
-  }
-
   // OSごとのデフォルトPythonパスを試行
-  const platform = os.platform();
   let pythonCommands = ['python3', 'python'];
 
-  // WindowsではPythonがレジストリに登録されている可能性がある
-  if (platform === 'win32') {
+  // Windowsではpythonコマンドを優先
+  if (navigator.platform.toLowerCase().includes('win')) {
     pythonCommands = ['python', 'py'];
   }
 
@@ -125,49 +80,17 @@ async function initialize() {
     return false;
   }
 
-  if (isInitialized && pythonProcess) {
-    return true;
-  }
-
   try {
-    const pythonScript = getPythonScriptPath('python_server.py');
-    const pythonInterpreter = getPythonInterpreter();
-
-    logger.info(`Pythonサーバーを起動します: ${pythonInterpreter} ${pythonScript}`);
-
-    // Pythonプロセスを起動
-    pythonProcess = childProcess.spawn(pythonInterpreter, [pythonScript], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-    });
-
-    // 標準出力ハンドラ
-    pythonProcess.stdout.on('data', handlePythonMessage);
-
-    // 標準エラーハンドラ
-    pythonProcess.stderr.on('data', handlePythonError);
-
-    // プロセス終了ハンドラ
-    pythonProcess.on('close', handlePythonExit);
-
-    // 環境チェック
-    const checkResult = await sendRequest('check_environment', {});
-
-    if (checkResult.status === 'missing_dependencies') {
-      logger.info('必要なPythonパッケージをインストールします...');
-      const setupResult = await sendRequest('setup_environment', {});
-
-      if (!setupResult.success) {
-        logger.error('Pythonパッケージのインストールに失敗しました:', setupResult.message);
-        return false;
-      }
-
-      logger.info('Pythonパッケージのインストールが完了しました:', setupResult.message);
+    // APIを通じてPythonブリッジの初期化を実行
+    if (window.api && window.api.startPythonBridge) {
+      const result = await window.api.startPythonBridge();
+      isInitialized = result.success;
+      logger.info('Pythonブリッジ初期化結果:', result);
+      return result.success;
     }
 
-    isInitialized = true;
-    logger.info('Pythonブリッジを初期化しました');
-    return true;
+    logger.error('window.api.startPythonBridgeが見つかりません');
+    return false;
   } catch (error) {
     logger.error('Pythonブリッジの初期化に失敗しました:', error);
     return false;
@@ -241,89 +164,32 @@ function sendRequest(command, params = {}) {
     return Promise.reject(new Error('ブラウザ環境ではPythonリクエストは実行できません'));
   }
 
-  return new Promise((resolve, reject) => {
-    if (!pythonProcess || pythonProcess.killed) {
-      reject(new Error('Pythonプロセスが実行されていません'));
-      return;
-    }
+  // APIを通じてリクエストを送信
+  if (window.api) {
+    return window.api[command] ? window.api[command](params) :
+      Promise.reject(new Error(`APIメソッド ${command} が見つかりません`));
+  }
 
-    // リクエストID生成
-    const requestId = `req_${Date.now()}_${requestCounter++}`;
-
-    // リクエストオブジェクト作成
-    const request = {
-      id: requestId,
-      command,
-      ...params
-    };
-
-    // コールバックを保存
-    pendingRequests.set(requestId, { resolve, reject });
-
-    // タイムアウト設定
-    const timeoutMs = params.timeout || 30000; // デフォルト30秒
-    const timeoutId = setTimeout(() => {
-      if (pendingRequests.has(requestId)) {
-        pendingRequests.delete(requestId);
-        reject(new Error(`リクエストがタイムアウトしました: ${command}`));
-      }
-    }, timeoutMs);
-
-    // プロミスにタイムアウトクリアを追加
-    const originalResolve = pendingRequests.get(requestId).resolve;
-    pendingRequests.set(requestId, {
-      resolve: (value) => {
-        clearTimeout(timeoutId);
-        originalResolve(value);
-      },
-      reject: (reason) => {
-        clearTimeout(timeoutId);
-        reject(reason);
-      }
-    });
-
-    try {
-      // JSONリクエストをPythonプロセスに送信
-      const requestString = JSON.stringify(request) + '\n';
-      pythonProcess.stdin.write(requestString);
-    } catch (error) {
-      pendingRequests.delete(requestId);
-      clearTimeout(timeoutId);
-      reject(error);
-    }
-  });
+  return Promise.reject(new Error('window.apiが見つかりません'));
 }
 
 /**
  * リソースをクリーンアップし、Pythonプロセスを終了
  */
 async function shutdown() {
-  if (!isElectron) return;
+  if (!isElectron) {
+    return;
+  }
 
   isShuttingDown = true;
 
-  if (pythonProcess && !pythonProcess.killed) {
-    try {
-      // 正常終了をリクエスト
-      await sendRequest('exit');
-    } catch (error) {
-      logger.warn('Pythonプロセスの正常終了に失敗しました:', error);
-    }
-
-    // 強制終了
-    try {
-      pythonProcess.kill();
-    } catch (error) {
-      logger.error('Pythonプロセスの強制終了に失敗しました:', error);
-    }
+  // APIを通じてシャットダウン
+  if (window.api && window.api.stopPythonBridge) {
+    await window.api.stopPythonBridge();
   }
 
-  // リソースのクリーンアップ
-  pythonProcess = null;
   isInitialized = false;
   isShuttingDown = false;
-
-  logger.info('Pythonブリッジをシャットダウンしました');
 }
 
 /**
@@ -333,12 +199,15 @@ async function shutdown() {
  */
 export const extractColorsFromImage = async (imageBase64) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] extractColorsFromImage はブラウザでは動作しません`);
-    return [];
+    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('extract_colors', { image_data: imageBase64 });
+  try {
+    return window.api.extractColorsFromImage(imageBase64);
+  } catch (error) {
+    logger.error('色抽出処理エラー:', error);
+    return { success: false, data: [], error: error.message || String(error) };
+  }
 };
 
 /**
@@ -348,12 +217,15 @@ export const extractColorsFromImage = async (imageBase64) => {
  */
 export const extractTextFromImage = async (imageBase64) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] extractTextFromImage はブラウザでは動作しません`);
-    return "";
+    return { success: false, data: '', error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('extract_text', { image_data: imageBase64 });
+  try {
+    return window.api.extractTextFromImage(imageBase64);
+  } catch (error) {
+    logger.error('テキスト抽出処理エラー:', error);
+    return { success: false, data: '', error: error.message || String(error) };
+  }
 };
 
 /**
@@ -363,12 +235,15 @@ export const extractTextFromImage = async (imageBase64) => {
  */
 export const analyzeImageSections = async (imageBase64) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] analyzeImageSections はブラウザでは動作しません`);
-    return [];
+    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('analyze_sections', { image_data: imageBase64 });
+  try {
+    return window.api.analyzeImageSections(imageBase64);
+  } catch (error) {
+    logger.error('セクション分析処理エラー:', error);
+    return { success: false, data: [], error: error.message || String(error) };
+  }
 };
 
 /**
@@ -378,12 +253,15 @@ export const analyzeImageSections = async (imageBase64) => {
  */
 export const analyzeLayoutPattern = async (imagePath) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] analyzeLayoutPattern はブラウザでは動作しません`);
-    return { layoutType: "unknown", confidence: 0.5 };
+    return { success: false, data: { layoutType: 'unknown' }, error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('analyze_layout', { image_path: imagePath });
+  try {
+    return window.api.analyzeImage(imagePath, { type: 'layout' });
+  } catch (error) {
+    logger.error('レイアウト分析処理エラー:', error);
+    return { success: false, data: { layoutType: 'unknown' }, error: error.message || String(error) };
+  }
 };
 
 /**
@@ -393,12 +271,15 @@ export const analyzeLayoutPattern = async (imagePath) => {
  */
 export const detectFeatureElements = async (imagePath) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] detectFeatureElements はブラウザでは動作しません`);
-    return { elements: [] };
+    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('detect_features', { image_path: imagePath });
+  try {
+    return window.api.analyzeImage(imagePath, { type: 'features' });
+  } catch (error) {
+    logger.error('特徴要素検出処理エラー:', error);
+    return { success: false, data: [], error: error.message || String(error) };
+  }
 };
 
 /**
@@ -408,12 +289,15 @@ export const detectFeatureElements = async (imagePath) => {
  */
 export const detectMainSections = async (imagePath) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] detectMainSections はブラウザでは動作しません`);
-    return { sections: [] };
+    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('detect_sections', { image_path: imagePath });
+  try {
+    return window.api.analyzeImage(imagePath, { type: 'sections' });
+  } catch (error) {
+    logger.error('メインセクション検出処理エラー:', error);
+    return { success: false, data: [], error: error.message || String(error) };
+  }
 };
 
 /**
@@ -423,12 +307,15 @@ export const detectMainSections = async (imagePath) => {
  */
 export const detectCardElements = async (imagePath) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] detectCardElements はブラウザでは動作しません`);
-    return { cards: [] };
+    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('detect_cards', { image_path: imagePath });
+  try {
+    return window.api.analyzeImage(imagePath, { type: 'cards' });
+  } catch (error) {
+    logger.error('カード要素検出処理エラー:', error);
+    return { success: false, data: [], error: error.message || String(error) };
+  }
 };
 
 /**
@@ -439,13 +326,13 @@ export const detectCardElements = async (imagePath) => {
  */
 export const analyzeImage = async (imageBase64, options = {}) => {
   if (!isElectron) {
-    console.warn(`[python_bridge_adapter] analyzeImage はブラウザでは動作しません`);
-    return { success: false, reason: "ブラウザ環境では実行できません" };
+    return { success: false, data: {}, error: 'ブラウザ環境では処理できません' };
   }
 
-  await initialize();
-  return sendRequest('analyze_image', {
-    image_data: imageBase64,
-    options
-  });
+  try {
+    return window.api.analyzeImage({ image: imageBase64, ...options });
+  } catch (error) {
+    logger.error('画像解析処理エラー:', error);
+    return { success: false, data: {}, error: error.message || String(error) };
+  }
 };

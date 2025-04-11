@@ -282,7 +282,17 @@ contextBridge.exposeInMainWorld('api', {
   // Python画像処理API
   extractColorsFromImage: (imageData) => ipcRenderer.invoke('extract-colors-from-image', imageData),
   extractTextFromImage: (imageData) => ipcRenderer.invoke('extract-text-from-image', imageData),
-  analyzeImageSections: (imageData) => ipcRenderer.invoke('analyze-image-sections', imageData)
+  analyzeImageSections: (imageData) => ipcRenderer.invoke('analyze-image-sections', imageData),
+
+  // 拡張性重視派（エラーハンドリングしたいならこっち）
+  generateCode: async (data) => {
+    try {
+      return await ipcRenderer.invoke('generate-code', data);
+    } catch (err) {
+      console.error('generateCode failed:', err);
+      return { success: false, error: err };
+    }
+  }
 });
 
 // Electronオブジェクトも公開
