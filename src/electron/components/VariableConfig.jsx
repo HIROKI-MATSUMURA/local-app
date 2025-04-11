@@ -72,7 +72,37 @@ const VariableConfig = forwardRef((props, ref) => {
     },
 
     join: (...parts) => {
-      return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+      // 各パーツを文字列に変換し、nullやundefinedや非文字列オブジェクトを適切に処理
+      const validParts = parts.map(part => {
+        // nullやundefinedは空文字に
+        if (part === null || part === undefined) return '';
+
+        // オブジェクトや配列の場合は空文字に
+        if (typeof part === 'object') {
+          console.warn('pathHelper.join: オブジェクト型の値が渡されました:', part);
+          return '';
+        }
+
+        // 空文字列、NaN、Infinityなどの特殊な値も空文字に
+        if (part === '' || Number.isNaN(part) || part === Infinity || part === -Infinity) {
+          console.warn('pathHelper.join: 特殊な値が渡されました:', part);
+          return '';
+        }
+
+        // それ以外は文字列に変換
+        try {
+          return String(part);
+        } catch (error) {
+          console.error('pathHelper.join: 文字列変換に失敗しました:', error);
+          return '';
+        }
+      });
+
+      // 値がある要素だけをフィルタリングして結合
+      const path = validParts.filter(Boolean).join('/');
+
+      // 重複スラッシュを削除して返す
+      return path.replace(/\/+/g, '/');
     }
   };
 
@@ -281,12 +311,10 @@ const VariableConfig = forwardRef((props, ref) => {
 
       // ファイルが存在するか確認
       const exists = await window.api.fs.exists(settingFilePath);
-      if (!exists) {
+      if (!exists.exists) {
         console.log('_setting.scssファイルが見つかりません:', settingFilePath);
         return null;
       }
-
-      console.log('_setting.scssファイルを読み込み開始:', settingFilePath);
 
       // ファイルからSCSSの内容を読み込み
       const fileResult = await window.api.fs.readFile(settingFilePath);
@@ -623,18 +651,47 @@ const VariableConfig = forwardRef((props, ref) => {
 
   // 変数をSCSSに変換して保存する関数
   const saveVariablesToFile = async (data) => {
-    if (!isElectronContext || !activeProject || !activeProject.path) {
+    if (!isElectronContext || !activeProject) {
       console.error('ファイルシステムへの保存ができない環境です');
       return false;
     }
 
+    // activeProject.pathの検証
+    if (!activeProject.path) {
+      console.error('プロジェクトパスが設定されていません');
+      return false;
+    }
+
+    if (typeof activeProject.path !== 'string') {
+      console.error('プロジェクトパスが文字列ではありません:', typeof activeProject.path);
+      console.error('プロジェクトパスの内容:', activeProject.path);
+      return false;
+    }
+
+    // デバッグ情報：パス作成前のactiveProject.pathの内容を詳細に表示
+    console.log('保存処理開始 - activeProject.path:', JSON.stringify(activeProject.path));
+    console.log('activeProject.path の型:', typeof activeProject.path);
+    console.log('activeProject.path の値:', activeProject.path);
+
     try {
-      // 保存先ディレクトリの確認と作成
-      const scssDir = pathHelper.join(activeProject.path, 'src', 'scss', 'global');
-      console.log('SCSS保存先ディレクトリを作成します:', scssDir);
+      // パスを段階的に構築して検証
+      const projectPath = activeProject.path.trim();
+      console.log(`検証済みプロジェクトパス: ${projectPath}`);
+
+      // src ディレクトリのパスを構築
+      const srcDir = pathHelper.join(projectPath, 'src');
+      console.log(`srcディレクトリパス: ${srcDir}`);
+
+      // scss ディレクトリのパスを構築
+      const scssDir = pathHelper.join(srcDir, 'scss');
+      console.log(`scssディレクトリパス: ${scssDir}`);
+
+      // global ディレクトリのパスを構築
+      const globalDir = pathHelper.join(scssDir, "globals");
+      console.log(`globalディレクトリパス: ${globalDir}`);
 
       try {
-        await window.api.fs.mkdir(scssDir, { recursive: true });
+        await window.api.fs.mkdir(globalDir, { recursive: true });
       } catch (mkdirError) {
         console.error('ディレクトリ作成エラー:', mkdirError);
         return false;
@@ -647,9 +704,9 @@ const VariableConfig = forwardRef((props, ref) => {
         return false;
       }
 
-      // ファイルに保存
-      const settingFilePath = pathHelper.join(scssDir, '_setting.scss');
-      console.log('_setting.scssファイルに保存します:', settingFilePath);
+      // ファイルパスを構築
+      const settingFilePath = pathHelper.join(globalDir, '_setting.scss');
+      console.log(`_setting.scssファイルに保存します: ${settingFilePath}`);
 
       const result = await window.api.fs.writeFile(settingFilePath, scssContent);
 
@@ -658,7 +715,7 @@ const VariableConfig = forwardRef((props, ref) => {
         return false;
       }
 
-      console.log('_setting.scssファイルを保存しました:', settingFilePath);
+      console.log(`_setting.scssファイルを保存しました: ${settingFilePath}`);
       return true;
     } catch (error) {
       console.error('_setting.scss保存エラー:', error);

@@ -38,7 +38,37 @@ const pathHelper = {
   },
 
   join: (...parts) => {
-    return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+    // 各パーツを文字列に変換し、nullやundefinedや非文字列オブジェクトを適切に処理
+    const validParts = parts.map(part => {
+      // nullやundefinedは空文字に
+      if (part === null || part === undefined) return '';
+
+      // オブジェクトや配列の場合は空文字に
+      if (typeof part === 'object') {
+        console.warn('pathHelper.join: オブジェクト型の値が渡されました:', part);
+        return '';
+      }
+
+      // 空文字列、NaN、Infinityなどの特殊な値も空文字に
+      if (part === '' || Number.isNaN(part) || part === Infinity || part === -Infinity) {
+        console.warn('pathHelper.join: 特殊な値が渡されました:', part);
+        return '';
+      }
+
+      // それ以外は文字列に変換
+      try {
+        return String(part);
+      } catch (error) {
+        console.error('pathHelper.join: 文字列変換に失敗しました:', error);
+        return '';
+      }
+    });
+
+    // 値がある要素だけをフィルタリングして結合
+    const path = validParts.filter(Boolean).join('/');
+
+    // 重複スラッシュを削除して返す
+    return path.replace(/\/+/g, '/');
   }
 };
 
@@ -329,11 +359,46 @@ select {
 
   // リセットCSSファイルの存在確認と作成
   const ensureResetCssFile = async (content = '') => {
-    if (!isElectronContext || !activeProject || !activeProject.path) return false;
+    if (!isElectronContext || !activeProject) {
+      console.error('ファイルシステムへの保存ができない環境です');
+      return false;
+    }
+
+    // activeProject.pathの検証
+    if (!activeProject.path) {
+      console.error('プロジェクトパスが設定されていません');
+      return false;
+    }
+
+    if (typeof activeProject.path !== 'string') {
+      console.error('プロジェクトパスが文字列ではありません:', typeof activeProject.path);
+      console.error('プロジェクトパスの内容:', activeProject.path);
+      return false;
+    }
 
     try {
-      const baseDir = pathHelper.join(activeProject.path, 'src', 'scss', 'base');
+      // プロジェクトのパスを正確に確認
+      console.log(`プロジェクトパス: ${activeProject.path}`);
+
+      // パスを段階的に構築して検証
+      const projectPath = activeProject.path.trim();
+      console.log(`検証済みプロジェクトパス: ${projectPath}`);
+
+      // src ディレクトリのパスを構築
+      const srcDir = pathHelper.join(projectPath, 'src');
+      console.log(`srcディレクトリパス: ${srcDir}`);
+
+      // scss ディレクトリのパスを構築
+      const scssDir = pathHelper.join(srcDir, 'scss');
+      console.log(`scssディレクトリパス: ${scssDir}`);
+
+      // base ディレクトリのパスを構築
+      const baseDir = pathHelper.join(scssDir, 'base');
+      console.log(`baseディレクトリパス: ${baseDir}`);
+
+      // ファイルパスを構築
       const filePath = pathHelper.join(baseDir, '_reset.scss');
+      console.log(`リセットCSSファイルのパス: ${filePath}`);
 
       // ディレクトリの存在確認
       const dirExists = await window.api.fs.exists(baseDir);
@@ -391,7 +456,14 @@ select {
         await ensureResetCssFile(resetCssContent);
 
         // ファイルに保存
-        await window.api.fs.writeFile(resetCssPath, resetCssContent);
+        const result = await window.api.fs.writeFile(resetCssPath, resetCssContent);
+
+        if (!result || !result.success) {
+          console.error('ファイル書き込みエラー:', result?.error || 'unknown error');
+          showStatus('ファイルシステムへの保存に失敗しました', false);
+          setIsProcessing(false);
+          return;
+        }
       }
 
       setIsSaved(true);

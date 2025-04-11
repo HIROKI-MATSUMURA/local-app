@@ -24,7 +24,45 @@ const pathHelper = {
   },
 
   join: (...parts) => {
-    return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+    // 各パーツを文字列に変換し、nullやundefinedや非文字列オブジェクトを適切に処理
+    const validParts = parts.map(part => {
+      // nullやundefinedは空文字に
+      if (part === null || part === undefined) return '';
+
+      // オブジェクトや配列の場合は文字列に変換
+      if (typeof part === 'object') {
+        // オブジェクトの場合はJSON文字列化して警告
+        console.warn('pathHelper.join: オブジェクト型の値が渡されました:', part);
+
+        // オブジェクトが単純な値を持っている場合は文字列化を試みる
+        try {
+          return String(part);
+        } catch (error) {
+          console.error('オブジェクトの文字列変換に失敗:', error);
+          return '';
+        }
+      }
+
+      // 空文字列、NaN、Infinityなどの特殊な値も空文字に
+      if (part === '' || Number.isNaN(part) || part === Infinity || part === -Infinity) {
+        console.warn('pathHelper.join: 特殊な値が渡されました:', part);
+        return '';
+      }
+
+      // それ以外は文字列に変換
+      try {
+        return String(part);
+      } catch (error) {
+        console.error('pathHelper.join: 文字列変換に失敗しました:', error);
+        return '';
+      }
+    });
+
+    // 値がある要素だけをフィルタリングして結合
+    const path = validParts.filter(Boolean).join('/');
+
+    // 重複スラッシュを削除して返す
+    return path.replace(/\/+/g, '/');
   }
 };
 
@@ -117,13 +155,17 @@ const ResponsiveConfig = ({ activeProject }) => {
 
   // ブレークポイント設定からSCSSコードを生成する関数
   const generateScssContent = useCallback((breakpointsArr, mode) => {
+    const currentMode = mode || responsiveMode;
+    console.log(`SCSSコード生成: モード = ${currentMode}`);
+
     // アクティブなブレークポイントだけをフィルタリング
     const activeBreakpoints = breakpointsArr.filter(bp => bp.active);
+    console.log(`アクティブなブレークポイント:`, activeBreakpoints);
 
-    return `@use "sass:map";
+    const scssCode = `@use "sass:map";
 
 // どっちファーストの設定（"sp" or "pc"）
-$startFrom: ${mode || responsiveMode};
+$startFrom: ${currentMode};
 
 // ブレークポイント
 $breakpoints: (
@@ -133,7 +175,8 @@ ${activeBreakpoints.map(bp => `  ${bp.name}: ${bp.value}px`).join(',\n')}
 // メディアクエリ
 $mediaquerys: (
 ${activeBreakpoints.map(bp => {
-      const condition = (mode || responsiveMode) === 'sp'
+      // SPファーストの場合はmin-width、PCファーストの場合はmax-width
+      const condition = currentMode === 'sp'
         ? `"screen and (min-width: #{map.get($breakpoints,'${bp.name}')})"`
         : `"screen and (max-width: #{map.get($breakpoints,'${bp.name}')})"`;
       return `  ${bp.name}: ${condition}`;
@@ -147,6 +190,9 @@ ${activeBreakpoints.map(bp => {
   }
 }
 `;
+
+    console.log(`生成されたSCSSコード:`, scssCode);
+    return scssCode;
   }, [responsiveMode]);
 
   // プロジェクト変更時のデータ初期化・読み込み
@@ -156,6 +202,31 @@ ${activeBreakpoints.map(bp => {
       name: activeProject?.name,
       path: activeProject?.path
     });
+
+    // プロジェクトパスの検証
+    if (activeProject?.path) {
+      // パスが文字列であることを確認
+      if (typeof activeProject.path !== 'string') {
+        console.error('activeProject.pathが文字列ではありません:', typeof activeProject.path);
+      } else if (activeProject.path.trim() === '') {
+        console.error('activeProject.pathが空文字列です');
+      } else {
+        console.log('有効なプロジェクトパス:', activeProject.path);
+
+        // 必要なサブディレクトリパスの構築（ログ目的）- pathHelper.joinを使用
+        const projectPath = activeProject.path.trim();
+        const srcDir = pathHelper.join(projectPath, 'src');
+        const scssDir = pathHelper.join(srcDir, 'scss');
+        const globalDir = pathHelper.join(scssDir, "globals");
+        const filePath = pathHelper.join(globalDir, '_breakpoints.scss');
+
+        console.log('予想されるパス構造:', {
+          scssDir,
+          globalDir,
+          breakpointsFile: filePath
+        });
+      }
+    }
 
     // プロジェクト切り替え時にステートをリセット
     setIsProcessing(false);
@@ -247,29 +318,71 @@ ${activeBreakpoints.map(bp => {
       isMounted.current = false;
     };
   }, [activeProject?.id, activeProject?.path, generateScssContent, showStatus]);
+  console.log('SCSSファイル保存前の activeProject:', activeProject);
+  console.log('activeProject.path:', activeProject?.path);
 
   // SCSSファイルを保存する関数
   const saveToFile = async (breakpointsData, mode) => {
-    if (!isElectronContext || !activeProject || !activeProject.path) return false;
+    if (!isElectronContext || !activeProject || !activeProject.id) {
+      console.error('ファイル保存に必要な条件が満たされていません: Electron環境でないか、アクティブなプロジェクトがありません');
+      return false;
+    }
+
+    // activeProject.pathの検証
+    if (!activeProject.path) {
+      console.error('プロジェクトパスが設定されていません');
+      return false;
+    }
+
+    if (typeof activeProject.path !== 'string') {
+      console.error('プロジェクトパスが文字列ではありません:', typeof activeProject.path);
+      console.error('プロジェクトパスの内容:', activeProject.path);
+      return false;
+    }
 
     try {
-      const baseDir = pathHelper.join(activeProject.path, 'src', 'scss', 'global');
-      const filePath = pathHelper.join(baseDir, '_breakpoints.scss');
+      // プロジェクトのパスを正確に確認
+      console.log(`プロジェクトパス: ${activeProject.path}`);
+
+      // パスを段階的に構築して検証
+      const projectPath = activeProject.path.trim();
+      console.log(`検証済みプロジェクトパス: ${projectPath}`);
+
+      // src ディレクトリのパスを構築
+      const srcDir = pathHelper.join(projectPath, 'src');
+      console.log(`srcディレクトリパス: ${srcDir}`);
+
+      // scss ディレクトリのパスを構築
+      const scssDir = pathHelper.join(srcDir, 'scss');
+      console.log(`scssディレクトリパス: ${scssDir}`);
+
+      // global ディレクトリのパスを構築
+      const globalDir = pathHelper.join(scssDir, "globals");
+      console.log(`globalディレクトリパス: ${globalDir}`);
+
+      // ファイルパスを構築
+      const filePath = pathHelper.join(globalDir, '_breakpoints.scss');
+      console.log(`SCSSファイルの保存先パス: ${filePath}`);
 
       // ディレクトリの存在確認
-      const dirExists = await window.api.fs.exists(baseDir);
+      const dirExists = await window.api.fs.exists(globalDir);
 
       if (!dirExists.exists) {
-        console.log(`ディレクトリが存在しないため作成します: ${baseDir}`);
-        await window.api.fs.mkdir(baseDir, { recursive: true });
+        console.log(`ディレクトリが存在しないため作成します: ${globalDir}`);
+        await window.api.fs.mkdir(globalDir, { recursive: true });
       }
 
       // SCSSコードを生成して保存
       const scssContent = generateScssContent(breakpointsData, mode);
-      await window.api.fs.writeFile(filePath, scssContent);
+      const result = await window.api.fs.writeFile(filePath, scssContent);
 
-      console.log(`_breakpoints.scssを保存しました: ${filePath}`);
-      return true;
+      if (result.success) {
+        console.log(`_breakpoints.scssを正常に保存しました: ${filePath}`);
+        return true;
+      } else {
+        console.error(`_breakpoints.scssの保存に失敗しました: ${filePath}`, result.error);
+        return false;
+      }
     } catch (error) {
       console.error('ファイル保存エラー:', error);
       return false;
@@ -490,15 +603,25 @@ ${activeBreakpoints.map(bp => {
 
       // ファイルシステムにも保存
       if (isElectronContext && activeProject.path) {
-        await saveToFile(validatedBreakpoints, responsiveMode);
+        const fileResult = await saveToFile(validatedBreakpoints, responsiveMode);
+        if (!fileResult) {
+          console.error('SCSSファイルの保存に失敗しました');
+          // エラーを投げるのではなく、ユーザーに警告を表示
+          showStatus('JSONには保存しましたが、SCSSファイルの保存に失敗しました。パスを確認してください。', false);
+        } else {
+          // 状態を更新
+          setBreakpoints(validatedBreakpoints);
+          setIsSaved(true);
+          showStatus('レスポンシブ設定を保存しました');
+
+          console.log('レスポンシブ設定を保存しました', settings);
+        }
+      } else {
+        // Electron環境以外またはプロジェクトパスがない場合
+        setBreakpoints(validatedBreakpoints);
+        setIsSaved(true);
+        showStatus('JSONに設定を保存しました (SCSSファイルは保存されていません)');
       }
-
-      // 状態を更新
-      setBreakpoints(validatedBreakpoints);
-      setIsSaved(true);
-      showStatus('レスポンシブ設定を保存しました');
-
-      console.log('レスポンシブ設定を保存しました', settings);
 
       // 再読み込みを行ってデータの整合性を確保
       const reloadedSettings = await projectDataStore.loadProjectData(activeProject.id, 'responsiveSettings');

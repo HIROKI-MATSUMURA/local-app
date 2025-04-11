@@ -284,6 +284,12 @@ contextBridge.exposeInMainWorld('api', {
   extractTextFromImage: (imageData) => ipcRenderer.invoke('extract-text-from-image', imageData),
   analyzeImageSections: (imageData) => ipcRenderer.invoke('analyze-image-sections', imageData),
 
+  // プロジェクト追加ダイアログ
+  openProjectDialog: () => ipcRenderer.invoke('open-project-dialog'),
+
+  // フォルダを開く
+  openFolder: (path) => ipcRenderer.invoke('open-folder', path),
+
   // 拡張性重視派（エラーハンドリングしたいならこっち）
   generateCode: async (data) => {
     try {

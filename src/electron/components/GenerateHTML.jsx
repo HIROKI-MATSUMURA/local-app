@@ -53,7 +53,37 @@ const pathHelper = {
   },
 
   join: (...parts) => {
-    return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+    // 各パーツを文字列に変換し、nullやundefinedや非文字列オブジェクトを適切に処理
+    const validParts = parts.map(part => {
+      // nullやundefinedは空文字に
+      if (part === null || part === undefined) return '';
+
+      // オブジェクトや配列の場合は空文字に
+      if (typeof part === 'object') {
+        console.warn('pathHelper.join: オブジェクト型の値が渡されました:', part);
+        return '';
+      }
+
+      // 空文字列、NaN、Infinityなどの特殊な値も空文字に
+      if (part === '' || Number.isNaN(part) || part === Infinity || part === -Infinity) {
+        console.warn('pathHelper.join: 特殊な値が渡されました:', part);
+        return '';
+      }
+
+      // それ以外は文字列に変換
+      try {
+        return String(part);
+      } catch (error) {
+        console.error('pathHelper.join: 文字列変換に失敗しました:', error);
+        return '';
+      }
+    });
+
+    // 値がある要素だけをフィルタリングして結合
+    const path = validParts.filter(Boolean).join('/');
+
+    // 重複スラッシュを削除して返す
+    return path.replace(/\/+/g, '/');
   }
 };
 
@@ -401,24 +431,69 @@ const GenerateHTML = ({ activeProject }) => {
             // ファイル追加または変更
             let relativePath;
             try {
-              relativePath = pathHelper.relative(projectPath, data.filePath);
+              // projectPathの検証
+              if (!projectPath || typeof projectPath !== 'string') {
+                console.error('プロジェクトパスが無効です:', projectPath);
+                projectPath = ''; // 空文字をデフォルト値とする
+              }
+
+              // データのfilePath検証
+              if (!data.filePath || typeof data.filePath !== 'string') {
+                console.error('ファイルパスが無効です:', data.filePath);
+                relativePath = fileName; // ファイル名だけをデフォルト値とする
+              } else {
+                relativePath = pathHelper.relative(projectPath, data.filePath);
+              }
             } catch (error) {
               console.error('相対パス計算エラー:', error);
               // 代替手段: 絶対パスからファイル名とディレクトリを抽出
-              const dirName = pathHelper.dirname(data.filePath);
-              const pagesDir = dirName.includes('pages') ?
-                dirName.substring(dirName.indexOf('pages') - 4) : // src/pages を含める
-                null;
-              relativePath = pagesDir ? pathHelper.join(pagesDir, fileName) : fileName;
+              let dirName = '';
+              try {
+                dirName = data.filePath && typeof data.filePath === 'string'
+                  ? pathHelper.dirname(data.filePath)
+                  : '';
+              } catch (dirnameError) {
+                console.error('ディレクトリ名抽出エラー:', dirnameError);
+                dirName = '';
+              }
+
+              let pagesDir = null;
+              if (dirName && typeof dirName === 'string') {
+                pagesDir = dirName.includes('pages')
+                  ? dirName.substring(dirName.indexOf('pages') - 4) // src/pages を含める
+                  : null;
+              }
+
+              // pathHelper.joinを使って安全にパスを構築
+              if (pagesDir) {
+                try {
+                  relativePath = pathHelper.join(pagesDir, fileName);
+                  console.log('代替方法でパスを構築しました:', relativePath);
+                } catch (joinError) {
+                  console.error('パス結合エラー:', joinError);
+                  relativePath = fileName;
+                }
+              } else {
+                relativePath = fileName;
+              }
             }
 
-            const dirName = pathHelper.dirname(relativePath);
+            // 取得した相対パスからディレクトリ名を抽出
+            let dirName;
+            try {
+              dirName = relativePath ? pathHelper.dirname(relativePath) : '';
+            } catch (error) {
+              console.error('ディレクトリ名抽出エラー (2):', error);
+              dirName = '';
+            }
 
             if (DEBUG) {
               console.log('ファイル変更の相対パス情報:', {
                 relativePath,
                 dirName,
-                fileName
+                fileName,
+                originalProjectPath: projectPath,
+                originalFilePath: data.filePath
               });
             }
 

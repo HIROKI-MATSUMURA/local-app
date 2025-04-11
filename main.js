@@ -2569,17 +2569,56 @@ $mediaquerys: (
   });
 
   ipcMain.handle('open-project-dialog', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory'],
-      title: 'プロジェクトフォルダを選択'
-    });
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'プロジェクトフォルダを選択'
+      });
 
-    if (!result.canceled && result.filePaths.length > 0) {
-      const projectPath = result.filePaths[0];
-      const projectName = path.basename(projectPath);
-      return { name: projectName, path: projectPath };
+      if (!result.canceled && result.filePaths.length > 0) {
+        const projectPath = result.filePaths[0];
+
+        // パスが文字列であることを確認
+        if (typeof projectPath !== 'string') {
+          console.error('プロジェクトパスが文字列ではありません:', typeof projectPath);
+          return {
+            error: true,
+            message: 'プロジェクトパスの型が無効です',
+            debug: { type: typeof projectPath }
+          };
+        }
+
+        // 空のパスをチェック
+        if (!projectPath.trim()) {
+          console.error('プロジェクトパスが空です');
+          return {
+            error: true,
+            message: 'プロジェクトパスが空です'
+          };
+        }
+
+        const projectName = path.basename(projectPath);
+
+        // デバッグログを追加
+        console.log('プロジェクト選択結果:', {
+          name: projectName,
+          path: projectPath,
+          pathType: typeof projectPath
+        });
+
+        return {
+          name: projectName,
+          path: String(projectPath) // 明示的に文字列型に変換
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('プロジェクトダイアログでエラーが発生しました:', error);
+      return {
+        error: true,
+        message: `プロジェクト選択中にエラーが発生しました: ${error.message}`
+      };
     }
-    return null;
   });
 
   // タブ切り替えのハンドラを追加

@@ -414,8 +414,28 @@ const ProjectManager = ({ onProjectChange }) => {
         throw new Error('プロジェクトパスが指定されていません');
       }
 
+      // パスの型を確認し、明示的に文字列に変換
+      if (typeof projectPath !== 'string') {
+        console.error('プロジェクトパスが文字列ではありません:', typeof projectPath);
+        if (projectPath === null || projectPath === undefined) {
+          throw new Error('プロジェクトパスがnullまたはundefinedです');
+        }
+        // 文字列に変換を試みる
+        try {
+          projectPath = String(projectPath);
+          console.log('プロジェクトパスを文字列に変換しました:', projectPath);
+        } catch (error) {
+          console.error('プロジェクトパスの文字列変換に失敗しました:', error);
+          throw new Error('プロジェクトパスの変換に失敗しました');
+        }
+      }
+
       // パスの最後の部分を取得（OSに依存しないように両方のパスセパレータで処理）
       const getBaseName = (path) => {
+        if (typeof path !== 'string') {
+          console.error('getBaseName: パスが文字列ではありません:', typeof path);
+          return '無名プロジェクト';
+        }
         const normalizedPath = path.replace(/\\/g, '/');
         const parts = normalizedPath.split('/');
         return parts[parts.length - 1] || '無名プロジェクト';
@@ -425,7 +445,7 @@ const ProjectManager = ({ onProjectChange }) => {
       return {
         id: uuidv4(),
         name: name || getBaseName(projectPath),
-        path: projectPath,
+        path: projectPath, // 既に文字列に変換済み
         settings: defaultSettings || {
           htmlGenerator: {
             template: 'default',
@@ -513,14 +533,39 @@ const ProjectManager = ({ onProjectChange }) => {
         return;
       }
 
-      const { path: projectPath, name } = result;
+      // 結果からプロパティを抽出し、型の確認と変換を行う
+      let { path: projectPath, name } = result;
 
-      // 必須フィールドの検証
+      // プロジェクトパスの検証
       if (!projectPath) {
         console.error('プロジェクトパスが指定されていません');
         setError('プロジェクトパスが無効です');
         return;
       }
+
+      // パスの型を確認（文字列でない場合は変換を試みる）
+      if (typeof projectPath !== 'string') {
+        console.error('プロジェクトパスが文字列ではありません:', typeof projectPath);
+        console.error('プロジェクトパスの内容:', projectPath);
+
+        try {
+          // 文字列への変換を試みる
+          projectPath = String(projectPath);
+          console.log('プロジェクトパスを文字列に変換しました:', projectPath);
+        } catch (error) {
+          console.error('プロジェクトパスの文字列変換に失敗しました:', error);
+          setError('プロジェクトパスの形式が無効です');
+          return;
+        }
+      }
+
+      // 名前の検証（名前が無効な場合はパスから取得）
+      if (!name || typeof name !== 'string') {
+        console.log('プロジェクト名が無効なため、パスから取得します');
+        name = path.basename(projectPath);
+      }
+
+      console.log('検証済みプロジェクト情報:', { name, path: projectPath, pathType: typeof projectPath });
 
       // 既存のプロジェクトをチェック（パスの正規化と厳密な比較）
       const normalizedNewPath = projectPath.replace(/\\/g, '/').toLowerCase().trim();
@@ -546,6 +591,23 @@ const ProjectManager = ({ onProjectChange }) => {
       const newProject = await initializeProject(name, projectPath);
       console.log('プロジェクト初期化完了:', newProject);
 
+      // プロジェクトオブジェクトの検証
+      if (!newProject || typeof newProject !== 'object') {
+        console.error('初期化されたプロジェクトが無効です:', newProject);
+        setError('プロジェクトの初期化に失敗しました');
+        return;
+      }
+
+      // パスの型を最終確認
+      if (typeof newProject.path !== 'string') {
+        console.error('初期化後のプロジェクトパスが文字列ではありません:', typeof newProject.path);
+        console.error('初期化後のプロジェクトパスの内容:', newProject.path);
+
+        // 致命的なエラー - この時点でパスは文字列であるべき
+        setError('プロジェクトの初期化中に重大なエラーが発生しました');
+        return;
+      }
+
       const now = new Date().toISOString();
       const completeProject = {
         ...newProject,
@@ -564,6 +626,14 @@ const ProjectManager = ({ onProjectChange }) => {
         category: 'uncategorized', // デフォルトカテゴリ
         tags: [] // 空のタグリスト
       };
+
+      // 最終的なパスの検証
+      console.log('最終プロジェクト情報:', {
+        id: completeProject.id,
+        name: completeProject.name,
+        path: completeProject.path,
+        pathType: typeof completeProject.path
+      });
 
       const updatedProjects = [...projects, completeProject];
       setProjects(updatedProjects);
@@ -594,30 +664,67 @@ const ProjectManager = ({ onProjectChange }) => {
 
   // プロジェクトアクティブ化の関数を修正（クリックイベントが呼び出すもの）
   const switchProject = async (e, projectId) => {
-    e.stopPropagation(); // 親要素のクリックイベントを停止
+    // eがnullの場合のチェックを追加
+    if (e) {
+      e.stopPropagation(); // 親要素のクリックイベントを停止
+    }
+
     try {
       const project = projects.find(p => p.id === projectId);
-      if (project && !project.isArchived) {
-        setActiveProjectId(projectId);
-        setActiveProjectSettings(project.settings);
-
-        // 最終アクセス日時を更新
-        const updatedProject = {
-          ...project,
-          lastAccessed: new Date().toISOString()
-        };
-
-        // プロジェクトリストを更新
-        const updatedProjects = projects.map(p =>
-          p.id === projectId ? updatedProject : p
-        );
-        setProjects(updatedProjects);
-
-        // プロジェクト設定を保存
-        await window.api.saveProjectSettings(updatedProject);
-        await saveActiveProject(projectId);
-        if (onProjectChange) onProjectChange(updatedProject);
+      if (!project) {
+        console.error(`プロジェクトID ${projectId} が見つかりません`);
+        return;
       }
+
+      if (project.isArchived) {
+        console.error(`プロジェクト "${project.name}" はアーカイブされています`);
+        return;
+      }
+
+      // プロジェクトのパスの検証
+      if (!project.path) {
+        console.error(`プロジェクト "${project.name}" のパスが設定されていません`);
+        // 続行はするが、ログは残す
+      } else if (typeof project.path !== 'string') {
+        console.error(`プロジェクト "${project.name}" のパスが文字列ではありません:`, typeof project.path);
+        console.error('パスの内容:', project.path);
+
+        // パスを文字列に変換
+        try {
+          project.path = String(project.path || '');
+          console.log(`プロジェクト "${project.name}" のパスを文字列に変換しました:`, project.path);
+        } catch (error) {
+          console.error(`プロジェクト "${project.name}" のパスの変換に失敗しました:`, error);
+          // 続行はするが、ログは残す
+        }
+      }
+
+      setActiveProjectId(projectId);
+      setActiveProjectSettings(project.settings);
+
+      // 最終アクセス日時を更新
+      const updatedProject = {
+        ...project,
+        lastAccessed: new Date().toISOString()
+      };
+
+      // プロジェクトリストを更新
+      const updatedProjects = projects.map(p =>
+        p.id === projectId ? updatedProject : p
+      );
+      setProjects(updatedProjects);
+
+      // プロジェクト設定を保存
+      console.log('アクティブにするプロジェクト情報:', {
+        id: updatedProject.id,
+        name: updatedProject.name,
+        path: updatedProject.path,
+        pathType: typeof updatedProject.path
+      });
+
+      await window.api.saveProjectSettings(updatedProject);
+      await saveActiveProject(projectId);
+      if (onProjectChange) onProjectChange(updatedProject);
     } catch (error) {
       console.error('プロジェクトの切り替えに失敗:', error);
       setError('プロジェクトの切り替えに失敗しました');
@@ -1135,7 +1242,11 @@ const ProjectManager = ({ onProjectChange }) => {
 
   // フォルダをエクスプローラーで開く関数
   const openFolderInExplorer = async (e, path) => {
-    e.stopPropagation(); // 親要素のクリックイベントを停止
+    // イベントオブジェクトがある場合のみstopPropagationを呼び出す
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation(); // 親要素のクリックイベントを停止
+    }
+
     try {
       if (path && path !== '未設定') {
         await window.api.openFolder(path);

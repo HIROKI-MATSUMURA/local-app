@@ -44,7 +44,36 @@ if (!isNode) {
 
   // ブラウザ環境用のダミーパスオブジェクト
   path = {
-    join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+    join: (...parts) => {
+      // 各パーツを検証して安全に変換
+      const validParts = parts.map(part => {
+        // null/undefinedは空文字列に
+        if (part === null || part === undefined) return '';
+
+        // オブジェクトや配列は空文字列に
+        if (typeof part === 'object') {
+          console.warn('path.join: オブジェクト型の値が渡されました:', part);
+          return '';
+        }
+
+        // 特殊な値も空文字列に
+        if (part === '' || Number.isNaN(part) || part === Infinity || part === -Infinity) {
+          console.warn('path.join: 特殊な値が渡されました:', part);
+          return '';
+        }
+
+        // それ以外は文字列変換を試みる
+        try {
+          return String(part);
+        } catch (error) {
+          console.error('path.join: 文字列変換に失敗しました:', error);
+          return '';
+        }
+      });
+
+      // 空でない値だけを結合
+      return validParts.filter(Boolean).join('/').replace(/\/+/g, '/');
+    },
     resolve: (...parts) => parts.join('/').replace(/\/+/g, '/'),
     dirname: (p) => p.split('/').slice(0, -1).join('/'),
     basename: (p) => p.split('/').pop()
