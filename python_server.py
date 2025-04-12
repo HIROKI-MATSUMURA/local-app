@@ -23,16 +23,25 @@ import cv2
 import argparse
 
 # ロギング設定
+# ログディレクトリを作成
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+
+# 現在時刻でログファイル名を作成
+log_file = os.path.join(log_dir, f'python_server_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stderr)  # 標準出力ではなく標準エラー出力にログを出力
+        logging.FileHandler(log_file),  # ファイルにログを出力
+        logging.StreamHandler(sys.stderr)  # 標準エラー出力にログを出力
     ]
 )
 
 # ロガー作成
 logger = logging.getLogger('python_server')
+logger.info(f"ログファイルを作成しました: {log_file}")
 
 # グローバル変数
 image_analyzer = None  # 画像解析モジュールのインスタンス

@@ -1104,11 +1104,30 @@ def extract_colors_from_image(image, **options):
 
         # 画像データが適切な形式かチェック
         if isinstance(image, dict) and 'opencv' in image:
-            return extract_colors(image['opencv'])
+            colors = extract_colors(image['opencv'])
         elif isinstance(image, np.ndarray):
-            return extract_colors(image)
+            colors = extract_colors(image)
         else:
-            return extract_colors(image)
+            colors = extract_colors(image)
+
+        # 詳細なログ出力を追加
+        logger.info("========== 色抽出結果の詳細ログ開始 ==========")
+
+        # 抽出された色の数
+        logger.info(f"抽出された色の数: {len(colors)}")
+
+        # 各色の詳細をログに出力
+        for i, color in enumerate(colors):
+            logger.info(f"色 {i+1}:")
+            logger.info(f"  RGB: {color.get('rgb', '')}")
+            logger.info(f"  HEX: {color.get('hex', '')}")
+            logger.info(f"  比率: {color.get('ratio', 0):.4f} ({color.get('ratio', 0)*100:.2f}%)")
+            if 'role' in color:
+                logger.info(f"  役割: {color.get('role', '不明')}")
+
+        logger.info("========== 色抽出結果の詳細ログ終了 ==========")
+
+        return colors
     except Exception as e:
         logger.error(f"色抽出エラー: {str(e)}")
         traceback.print_exc()
@@ -1132,11 +1151,33 @@ def extract_text_from_image(image, **options):
 
         # 画像データが適切な形式かチェック
         if isinstance(image, dict) and 'opencv' in image:
-            return extract_text(image['opencv'])
+            result = extract_text(image['opencv'])
         elif isinstance(image, np.ndarray):
-            return extract_text(image)
+            result = extract_text(image)
         else:
-            return extract_text(image)
+            result = extract_text(image)
+
+        # 詳細なログ出力を追加
+        logger.info("========== 画像解析結果の詳細ログ開始 ==========")
+
+        # テキスト抽出結果の詳細をログに出力
+        logger.info(f"抽出されたテキスト全体: {result.get('text', '')}")
+
+        # テキストブロックの詳細をログに出力
+        text_blocks = result.get('textBlocks', [])
+        logger.info(f"テキストブロック数: {len(text_blocks)}")
+
+        for i, block in enumerate(text_blocks):
+            logger.info(f"ブロック {i+1}:")
+            logger.info(f"  テキスト: {block.get('text', '')}")
+            logger.info(f"  信頼度: {block.get('confidence', 0):.3f}")
+            if 'position' in block:
+                pos = block['position']
+                logger.info(f"  位置: x={pos.get('x', 0)}, y={pos.get('y', 0)}, 幅={pos.get('width', 0)}, 高さ={pos.get('height', 0)}")
+
+        logger.info("========== 画像解析結果の詳細ログ終了 ==========")
+
+        return result
     except Exception as e:
         logger.error(f"テキスト抽出エラー: {str(e)}")
         traceback.print_exc()
@@ -1195,11 +1236,45 @@ def analyze_layout_pattern(image, **options):
 
         # 画像データが適切な形式かチェック
         if isinstance(image, dict) and 'opencv' in image:
-            return analyze_layout(image['opencv'])
+            layout = analyze_layout(image['opencv'])
         elif isinstance(image, np.ndarray):
-            return analyze_layout(image)
+            layout = analyze_layout(image)
         else:
-            return analyze_layout(image)
+            layout = analyze_layout(image)
+
+        # 詳細なログ出力を追加
+        logger.info("========== レイアウト分析結果の詳細ログ開始 ==========")
+
+        # レイアウトタイプと信頼度
+        logger.info(f"レイアウトタイプ: {layout.get('layoutType', 'unknown')}")
+        logger.info(f"信頼度: {layout.get('confidence', 0):.3f}")
+
+        # レイアウト詳細があれば出力
+        if 'layoutDetails' in layout:
+            layout_details = layout.get('layoutDetails', {})
+            dimensions = layout_details.get('dimensions', {})
+            logger.info(f"画像サイズ: 幅={dimensions.get('width', 0)}px, 高さ={dimensions.get('height', 0)}px")
+
+            sections = layout_details.get('sections', [])
+            logger.info(f"セクション数: {len(sections)}")
+
+            # 各セクションの詳細
+            for i, section in enumerate(sections):
+                logger.info(f"セクション {i+1}:")
+                section_type = section.get('type', '不明')
+                section_pos = section.get('position', {})
+                logger.info(f"  タイプ: {section_type}")
+                logger.info(f"  位置: top={section_pos.get('top', 0)}, left={section_pos.get('left', 0)}, ")
+                logger.info(f"       幅={section_pos.get('width', 0)}, 高さ={section_pos.get('height', 0)}")
+
+                # セクション内の要素があれば出力
+                elements = section.get('elements', [])
+                if elements:
+                    logger.info(f"  要素数: {len(elements)}")
+
+        logger.info("========== レイアウト分析結果の詳細ログ終了 ==========")
+
+        return layout
     except Exception as e:
         logger.error(f"レイアウト分析エラー: {str(e)}")
         traceback.print_exc()
@@ -1227,11 +1302,57 @@ def detect_feature_elements(image, **options):
 
         # 画像データが適切な形式かチェック
         if isinstance(image, dict) and 'opencv' in image:
-            return detect_elements(image['opencv'])
+            elements = detect_elements(image['opencv'])
         elif isinstance(image, np.ndarray):
-            return detect_elements(image)
+            elements = detect_elements(image)
         else:
-            return detect_elements(image)
+            elements = detect_elements(image)
+
+        # 詳細なログ出力を追加
+        logger.info("========== 要素検出結果の詳細ログ開始 ==========")
+
+        # 検出された要素の数
+        if isinstance(elements, list):
+            element_count = len(elements)
+        elif isinstance(elements, dict) and 'elements' in elements:
+            elements = elements.get('elements', [])
+            element_count = len(elements)
+        else:
+            element_count = 0
+            elements = []
+
+        logger.info(f"検出された要素の数: {element_count}")
+
+        # 各要素の詳細をログに出力
+        element_types = {}
+        for i, element in enumerate(elements):
+            logger.info(f"要素 {i+1}:")
+            element_type = element.get('type', '不明')
+            logger.info(f"  種類: {element_type}")
+            logger.info(f"  信頼度: {element.get('confidence', 0):.3f}")
+
+            # 位置情報があれば出力
+            if 'position' in element:
+                pos = element['position']
+                logger.info(f"  位置: x={pos.get('x', 0)}, y={pos.get('y', 0)}, 幅={pos.get('width', 0)}, 高さ={pos.get('height', 0)}")
+
+            # テキスト情報があれば出力
+            if 'text' in element:
+                logger.info(f"  テキスト: {element.get('text', '')}")
+
+            # 要素タイプの集計
+            if element_type not in element_types:
+                element_types[element_type] = 0
+            element_types[element_type] += 1
+
+        # 要素タイプのサマリーを出力
+        logger.info("要素タイプのサマリー:")
+        for elem_type, count in element_types.items():
+            logger.info(f"  {elem_type}: {count}個")
+
+        logger.info("========== 要素検出結果の詳細ログ終了 ==========")
+
+        return elements
     except Exception as e:
         logger.error(f"特徴要素検出エラー: {str(e)}")
         traceback.print_exc()
@@ -1263,9 +1384,9 @@ def compress_analysis_results(analysis_data, options=None):
         compressed['colors'] = colors
 
     # テキスト情報の圧縮と階層推定
+    filtered_blocks = []
     if 'text' in analysis_data:
         text_data = analysis_data['text']
-        filtered_blocks = []
 
         if 'textBlocks' in text_data:
             # 信頼度の高いテキストブロックのみ保持
@@ -1338,6 +1459,7 @@ def compress_analysis_results(analysis_data, options=None):
         }
 
     # セクション情報の圧縮（セマンティックタイプを含む）
+    image_sections = []
     if 'sections' in analysis_data:
         sections_data = analysis_data['sections']
         section_list = sections_data.get('sections', [])
@@ -1359,9 +1481,39 @@ def compress_analysis_results(analysis_data, options=None):
 
             semantic_sections.append(semantic_section)
 
+            # 画像を含むセクションを収集
+            if section_type == 'image' or 'image' in section_type.lower():
+                image_sections.append(section)
+
         compressed['sections'] = {
             'count': len(semantic_sections),
             'items': semantic_sections
+        }
+
+    # レイアウト構造の分析（テキストブロックと画像セクションを使用）
+    try:
+        # ここでテキストブロックと画像セクションからレイアウト構造を分析
+        layout_structure = analyze_layout_structure(filtered_blocks, image_sections)
+        compressed['layoutStructure'] = layout_structure
+
+        # 詳細なログを出力
+        logger.info("========== レイアウト構造分析結果 ==========")
+        logger.info(f"レイアウトタイプ: {layout_structure.get('layoutType', 'unknown')}")
+        logger.info(f"画像あり: {layout_structure.get('hasImage', False)}")
+        logger.info(f"画像位置: {layout_structure.get('imagePosition', 'なし')}")
+        logger.info(f"テキスト位置: {layout_structure.get('textPosition', 'なし')}")
+        logger.info(f"セクション数: {layout_structure.get('sectionCount', 0)}")
+        logger.info("========== レイアウト構造分析終了 ==========")
+    except Exception as e:
+        logger.error(f"レイアウト構造分析エラー: {str(e)}")
+        traceback.print_exc()
+        compressed['layoutStructure'] = {
+            'layoutType': 'unknown',
+            'hasImage': False,
+            'imagePosition': None,
+            'textPosition': None,
+            'sectionCount': 0,
+            'error': str(e)
         }
 
     # タイムスタンプの保持
@@ -1838,3 +1990,182 @@ def generate_feedback(comparison_result):
         feedback += "- 余白やパディングを元のデザインに合わせる\n"
 
     return feedback
+
+def analyze_layout_structure(text_blocks, image_sections=None):
+    """
+    テキストと画像ブロックの位置を元に、レイアウト構造を推定する
+
+    Args:
+        text_blocks: テキストブロックのリスト
+        image_sections: 画像ブロックのリスト (省略可能)
+
+    Returns:
+        dict: レイアウト構造情報
+    """
+    logger.info("========== レイアウト構造解析開始 ==========")
+    logger.info(f"テキストブロック数: {len(text_blocks) if text_blocks else 0}")
+    logger.info(f"画像セクション数: {len(image_sections) if image_sections else 0}")
+
+    layout_type = "single-column"
+    image_pos = None
+    text_pos = "center"
+
+    # テキストブロックが存在しない場合は早期リターン
+    if not text_blocks or len(text_blocks) == 0:
+        logger.info("テキストブロックがありません - レイアウト解析を中止します")
+        result = {
+            "layoutType": "unknown",
+            "hasImage": bool(image_sections),
+            "imagePosition": None,
+            "textPosition": None,
+            "sectionCount": 0
+        }
+        logger.info(f"レイアウト構造解析結果: {result}")
+        logger.info("========== レイアウト構造解析終了 ==========")
+        return result
+
+    # カラム推定（X座標に偏りがあるかどうか）
+    x_positions = [block['position']['x'] for block in text_blocks if 'position' in block]
+    if not x_positions:
+        logger.info("有効な位置情報を持つテキストブロックがありません")
+        result = {
+            "layoutType": "unknown",
+            "hasImage": bool(image_sections),
+            "imagePosition": None,
+            "textPosition": None,
+            "sectionCount": 0
+        }
+        logger.info(f"レイアウト構造解析結果: {result}")
+        logger.info("========== レイアウト構造解析終了 ==========")
+        return result
+
+    avg_x = sum(x_positions) / len(x_positions)
+    left_count = len([x for x in x_positions if x < avg_x])
+    right_count = len([x for x in x_positions if x >= avg_x])
+
+    logger.info(f"X座標分析: 平均={avg_x:.1f}, 左側={left_count}個, 右側={right_count}個")
+
+    # 画面中央からの水平バランスで判定
+    # (このロジックは画面サイズに応じて調整する必要がある)
+    if abs(left_count - right_count) > 1:
+        layout_type = "two-column"
+        text_pos = "right" if left_count < right_count else "left"
+        logger.info(f"テキスト偏り検出: {text_pos}側に偏っています → 2カラムレイアウト")
+    else:
+        logger.info("テキスト分布は均等 → 1カラムレイアウト")
+
+    # グリッドレイアウトの検出
+    # テキストブロックのY座標を分析して規則的なグリッドかどうかを判定
+    y_positions = [block['position']['y'] for block in text_blocks if 'position' in block]
+    y_positions.sort()
+    logger.info(f"Y座標ソート結果: {y_positions}")
+
+    # 隣接する要素間のY座標の差を計算
+    y_diffs = [y_positions[i+1] - y_positions[i] for i in range(len(y_positions)-1)]
+
+    if y_diffs:
+        logger.info(f"Y座標の差分: {y_diffs}")
+        avg_diff = sum(y_diffs) / len(y_diffs)
+        logger.info(f"Y座標の平均差分: {avg_diff:.1f}px")
+
+        # 差が一定の値に近いかどうかを確認 (グリッドの特徴)
+        if len(y_diffs) > 2:
+            avg_diff = sum(y_diffs) / len(y_diffs)
+            regular_spacing = all(abs(diff - avg_diff) < avg_diff * 0.3 for diff in y_diffs)
+
+            if regular_spacing:
+                logger.info("Y方向に等間隔配置を検出")
+            else:
+                logger.info("Y方向の間隔は不規則")
+
+            # 横方向の位置も考慮して、カードグリッドかどうかを判定
+            x_clusters = {}
+            for block in text_blocks:
+                if 'position' in block:
+                    pos = block['position']
+                    x_cluster = pos['x'] // 100  # 100px単位でクラスタリング
+                    if x_cluster not in x_clusters:
+                        x_clusters[x_cluster] = 0
+                    x_clusters[x_cluster] += 1
+
+            logger.info(f"X方向クラスター: {x_clusters}")
+
+            # 複数の横方向クラスターがあり、縦方向が等間隔ならグリッド
+            if len(x_clusters) > 1 and regular_spacing:
+                layout_type = "card-grid"
+                logger.info("縦方向の等間隔と複数の横方向クラスターを検出 → カードグリッドレイアウト")
+
+    # 画像位置の判定（あれば）
+    if image_sections:
+        logger.info(f"画像セクション解析: {len(image_sections)}個")
+        try:
+            # 一番大きな画像の位置を参考にする（複数ある場合）
+            if isinstance(image_sections, list) and len(image_sections) > 0:
+                # position キーがある要素のみをフィルタリング
+                valid_sections = [s for s in image_sections if 'position' in s]
+                logger.info(f"有効な位置情報を持つ画像セクション: {len(valid_sections)}個")
+
+                if valid_sections:
+                    largest = max(valid_sections,
+                                 key=lambda s: s['position'].get('width', 0) * s['position'].get('height', 0))
+                    img_x = largest['position'].get('left', 0) or largest['position'].get('x', 0)
+                    img_y = largest['position'].get('top', 0) or largest['position'].get('y', 0)
+                    img_width = largest['position'].get('width', 0)
+                    img_height = largest['position'].get('height', 0)
+
+                    logger.info(f"最大画像セクション: 位置(x={img_x}, y={img_y}), サイズ({img_width}x{img_height})")
+
+                    # 画像の位置を水平方向で判定
+                    if img_x < avg_x - 100:  # 左に偏っている
+                        image_pos = "left"
+                        logger.info("画像は左側に配置されています")
+                    elif img_x > avg_x + 100:  # 右に偏っている
+                        image_pos = "right"
+                        logger.info("画像は右側に配置されています")
+                    else:
+                        image_pos = "center"
+                        logger.info("画像は中央に配置されています")
+
+                    # テキストの垂直位置も判定
+                    avg_text_y = sum(y_positions) / len(y_positions)
+                    logger.info(f"テキストY座標平均: {avg_text_y:.1f}, 画像Y座標: {img_y}")
+
+                    if img_y < min(y_positions):
+                        # 画像がすべてのテキストより上にある
+                        image_pos = "top"
+                        logger.info("画像はすべてのテキストより上にあります")
+                    elif img_y > max(y_positions):
+                        # 画像がすべてのテキストより下にある
+                        image_pos = "bottom"
+                        logger.info("画像はすべてのテキストより下にあります")
+        except Exception as e:
+            logger.error(f"画像位置判定エラー: {e}")
+            image_pos = None
+
+    # セクション数の推定
+    # Y座標の分布からセクション数を判定
+    section_count = 1
+    if y_positions:
+        # Y座標をソートし、大きなギャップを探す
+        y_positions.sort()
+        jumps = []
+        for i in range(1, len(y_positions)):
+            if y_positions[i] - y_positions[i-1] > 100:  # 100px以上のギャップでセクション分け
+                jumps.append(i)
+                logger.info(f"セクション分割点を検出: Y={y_positions[i-1]}-{y_positions[i]} (ギャップ={y_positions[i]-y_positions[i-1]}px)")
+
+        # ジャンプの数+1がセクション数
+        section_count = len(jumps) + 1
+        logger.info(f"検出されたセクション数: {section_count}")
+
+    result = {
+        "layoutType": layout_type,
+        "hasImage": bool(image_sections),
+        "imagePosition": image_pos,
+        "textPosition": text_pos,
+        "sectionCount": section_count
+    }
+
+    logger.info(f"レイアウト構造解析結果: {result}")
+    logger.info("========== レイアウト構造解析終了 ==========")
+    return result
