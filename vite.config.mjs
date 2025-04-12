@@ -137,12 +137,19 @@ function getHtmlFiles() {
   const htmlFiles = {};
   const dirPath = path.resolve(__dirname, "src");
 
+  // 通常のHTMLファイル
   fs.readdirSync(dirPath, { withFileTypes: true }).forEach((file) => {
     if (file.isFile() && file.name.endsWith(".html")) {
       const name = file.name.replace(".html", "");
       htmlFiles[name] = path.resolve(dirPath, file.name);
     }
   });
+
+  // Electronディレクトリのindex.htmlも追加
+  const electronIndexPath = path.resolve(dirPath, "electron/index.html");
+  if (fs.existsSync(electronIndexPath)) {
+    htmlFiles["electron/index"] = electronIndexPath;
+  }
 
   return htmlFiles;
 }

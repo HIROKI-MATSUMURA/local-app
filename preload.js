@@ -77,6 +77,22 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send('delete-html-file', { fileName }); // メインプロセスに送信
   },
 
+  // 新しいHTMLファイルの監視
+  onNewHtmlFile: (callback) => {
+    ipcRenderer.on('new-html-file', (event, fileName) => {
+      console.log('Preload: New HTML file detected:', fileName);
+      callback(fileName);
+    });
+  },
+
+  // ファイル削除の監視
+  onFileDeleted: (callback) => {
+    ipcRenderer.on('file-deleted', (event, fileName) => {
+      console.log('Preload: File deleted:', fileName);
+      callback(fileName);
+    });
+  },
+
   // ファイル名変更をメインプロセスに送信
   renameFile: (oldFileName, newFileName) => {
     ipcRenderer.send('rename-file', { oldFileName, newFileName });
