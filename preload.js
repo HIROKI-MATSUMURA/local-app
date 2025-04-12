@@ -187,6 +187,15 @@ contextBridge.exposeInMainWorld('api', {
   loadTags: () => ipcRenderer.invoke('loadTags'),
   saveTags: (tags) => ipcRenderer.invoke('saveTags', tags),
 
+  // 選択されたカテゴリの保存と読み込み (同期バージョン)
+  saveSelectedCategory: (category) => ipcRenderer.sendSync('save-selected-category-sync', category),
+  loadSelectedCategory: () => ipcRenderer.sendSync('load-selected-category-sync'),
+
+  // カテゴリとタグの同期読み込み
+  loadCategoriesSync: () => ipcRenderer.sendSync('load-categories-sync'),
+  loadTagsSync: () => ipcRenderer.sendSync('load-tags-sync'),
+  loadSelectedTagsSync: () => ipcRenderer.sendSync('load-selected-tags-sync'),
+
   // アクティブプロジェクトIDの保存と読み込み
   saveActiveProjectId: (projectId) => ipcRenderer.invoke('save-active-project-id', projectId),
   loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),

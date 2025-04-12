@@ -249,42 +249,8 @@
           }
 
           &.category-uncategorized {
-            &.active {
-              background: #495057;
-              border-color: #495057;
-
-              .count {
-                background-color: rgba(255, 255, 255, 0.8);
-                color: #222;
-                font-weight: 400;
-              }
-            }
-          }
-
-          &.category-work {
-            &.active {
-              background: #3498db;
-              border-color: #3498db;
-
-              .count {
-                background-color: rgba(255, 255, 255, 0.8);
-                color: #222;
-                font-weight: 400;
-              }
-            }
-          }
-
-          &.category-personal {
-            &.active {
-              background: #2ecc71;
-              border-color: #2ecc71;
-
-              .count {
-                background-color: rgba(255, 255, 255, 0.8);
-                color: #222;
-                font-weight: 400;
-              }
-            }
+            background-color: #f1f3f5;
+            color: #495057;
           }
 
           &.category-制作会社 {
@@ -530,16 +496,6 @@
           &.category-uncategorized {
             background-color: #f1f3f5;
             color: #495057;
-          }
-
-          &.category-work {
-            background-color: rgba(52, 152, 219, 0.1);
-            color: #3498db;
-          }
-
-          &.category-personal {
-            background-color: rgba(46, 204, 113, 0.1);
-            color: #2ecc71;
           }
 
           &.category-制作会社 {

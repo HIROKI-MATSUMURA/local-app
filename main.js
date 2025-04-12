@@ -371,26 +371,42 @@ app.whenReady().then(async () => {
       console.log(`userData ディレクトリを作成しました: ${userDataPath}`);
     }
 
-    // ファイル存在確認と強制作成（同期的に確実に実行）
+    // ファイル存在確認と初期化（存在しない場合のみ）
     // カテゴリファイル
-    const defaultCategories = ['uncategorized', 'work', 'personal'];
-    fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
-    console.log('カテゴリファイルを作成/更新しました:', defaultCategories);
+    const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+    if (!fs.existsSync(CATEGORIES_PATH)) {
+      fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
+      console.log('カテゴリファイルを新規作成しました:', defaultCategories);
+    } else {
+      console.log('カテゴリファイルは既に存在するため、初期化をスキップします');
+    }
 
     // タグファイル
-    const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
-    fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
-    console.log('タグファイルを作成/更新しました:', defaultTags);
+    const defaultTags = [];
+    if (!fs.existsSync(TAGS_PATH)) {
+      fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
+      console.log('タグファイルを新規作成しました:', defaultTags);
+    } else {
+      console.log('タグファイルは既に存在するため、初期化をスキップします');
+    }
 
     // 選択中カテゴリファイル
-    fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify('all'), 'utf8');
-    console.log('選択中カテゴリファイルを作成/更新しました: all');
+    if (!fs.existsSync(SELECTED_CATEGORY_PATH)) {
+      fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify('all'), 'utf8');
+      console.log('選択中カテゴリファイルを新規作成しました: all');
+    } else {
+      console.log('選択中カテゴリファイルは既に存在するため、初期化をスキップします');
+    }
 
     // 選択中タグファイル
-    fs.writeFileSync(SELECTED_TAGS_PATH, JSON.stringify([]), 'utf8');
-    console.log('選択中タグファイルを作成/更新しました: []');
+    if (!fs.existsSync(SELECTED_TAGS_PATH)) {
+      fs.writeFileSync(SELECTED_TAGS_PATH, JSON.stringify([]), 'utf8');
+      console.log('選択中タグファイルを新規作成しました: []');
+    } else {
+      console.log('選択中タグファイルは既に存在するため、初期化をスキップします');
+    }
 
-    // 読み込みテスト - 確実に作成されたか確認
+    // ファイル作成確認
     console.log('ファイル作成確認:');
     console.log('- カテゴリファイル存在:', fs.existsSync(CATEGORIES_PATH));
     console.log('- タグファイル存在:', fs.existsSync(TAGS_PATH));
@@ -608,30 +624,113 @@ async function loadActiveProjectId() {
 }
 
 // カテゴリの読み込み
-async function loadCategories() {
+const loadCategories = () => {
+  console.log('カテゴリの読み込みを開始します。パス:', CATEGORIES_PATH);
+
+  // デフォルトカテゴリリスト（最小限）
+  const defaultCategories = ['uncategorized'];
+
   try {
+    // カテゴリファイルが存在するか確認
     if (fs.existsSync(CATEGORIES_PATH)) {
-      const data = await fs.promises.readFile(CATEGORIES_PATH, 'utf8');
-      return JSON.parse(data);
+      console.log('カテゴリファイルが存在します。読み込みを実行します。');
+
+      // ファイルの内容を読み込む
+      const data = fs.readFileSync(CATEGORIES_PATH, 'utf8');
+      console.log('カテゴリファイルの内容:', data);
+
+      try {
+        // JSONとしてパース
+        const parsedCategories = JSON.parse(data);
+        console.log('パースされたカテゴリ:', parsedCategories);
+
+        // データが配列であることを確認
+        if (!Array.isArray(parsedCategories)) {
+          console.error('カテゴリデータが配列ではありません。デフォルト値を使用します。');
+          fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories));
+          return defaultCategories;
+        }
+
+        // 空の配列の場合はデフォルト値を使用
+        if (parsedCategories.length === 0) {
+          console.log('カテゴリリストが空です。デフォルト値を使用します。');
+          fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories));
+          return defaultCategories;
+        }
+
+        // uncategorizedが含まれていない場合は追加
+        if (!parsedCategories.includes('uncategorized')) {
+          console.log('uncategorizedカテゴリが含まれていないため追加します。');
+          const updatedCategories = ['uncategorized', ...parsedCategories];
+          fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(updatedCategories));
+          return updatedCategories;
+        }
+
+        return parsedCategories;
+      } catch (parseError) {
+        console.error('カテゴリJSONのパースに失敗:', parseError);
+        console.log('デフォルトカテゴリを使用して新しいファイルを作成します。');
+        fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories));
+        return defaultCategories;
+      }
+    } else {
+      console.log('カテゴリファイルが存在しません。新しく作成します。');
+
+      // ディレクトリが存在しない場合は作成
+      const dir = path.dirname(CATEGORIES_PATH);
+      if (!fs.existsSync(dir)) {
+        console.log('ディレクトリを作成します:', dir);
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // 最小限のデフォルトカテゴリを保存
+      fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories));
+      console.log('デフォルトカテゴリを保存しました:', defaultCategories);
+      return defaultCategories;
     }
-    return null;
   } catch (error) {
-    console.error('カテゴリの読み込みに失敗:', error);
-    return null;
+    console.error('カテゴリファイルの読み込み中にエラーが発生:', error);
+    return defaultCategories;
   }
-}
+};
 
 // カテゴリの保存
 async function saveCategories(categories) {
   try {
+    console.log('カテゴリを保存します。入力データ:', categories);
+
+    // 必須カテゴリの確認（uncategorizedのみ）
+    const requiredCategories = ['uncategorized'];
+
+    // カテゴリが配列であることを確認
+    if (!Array.isArray(categories)) {
+      console.error('カテゴリが配列ではありません:', categories);
+      return false;
+    }
+
+    // 必須カテゴリが含まれているか確認し、なければ追加
+    let updatedCategories = [...categories];
+    let wasUpdated = false;
+
+    if (!updatedCategories.includes('uncategorized')) {
+      console.log(`必須カテゴリ "uncategorized" が含まれていないため追加します`);
+      updatedCategories.unshift('uncategorized');
+      wasUpdated = true;
+    }
+
     // ディレクトリが存在することを確認
     const dirPath = path.dirname(CATEGORIES_PATH);
     if (!fs.existsSync(dirPath)) {
       await fs.promises.mkdir(dirPath, { recursive: true });
     }
 
-    await fs.promises.writeFile(CATEGORIES_PATH, JSON.stringify(categories));
-    console.log(`カテゴリを保存しました: ${CATEGORIES_PATH}`, categories);
+    // 更新されたカテゴリリストを保存
+    if (wasUpdated) {
+      console.log('必須カテゴリを追加した更新リスト:', updatedCategories);
+    }
+
+    await fs.promises.writeFile(CATEGORIES_PATH, JSON.stringify(updatedCategories));
+    console.log(`カテゴリを保存しました: ${CATEGORIES_PATH}`, updatedCategories);
     return true;
   } catch (error) {
     console.error('カテゴリの保存に失敗:', error);
@@ -642,14 +741,34 @@ async function saveCategories(categories) {
 // タグの読み込み
 async function loadTags() {
   try {
+    console.log('タグの読み込みを開始します。パス:', TAGS_PATH);
+
     if (fs.existsSync(TAGS_PATH)) {
       const data = await fs.promises.readFile(TAGS_PATH, 'utf8');
-      return JSON.parse(data);
+      console.log('タグファイルの内容:', data);
+
+      try {
+        const parsedTags = JSON.parse(data);
+
+        // 配列でない場合は空の配列を返す
+        if (!Array.isArray(parsedTags)) {
+          console.error('タグデータが配列ではありません。空の配列を使用します。');
+          return [];
+        }
+
+        console.log('読み込まれたタグ:', parsedTags);
+        return parsedTags;
+      } catch (parseError) {
+        console.error('タグJSONのパース失敗:', parseError);
+        return [];
+      }
     }
-    return null;
+
+    console.log('タグファイルが存在しないため、空の配列を返します。');
+    return [];
   } catch (error) {
     console.error('タグの読み込みに失敗:', error);
-    return null;
+    return [];
   }
 }
 
@@ -672,17 +791,19 @@ async function saveTags(tags) {
 }
 
 
-// 選択中のカテゴリを保存
-async function saveSelectedCategory(category) {
+// 選択中のカテゴリを保存 (同期版)
+function saveSelectedCategory(category) {
   try {
+    console.log(`選択中のカテゴリを保存します: ${SELECTED_CATEGORY_PATH}`, category);
+
     // ディレクトリが存在することを確認
     const dirPath = path.dirname(SELECTED_CATEGORY_PATH);
     if (!fs.existsSync(dirPath)) {
-      await fs.promises.mkdir(dirPath, { recursive: true });
+      fs.mkdirSync(dirPath, { recursive: true });
     }
 
-    await fs.promises.writeFile(SELECTED_CATEGORY_PATH, JSON.stringify(category));
-    console.log(`選択中のカテゴリを保存しました: ${SELECTED_CATEGORY_PATH}`, category);
+    fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify(category));
+    console.log(`選択中のカテゴリを同期的に保存しました: ${category}`);
     return true;
   } catch (error) {
     console.error('選択中のカテゴリの保存に失敗:', error);
@@ -690,17 +811,22 @@ async function saveSelectedCategory(category) {
   }
 }
 
-// 選択中のカテゴリを読み込み
-async function loadSelectedCategory() {
+// 選択中のカテゴリを読み込み (同期版)
+function loadSelectedCategory() {
   try {
+    console.log(`選択中のカテゴリを読み込みます: ${SELECTED_CATEGORY_PATH}`);
+
     if (fs.existsSync(SELECTED_CATEGORY_PATH)) {
-      const data = await fs.promises.readFile(SELECTED_CATEGORY_PATH, 'utf8');
-      return JSON.parse(data);
+      const data = fs.readFileSync(SELECTED_CATEGORY_PATH, 'utf8');
+      const category = JSON.parse(data);
+      console.log('選択中のカテゴリを同期的に読み込みました:', category);
+      return category || 'all';
     }
-    return null;
+    console.log('カテゴリファイルが存在しないため、デフォルト値 "all" を返します');
+    return 'all';
   } catch (error) {
     console.error('選択中のカテゴリの読み込みに失敗:', error);
-    return null;
+    return 'all';
   }
 }
 
@@ -759,6 +885,31 @@ function setupIPCHandlers() {
 
   // 起動時にディレクトリを確認・作成
   ensureDirectories();
+
+  // 選択されたカテゴリを同期的に保存するハンドラー
+  ipcMain.on('save-selected-category-sync', (event, category) => {
+    console.log('選択されたカテゴリを同期的に保存します:', category);
+    try {
+      const result = saveSelectedCategory(category);
+      event.returnValue = result;
+    } catch (error) {
+      console.error('選択されたカテゴリの同期保存中にエラーが発生しました:', error);
+      event.returnValue = false;
+    }
+  });
+
+  // 選択されたカテゴリを同期的に読み込むハンドラー
+  ipcMain.on('load-selected-category-sync', (event) => {
+    console.log('選択されたカテゴリを同期的に読み込みます');
+    try {
+      const category = loadSelectedCategory();
+      console.log('読み込まれたカテゴリ:', category);
+      event.returnValue = category;
+    } catch (error) {
+      console.error('選択されたカテゴリの同期読み込み中にエラーが発生しました:', error);
+      event.returnValue = 'all';
+    }
+  });
 
   // カスタムリロード機能 - フロントエンドファイルのみをリロードし、Electron管理画面は維持する
   ipcMain.on('reload-frontend-only', (event, { filePath }) => {
@@ -2027,6 +2178,77 @@ $mediaquerys: (
     } catch (error) {
       console.error('Pythonパッケージインストールエラー:', error);
       return { success: false, error: error.message || String(error) };
+    }
+  });
+
+  // 選択されたカテゴリを同期的に読み込むハンドラー
+  ipcMain.on('load-selected-category-sync', (event) => {
+    console.log('選択されたカテゴリを同期的に読み込みます');
+    try {
+      const category = loadSelectedCategory();
+      console.log('読み込まれたカテゴリ:', category);
+      event.returnValue = category;
+    } catch (error) {
+      console.error('選択されたカテゴリの同期読み込み中にエラーが発生しました:', error);
+      event.returnValue = 'all';
+    }
+  });
+
+  // カテゴリリストを同期的に読み込むハンドラー
+  ipcMain.on('load-categories-sync', (event) => {
+    console.log('カテゴリリストを同期的に読み込みます');
+    try {
+      if (fs.existsSync(CATEGORIES_PATH)) {
+        const data = fs.readFileSync(CATEGORIES_PATH, 'utf8');
+        const categories = JSON.parse(data);
+        console.log('読み込まれたカテゴリリスト（同期）:', categories);
+        event.returnValue = categories;
+      } else {
+        console.log('カテゴリファイルが存在しないため、デフォルト値を返します');
+        event.returnValue = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+      }
+    } catch (error) {
+      console.error('カテゴリリストの同期読み込み中にエラーが発生しました:', error);
+      // デフォルトカテゴリを返す
+      event.returnValue = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+    }
+  });
+
+  // タグリストを同期的に読み込むハンドラー
+  ipcMain.on('load-tags-sync', (event) => {
+    console.log('タグリストを同期的に読み込みます');
+    try {
+      if (fs.existsSync(TAGS_PATH)) {
+        const data = fs.readFileSync(TAGS_PATH, 'utf8');
+        const tags = JSON.parse(data);
+        console.log('読み込まれたタグリスト（同期）:', tags);
+        event.returnValue = tags;
+      } else {
+        console.log('タグファイルが存在しないため、空配列を返します');
+        event.returnValue = [];
+      }
+    } catch (error) {
+      console.error('タグリストの同期読み込み中にエラーが発生しました:', error);
+      event.returnValue = [];
+    }
+  });
+
+  // 選択されたタグを同期的に読み込むハンドラー
+  ipcMain.on('load-selected-tags-sync', (event) => {
+    console.log('選択されたタグを同期的に読み込みます');
+    try {
+      if (fs.existsSync(SELECTED_TAGS_PATH)) {
+        const data = fs.readFileSync(SELECTED_TAGS_PATH, 'utf8');
+        const selectedTags = JSON.parse(data);
+        console.log('読み込まれた選択されたタグ（同期）:', selectedTags);
+        event.returnValue = selectedTags;
+      } else {
+        console.log('選択されたタグファイルが存在しないため、空配列を返します');
+        event.returnValue = [];
+      }
+    } catch (error) {
+      console.error('選択されたタグの同期読み込み中にエラーが発生しました:', error);
+      event.returnValue = [];
     }
   });
 }

@@ -31,157 +31,99 @@ const ProjectManager = ({ onProjectChange }) => {
   const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [showManageTagsDialog, setShowManageTagsDialog] = useState(false);
+  const [forceRender, setForceRender] = useState(false); // 強制再レンダリング用の状態
 
   // カテゴリとタグのローディング状態を追跡
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
 
   // window.apiの状態をチェック
   useEffect(() => {
-    console.log('window.api の状態:', {
-      exists: typeof window !== 'undefined' && !!window.api,
-      api: window.api ? Object.keys(window.api) : null
-    });
-  }, []);
-
-  // アクティブプロジェクトの保存
-  const saveActiveProject = async (projectId) => {
-    try {
-      await window.api.saveActiveProjectId(projectId);
-      console.log('アクティブプロジェクトIDを保存しました:', projectId);
-    } catch (error) {
-      console.error('アクティブプロジェクトIDの保存に失敗:', error);
-    }
-  };
-
-  // カテゴリとタグ管理
-  useEffect(() => {
-    const loadCategoriesAndTagsData = async () => {
-      console.log('=== カテゴリとタグの読み込み処理開始 ===');
-      console.log('window.api状態:', window.api ? 'API使用可能' : 'API未定義');
-
-      if (!window.api) {
-        console.error('ERROR: window.api が見つかりません。カテゴリとタグを読み込めません');
-        // デフォルト値でフォールバック
-        setCategories(['uncategorized', '制作会社', 'コミュニティ', 'エンド']);
-        setTags(['important', 'urgent', 'in-progress', 'completed']);
-        setCategoriesLoaded(true);
-        return;
-      }
-
-      console.log('API関数確認:', {
-        loadCategories: typeof window.api.loadCategories === 'function',
-        saveCategories: typeof window.api.saveCategories === 'function',
-        loadTags: typeof window.api.loadTags === 'function',
-        saveTags: typeof window.api.saveTags === 'function',
-        loadSelectedCategory: typeof window.api.loadSelectedCategory === 'function',
-        loadSelectedTags: typeof window.api.loadSelectedTags === 'function'
-      });
-
+    const checkApiAndLoadData = async () => {
       try {
-        console.log('カテゴリとタグのデータを読み込み開始...');
+        if (window.api) {
+          console.log('window.api が利用可能です。データの読み込みを開始します。');
 
-        // カテゴリの読み込み
-        console.log('カテゴリ読み込み処理を開始...');
-        let savedCategories;
-        try {
-          savedCategories = await window.api.loadCategories();
-          console.log('カテゴリ読み込み結果:', savedCategories);
-        } catch (categoryLoadError) {
-          console.error('カテゴリ読み込み中にエラー発生:', categoryLoadError);
-          savedCategories = null;
-        }
-
-        if (savedCategories && Array.isArray(savedCategories)) {
-          console.log('保存されたカテゴリを正常に読み込みました:', savedCategories);
-
-          // uncategorizedカテゴリが含まれていることを確認
-          if (!savedCategories.includes('uncategorized')) {
-            const updatedCategories = ['uncategorized', ...savedCategories];
-            setCategories(updatedCategories);
-            try {
-              await window.api.saveCategories(updatedCategories);
-              console.log('uncategorizedを追加したカテゴリを保存しました:', updatedCategories);
-            } catch (saveError) {
-              console.error('カテゴリの保存に失敗しました:', saveError);
+          // プロジェクト一覧の読み込み
+          try {
+            const projectsConfig = await window.api.loadProjectsConfig();
+            if (projectsConfig && projectsConfig.projects) {
+              console.log('プロジェクト一覧を読み込みました:', projectsConfig.projects.length);
+              setProjects(projectsConfig.projects);
             }
-          } else {
-            setCategories(savedCategories);
+          } catch (error) {
+            console.error('プロジェクト一覧の読み込みに失敗:', error);
           }
-        } else {
-          console.log('保存されたカテゴリが見つからないか配列でないため、デフォルト値を使用します:', savedCategories);
-          // デフォルトカテゴリ
-          const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
-          setCategories(defaultCategories);
 
           try {
-            console.log('デフォルトカテゴリを保存します:', defaultCategories);
-            const saveResult = await window.api.saveCategories(defaultCategories);
-            console.log('デフォルトカテゴリを保存しました。結果:', saveResult);
-          } catch (saveError) {
-            console.error('デフォルトカテゴリの保存に失敗しました:', saveError);
+            // カテゴリの読み込み（同期版）
+            const loadedCategories = window.api.loadCategoriesSync();
+            console.log('カテゴリの同期読み込み完了:', loadedCategories);
+
+            // プロジェクトから使用されているカテゴリを収集
+            const projectCategories = [...new Set(projects.map(p => p.category).filter(Boolean))];
+            console.log('プロジェクトから検出されたカテゴリ:', projectCategories);
+
+            // デフォルトカテゴリを定義
+            const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+
+            // 全てのカテゴリをマージ
+            const allCategories = [...new Set([
+              ...loadedCategories,
+              ...projectCategories,
+              ...defaultCategories
+            ])];
+
+            console.log('最終カテゴリリスト:', allCategories);
+            setCategories(allCategories);
+
+            // 更新されたカテゴリを保存
+            await window.api.saveCategories(allCategories);
+            console.log('カテゴリの保存が完了しました');
+
+            // 選択されたカテゴリの読み込み（同期版）
+            const category = window.api.loadSelectedCategory();
+            console.log('選択されたカテゴリの読み込み完了:', category);
+            setSelectedCategory(category || 'all');
+
+            // タグの読み込み（同期版）
+            const loadedTags = window.api.loadTagsSync();
+            console.log('タグの同期読み込み完了:', loadedTags);
+            setTags(loadedTags || []);
+
+            // 選択されたタグの読み込み（同期版）
+            const selectedTagsList = window.api.loadSelectedTagsSync();
+            console.log('選択されたタグの同期読み込み完了:', selectedTagsList);
+            setSelectedTags(selectedTagsList || []);
+
+            // カテゴリロード完了フラグをセット
+            setCategoriesLoaded(true);
+            console.log('カテゴリとタグの読み込みが完了しました');
+          } catch (error) {
+            console.error('カテゴリとタグの読み込み中にエラーが発生:', error);
+            setError('カテゴリとタグの読み込みに失敗しました');
           }
-        }
 
-        // タグの読み込み
-        console.log('タグ読み込み処理を開始...');
-        let savedTags;
-        try {
-          savedTags = await window.api.loadTags();
-          console.log('タグ読み込み結果:', savedTags);
-        } catch (tagLoadError) {
-          console.error('タグ読み込み中にエラー発生:', tagLoadError);
-          savedTags = null;
-        }
-
-        if (savedTags && Array.isArray(savedTags)) {
-          console.log('保存されたタグを正常に読み込みました:', savedTags);
-          setTags(savedTags);
-        } else {
-          console.log('保存されたタグが見つからないか配列でないため、デフォルト値を使用します:', savedTags);
-          // デフォルトタグ
-          const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
-          setTags(defaultTags);
-
+          // アクティブプロジェクトIDの読み込み
           try {
-            console.log('デフォルトタグを保存します:', defaultTags);
-            const saveResult = await window.api.saveTags(defaultTags);
-            console.log('デフォルトタグを保存しました。結果:', saveResult);
-          } catch (saveError) {
-            console.error('デフォルトタグの保存に失敗しました:', saveError);
+            const activeId = await window.api.loadActiveProjectId();
+            if (activeId) {
+              setActiveProjectId(activeId);
+              console.log('アクティブプロジェクトIDを読み込みました:', activeId);
+            }
+          } catch (error) {
+            console.error('アクティブプロジェクトIDの読み込みに失敗:', error);
           }
+        } else {
+          console.error('window.api が利用できません');
+          setError('APIが初期化されていません。アプリを再起動してください。');
         }
-
-        console.log('=== カテゴリとタグの読み込み完了 ===');
-        // カテゴリとタグの読み込みが完了したことを示す
-        setCategoriesLoaded(true);
       } catch (error) {
-        console.error('カテゴリとタグの読み込み処理で例外が発生しました:', error);
-
-        // エラータイプに関する詳細情報を記録
-        console.error('エラータイプ:', error.constructor.name);
-        console.error('エラーメッセージ:', error.message);
-        console.error('エラースタック:', error.stack);
-
-        // エラー発生時にもデフォルト値を設定
-        const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
-        const defaultTags = ['important', 'urgent', 'in-progress', 'completed'];
-
-        setCategories(defaultCategories);
-        setTags(defaultTags);
-        setCategoriesLoaded(true);
-
-        try {
-          console.log('エラー回復: デフォルト値を保存します');
-          await window.api.saveCategories(defaultCategories);
-          await window.api.saveTags(defaultTags);
-          console.log('エラー回復: デフォルト値を保存しました');
-        } catch (saveError) {
-          console.error('エラー回復中に新たなエラーが発生しました:', saveError);
-        }
+        console.error('データ読み込み中にエラーが発生:', error);
+        setError('データの読み込みに失敗しました');
       }
     };
 
-    loadCategoriesAndTagsData();
+    checkApiAndLoadData();
   }, []);
 
   // 初期プロジェクトの読み込み - カテゴリとタグの読み込みが完了した後に実行
@@ -776,7 +718,6 @@ const ProjectManager = ({ onProjectChange }) => {
       setShowArchiveDialog(true);
     }
   };
-
   // アーカイブの確定
   const confirmArchive = async () => {
     try {
@@ -1193,9 +1134,7 @@ const ProjectManager = ({ onProjectChange }) => {
       'uncategorized': { bg: '#f1f3f5', text: '#495057' },
       '制作会社': { bg: 'rgba(155, 89, 182, 0.1)', text: '#9b59b6' },
       'コミュニティ': { bg: 'rgba(241, 196, 15, 0.1)', text: '#f1c40f' },
-      'エンド': { bg: 'rgba(231, 76, 60, 0.1)', text: '#e74c3c' },
-      'work': { bg: 'rgba(52, 152, 219, 0.1)', text: '#3498db' },
-      'personal': { bg: 'rgba(46, 204, 113, 0.1)', text: '#2ecc71' }
+      'エンド': { bg: 'rgba(231, 76, 60, 0.1)', text: '#e74c3c' }
     };
 
     if (predefinedColors[category]) {
@@ -1254,6 +1193,42 @@ const ProjectManager = ({ onProjectChange }) => {
     } catch (error) {
       console.error('フォルダを開けませんでした:', error);
       setError('フォルダを開くことができませんでした');
+    }
+  };
+
+  // カテゴリを選択する関数
+  const selectCategory = (category) => {
+    console.log(`カテゴリを選択: ${category}`);
+
+    // 既に選択されているカテゴリかチェック
+    if (selectedCategory === category) {
+      console.log(`既に選択されているカテゴリです: ${category}`);
+      return;
+    }
+
+    // 新しいカテゴリを設定
+    setSelectedCategory(category);
+
+    // カテゴリが存在するか確認
+    if (category !== 'all' && !categories.includes(category)) {
+      console.log(`警告: カテゴリ "${category}" はカテゴリリストに存在しません`);
+    }
+
+    try {
+      // 選択されたカテゴリを保存（同期的に実行）
+      console.log(`選択されたカテゴリを保存中: ${category}`);
+      const result = window.api.saveSelectedCategory(category);
+      console.log(`カテゴリ保存結果:`, result);
+
+      // 保存を確認するために同期的に再読み込み
+      const savedCategory = window.api.loadSelectedCategory();
+      console.log(`保存された選択カテゴリ: ${savedCategory}`);
+
+      // プロジェクトのフィルタリング状態を更新するために強制再レンダリング
+      setForceRender(prev => !prev);
+    } catch (error) {
+      console.error(`カテゴリ選択の保存中にエラーが発生しました: ${error.message}`);
+      setError(`カテゴリ選択の保存中にエラーが発生しました: ${error.message}`);
     }
   };
 
@@ -1324,18 +1299,19 @@ const ProjectManager = ({ onProjectChange }) => {
           <div className={styles['categories-list']}>
             <button
               className={`${styles.category} ${selectedCategory === 'all' ? styles.active : ''}`}
-              onClick={() => setSelectedCategory('all')}
+              onClick={() => selectCategory('all')}
             >
               すべて <span className={styles['count']}>{countProjectsByCategory('all')}</span>
             </button>
             <button
               className={`${styles.category} ${selectedCategory === 'uncategorized' ? styles.active : ''}`}
-              onClick={() => setSelectedCategory('uncategorized')}
+              onClick={() => selectCategory('uncategorized')}
             >
               未分類 <span className={styles['count']}>{countProjectsByCategory('uncategorized')}</span>
             </button>
             {categories
               .filter(category => category !== 'uncategorized')
+              .sort((a, b) => a.localeCompare(b, 'ja'))
               .map(category => (
                 <button
                   key={category}
@@ -1348,12 +1324,11 @@ const ProjectManager = ({ onProjectChange }) => {
                     borderColor: selectedCategory === category ?
                       getColorForCategory(category).text : '#e9ecef'
                   } : undefined}
-                  onClick={() => setSelectedCategory(category)}
+                  onClick={() => selectCategory(category)}
                 >
                   {category} <span className={styles['count']}>{countProjectsByCategory(category)}</span>
                 </button>
-              ))
-            }
+              ))}
           </div>
         </div>
 
@@ -1365,11 +1340,19 @@ const ProjectManager = ({ onProjectChange }) => {
                 key={tag}
                 className={`${styles.tag} ${selectedTags.includes(tag) ? styles.active : ''}`}
                 onClick={() => {
-                  setSelectedTags(
-                    selectedTags.includes(tag)
-                      ? selectedTags.filter(t => t !== tag)
-                      : [...selectedTags, tag]
-                  );
+                  const newSelectedTags = selectedTags.includes(tag)
+                    ? selectedTags.filter(t => t !== tag)
+                    : [...selectedTags, tag];
+
+                  setSelectedTags(newSelectedTags);
+
+                  // 選択されたタグを保存
+                  try {
+                    window.api.saveSelectedTags(newSelectedTags);
+                    console.log('選択されたタグを保存しました:', newSelectedTags);
+                  } catch (error) {
+                    console.error('選択されたタグの保存に失敗:', error);
+                  }
                 }}
               >
                 {tag} <span className={styles['count']}>{countProjectsByTag(tag)}</span>
@@ -1452,19 +1435,21 @@ const ProjectManager = ({ onProjectChange }) => {
                         タグ編集
                       </button>
                       <select
+                        id="category"
                         className={styles['category-select']}
                         value={project.category || 'uncategorized'}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          changeProjectCategory(project.id, e.target.value);
-                        }}
+                        onChange={(e) => changeProjectCategory(project.id, e.target.value)}
                       >
-                        <option value="uncategorized">uncategorized</option>
-                        {categories.filter(category => category !== 'uncategorized').map(category => (
-                          <option key={category} value={category}>
-                            {category}
-                          </option>
-                        ))}
+                        <option value="uncategorized">未分類</option>
+                        {categories
+                          .filter(c => c !== 'uncategorized')
+                          .sort((a, b) => a.localeCompare(b, 'ja'))
+                          .map(category => (
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
+                          ))
+                        }
                       </select>
                       <button
                         className={styles.archive}
