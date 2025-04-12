@@ -378,31 +378,90 @@ def handle_detect_elements(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"特徴的要素検出エラー: {str(e)}")
 
-def handle_analyze_all(request_id: str, params: Dict[str, Any]):
+def handle_analyze_all(request_id, params):
     """画像の総合的な解析を行う"""
     try:
         if not image_analyzer:
             raise ValueError("画像解析モジュールが初期化されていません")
 
-        # パラメータを取得
+        # デバッグ用：受信データの詳細表示
+        logger.info(f"[debug] 受信データ構造: キー={list(params.keys())}")
+
+        # 各キーの存在と型を確認
+        if 'image' in params:
+            image_type = type(params['image']).__name__
+            image_length = len(params['image']) if isinstance(params['image'], str) else '?'
+            logger.info(f"[debug] image: 型={image_type}, 長さ={image_length}")
+        else:
+            logger.warning("[debug] imageキーが見つかりません")
+
+        if 'options' in params:
+            options_keys = list(params['options'].keys()) if isinstance(params['options'], dict) else '非辞書'
+            logger.info(f"[debug] options: キー={options_keys}")
+
+        if 'type' in params:
+            logger.info(f"[debug] type: {params['type']}")
+
+        # パラメータを取得（修正：image_dataではなくimageを使用）
         image_data = params.get('image', '')
-        analysis_type = params.get('type', 'all')  # all/basic/features/compress
+        analysis_type = params.get('type', 'all')  # compress/basic/features
         options = params.get('options', {})
+
+        logger.info(f"[debug] 解析タイプ: {analysis_type}, 画像データ長: {len(image_data) if isinstance(image_data, str) else 'not string'}")
 
         if not image_data:
             raise ValueError("画像データが提供されていません")
 
         # Base64データを画像に変換
-        image, _ = base64_to_image_data(image_data)
+        try:
+            image, _ = base64_to_image_data(image_data)
+            logger.info("[debug] 画像データのデコードに成功")
+        except Exception as decode_err:
+            logger.error(f"[debug] 画像データのデコードに失敗: {str(decode_err)}")
+            # エラースタックを出力
+            traceback.print_exc()
+            raise ValueError(f"画像データのデコードに失敗: {str(decode_err)}")
 
         # compressタイプの場合は、まず通常の解析を行い、その結果を圧縮する
         if analysis_type == 'compress':
             # 通常の解析を実行
-            colors = image_analyzer.extract_colors_from_image(image, **options)
-            text = image_analyzer.extract_text_from_image(image, **options)
-            sections = image_analyzer.analyze_image_sections(image, **options)
-            layout = image_analyzer.analyze_layout_pattern(image, **options)
-            elements = image_analyzer.detect_feature_elements(image, **options)
+            logger.info("[debug] 圧縮モードで解析開始")
+
+            # 各解析処理の結果をログに記録
+            try:
+                colors = image_analyzer.extract_colors_from_image(image, **options)
+                logger.info(f"[debug] 色抽出成功: {len(colors)}色")
+            except Exception as color_err:
+                logger.error(f"[debug] 色抽出失敗: {str(color_err)}")
+                colors = []
+
+            try:
+                text = image_analyzer.extract_text_from_image(image, **options)
+                logger.info("[debug] テキスト抽出成功")
+            except Exception as text_err:
+                logger.error(f"[debug] テキスト抽出失敗: {str(text_err)}")
+                text = { 'text': '', 'textBlocks': [] }
+
+            try:
+                sections = image_analyzer.analyze_image_sections(image, **options)
+                logger.info("[debug] セクション解析成功")
+            except Exception as section_err:
+                logger.error(f"[debug] セクション解析失敗: {str(section_err)}")
+                sections = []
+
+            try:
+                layout = image_analyzer.analyze_layout_pattern(image, **options)
+                logger.info("[debug] レイアウト解析成功")
+            except Exception as layout_err:
+                logger.error(f"[debug] レイアウト解析失敗: {str(layout_err)}")
+                layout = { 'layoutType': 'unknown', 'confidence': 0.5 }
+
+            try:
+                elements = image_analyzer.detect_feature_elements(image, **options)
+                logger.info("[debug] 要素検出成功")
+            except Exception as element_err:
+                logger.error(f"[debug] 要素検出失敗: {str(element_err)}")
+                elements = []
 
             # 結果を集約
             analysis_data = {
@@ -414,25 +473,35 @@ def handle_analyze_all(request_id: str, params: Dict[str, Any]):
                 "timestamp": datetime.now().isoformat()
             }
 
-            # 圧縮処理を実行
-            compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
+            # データ構造のログ出力
+            logger.info(f"[debug] 解析データ構造: {list(analysis_data.keys())}")
+            logger.info(f"[debug] colors: {len(analysis_data['colors'])}項目")
+            logger.info(f"[debug] elements: {len(analysis_data['elements']) if isinstance(analysis_data['elements'], list) else 'オブジェクト'}")
 
-            # デバッグ: 圧縮データの全容をログに出力
-            logger.info("===== 圧縮・構造化データの全容 (analyze_all) =====")
-            logger.info(json.dumps(compressed_data, ensure_ascii=False, default=str))
-            logger.info("===== 圧縮・構造化データの出力終了 =====")
+            # 圧縮処理を実行
+            try:
+                compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
+                logger.info("[debug] 圧縮処理成功")
+            except Exception as compress_err:
+                logger.error(f"[debug] 圧縮処理失敗: {str(compress_err)}")
+                # デフォルトのデータ構造を返す
+                compressed_data = {
+                    'error': str(compress_err),
+                    'layout': { 'type': 'unknown', 'width': 1200, 'height': 800 },
+                    'colors': [],
+                    'text': { 'content': '', 'blocks': [] },
+                    'elements': { 'elements': [] }
+                }
 
             # 圧縮形式オプションに基づいてフォーマット変換
             format_type = options.get('format_type', 'structured')
-            if format_type == 'semantic':
-                compressed_data['semanticTags'] = image_analyzer.convert_to_semantic_format(compressed_data)
-            elif format_type == 'template':
-                compressed_data['templateFormat'] = image_analyzer.convert_to_template_format(compressed_data)
+            logger.info(f"[debug] フォーマットタイプ: {format_type}")
 
             # タイムスタンプを追加
             if 'timestamp' not in compressed_data:
                 compressed_data['timestamp'] = datetime.now().isoformat()
 
+            logger.info(f"[debug] 最終結果を送信: キー={list(compressed_data.keys())}")
             send_response(request_id, compressed_data)
             return
 

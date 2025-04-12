@@ -2194,6 +2194,87 @@ $mediaquerys: (
     }
   });
 
+  // 総合的な画像解析ハンドラ
+  ipcMain.handle('analyze-image', async (event, data) => {
+    try {
+      console.log('総合的な画像解析リクエストを受信 - データキー:',
+        data ? Object.keys(data).join(', ') : 'データなし');
+
+      // 画像データの詳細確認
+      if (data && data.image) {
+        console.log('画像データ形式:', typeof data.image);
+        if (typeof data.image === 'string') {
+          console.log('画像データサイズ:', data.image.length);
+          console.log('画像データプレビュー:', data.image.substring(0, 50) + '...');
+        }
+      }
+
+      // pythonブリッジの状態確認
+      if (!pythonBridge) {
+        console.error('Pythonブリッジが初期化されていません');
+        return { success: false, error: 'Pythonブリッジが初期化されていません' };
+      }
+
+      // image_dataが存在するか確認
+      const imageData = data.image_data || data.image;
+      if (!imageData) {
+        console.error('画像データが提供されていません');
+        return { success: false, error: '画像データが提供されていません' };
+      }
+
+      console.log('Pythonブリッジに解析リクエスト送信...');
+
+      // analyze_all関数にリクエストタイプcompressを追加
+      const options = { ...data };
+      options.image = imageData; // 名前を統一
+      options.type = 'compress'; // リクエストタイプを明示的に設定
+
+      console.log('Pythonブリッジに送信するオプション:', {
+        ...options,
+        image: options.image ? '(画像データあり)' : '(なし)'
+      });
+
+      // pythonブリッジを通じて総合的な画像解析を実行
+      const result = await pythonBridge.analyzeImage(options);
+
+      // 結果の詳細な確認
+      if (result) {
+        console.log('画像解析結果の構造:', Object.keys(result).join(', '));
+        if (result.error) {
+          console.error('画像解析エラー（Pythonブリッジ）:', result.error);
+        } else if (result.colors) {
+          console.log('色情報:', result.colors.length, '色検出');
+        }
+      } else {
+        console.log('画像解析結果がnullまたはundefinedです');
+      }
+
+      return result;
+    } catch (error) {
+      console.error('画像解析エラー:', error);
+      console.error('エラースタック:', error.stack);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+
+  // 画像セクション解析ハンドラ
+  ipcMain.handle('analyze-image-sections', async (event, imageData) => {
+    try {
+      console.log('画像セクション解析リクエストを受信');
+      if (!pythonBridge) {
+        console.error('Pythonブリッジが初期化されていません');
+        return { success: false, error: 'Pythonブリッジが初期化されていません' };
+      }
+
+      const result = await pythonBridge.analyzeImageSections(imageData);
+      console.log('画像セクション解析が完了しました');
+      return result;
+    } catch (error) {
+      console.error('画像セクション解析エラー:', error);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+
   // Python環境状態確認
   ipcMain.handle('check-python-bridge', async () => {
     try {

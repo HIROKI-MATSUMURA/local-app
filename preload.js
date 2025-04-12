@@ -291,7 +291,41 @@ contextBridge.exposeInMainWorld('api', {
   // 画像分析API
   analyzeImage: async (data) => {
     try {
-      return await ipcRenderer.invoke('analyze-image', data);
+      // データの存在確認
+      if (!data) {
+        console.error('画像分析データが提供されていません');
+        return { success: false, error: 'データが提供されていません' };
+      }
+
+      // データ形式の確認と修正（より詳細に）
+      if (data.image_data) {
+        console.log('画像データ形式を変換: image_data → image');
+        data.image = data.image_data; // 名前の統一
+        delete data.image_data; // 古い名前は削除
+      }
+
+      // 画像データの確認
+      if (!data.image) {
+        console.error('画像データが含まれていません');
+        return { success: false, error: '画像データが含まれていません' };
+      }
+
+      // 画像データのサイズをログ
+      console.log('画像分析リクエスト: 画像データサイズ=',
+        typeof data.image === 'string' ? data.image.length : 'unknown');
+
+      // IPC呼び出し
+      const result = await ipcRenderer.invoke('analyze-image', data);
+
+      // 結果の確認
+      if (result && result.success === false) {
+        console.error('画像分析エラー（サーバー）:', result.error);
+      } else {
+        console.log('画像分析成功: 結果には以下のキーが含まれています:',
+          result ? Object.keys(result).join(', ') : 'なし');
+      }
+
+      return result;
     } catch (error) {
       console.error('画像分析エラー:', error);
       return { success: false, error: error.message || String(error) };

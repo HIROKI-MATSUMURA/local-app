@@ -1305,6 +1305,7 @@ function normalizeAnalysisData(rawData) {
       // 色情報の処理
       if (rawData.colors) {
         if (Array.isArray(rawData.colors)) {
+          console.log(`cawData.colors: ${rawData.colors}`);
           console.log(`colors配列を処理: ${rawData.colors.length}項目`);
           normalized.colors = rawData.colors.map(color => ({
             ...color,

@@ -652,27 +652,97 @@ class PythonBridge {
    */
   async analyzeImage(imageData, options = {}) {
     try {
-      const result = await this.sendCommand('analyze_all', {
-        image_data: imageData,
-        options
+      // フルオブジェクトが第一引数として渡される場合の対応
+      let imageContent;
+      let requestOptions = {};
+
+      console.log('analyzeImage呼び出し - 引数の型:',
+        typeof imageData, 'オプション:', options ? '指定あり' : 'なし');
+
+      if (typeof imageData === 'object' && imageData !== null) {
+        // オブジェクトとして渡された場合（main.jsからの呼び出し方法に対応）
+        const dataObj = imageData;
+        imageContent = dataObj.image;
+
+        // type='compress'は必ず設定
+        requestOptions = {
+          ...dataObj,
+          type: 'compress'
+        };
+
+        // イメージデータの確認
+        if (!imageContent) {
+          console.error('画像データがオブジェクト内に見つかりません:',
+            Object.keys(dataObj).join(', '));
+          return {
+            success: false,
+            error: '画像データが提供されていません',
+            layout: { layoutType: "unknown" },
+            elements: [],
+            text: { text: "" },
+            colors: []
+          };
+        }
+      } else {
+        // 直接画像データが渡された場合（古いコードとの互換性）
+        imageContent = imageData;
+        requestOptions = {
+          ...options,
+          type: 'compress'
+        };
+      }
+
+      // リクエストパラメータを構成（シンプルに）
+      const params = {
+        image: imageContent,
+        type: 'compress' // 常に圧縮モード
+      };
+
+      // オプションが存在する場合は追加
+      if (Object.keys(requestOptions).length > 0) {
+        params.options = requestOptions;
+      }
+
+      console.log('sendCommandに送信するパラメータ:', {
+        ...params,
+        image: params.image ? '(画像データあり)' : '(なし)'
       });
 
-      // デバッグ: 完全なレスポンスデータをコンソールに出力
-      console.log('===== 画像解析結果の完全なレスポンスデータ =====');
-      console.log(JSON.stringify(result, null, 2));
-      console.log('===== 画像解析結果の出力終了 =====');
+      // コマンドを常にanalyze_allに統一
+      const command = 'analyze_all';
+
+      const result = await this.sendCommand(command, params);
+
+      // 結果の確認
+      if (result) {
+        console.log('Python処理結果の構造:', Object.keys(result).join(', '));
+
+        // エラーチェック
+        if (result.error) {
+          console.error('Python処理エラー:', result.error);
+        }
+
+        // 色情報の確認
+        if (result.colors) {
+          console.log('色情報あり:', Array.isArray(result.colors) ? result.colors.length : 'non-array');
+        } else {
+          console.warn('色情報がありません');
+        }
+      }
 
       return result;
     } catch (error) {
       console.error('画像分析エラー:', error);
       return {
+        success: false,
         error: error.message,
         layout: {
           layoutType: "unknown",
           confidence: 0.5
         },
         elements: [],
-        text: { text: "" }
+        text: { text: "" },
+        colors: [] // 色情報を空配列として含める
       };
     }
   }

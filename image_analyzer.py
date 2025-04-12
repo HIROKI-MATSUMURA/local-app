@@ -1568,8 +1568,10 @@ def compress_analysis_results(analysis_data, options=None):
         logger.error(f"解析データの圧縮中にエラーが発生しました: {str(e)}")
         traceback.print_exc()
 
-        # エラー時の最小限のデータ構造
+        # エラー情報を明示的に含める
         return {
+            'error': str(e),
+            'trace': traceback.format_exc(),
             'layout': {
                 'width': 1200,
                 'height': 800,
@@ -1591,7 +1593,6 @@ def compress_analysis_results(analysis_data, options=None):
                     'hasForms': False
                 }
             },
-            'error': str(e)
         }
 
 def convert_to_semantic_format(compressed_data):
@@ -2496,16 +2497,9 @@ def is_light_color(rgb_str):
         return False
 
 def compress_analysis_results(analysis_data, options=None):
-    """
-    複数の解析結果を統合した圧縮データを生成する
+    """複数の解析結果を統合した圧縮データを生成する"""
+    logger.info("compress_analysis_results: 処理開始")
 
-    Args:
-        analysis_data: 各種解析結果を含む辞書
-        options: 出力オプション（フォーマット形式など）
-
-    Returns:
-        dict: 統合された解析結果
-    """
     if not options:
         options = {}
 
@@ -2513,6 +2507,69 @@ def compress_analysis_results(analysis_data, options=None):
     format_type = options.get('format_type', 'structured')
 
     try:
+        # 入力データの詳細を記録
+        if isinstance(analysis_data, dict):
+            logger.info(f"入力データキー: {list(analysis_data.keys())}")
+
+            # 各キーの内容確認
+            for key in ['colors', 'text', 'layout', 'elements', 'sections']:
+                if key in analysis_data:
+                    if isinstance(analysis_data[key], list):
+                        logger.info(f"{key}: {len(analysis_data[key])}項目")
+                    elif isinstance(analysis_data[key], dict):
+                        logger.info(f"{key}: {list(analysis_data[key].keys())}")
+                    else:
+                        logger.info(f"{key}: {type(analysis_data[key]).__name__}")
+                else:
+                    logger.info(f"{key}: なし")
+        else:
+            logger.warning(f"入力データが辞書ではありません: {type(analysis_data).__name__}")
+            # 空の辞書を作成
+            analysis_data = {}
+
+        # 必須データがない場合のフォールバック
+        if 'colors' not in analysis_data or not analysis_data['colors']:
+            logger.warning("色情報がありません。デフォルト値を設定します。")
+            analysis_data['colors'] = [
+                {
+                    'rgb': 'rgb(255,255,255)',
+                    'hex': '#ffffff',
+                    'ratio': 0.8,
+                    'role': 'background'
+                },
+                {
+                    'rgb': 'rgb(0,0,0)',
+                    'hex': '#000000',
+                    'ratio': 0.2,
+                    'role': 'text'
+                }
+            ]
+
+        if 'layout' not in analysis_data or not analysis_data['layout']:
+            logger.warning("レイアウト情報がありません。デフォルト値を設定します。")
+            analysis_data['layout'] = {
+                'layoutType': 'standard',
+                'confidence': 0.7,
+                'width': 1200,
+                'height': 800,
+                'aspectRatio': 1.5
+            }
+
+        if 'text' not in analysis_data or not analysis_data['text']:
+            logger.warning("テキスト情報がありません。デフォルト値を設定します。")
+            analysis_data['text'] = {
+                'text': '',
+                'textBlocks': []
+            }
+
+        if 'elements' not in analysis_data or not analysis_data['elements']:
+            logger.warning("要素情報がありません。デフォルト値を設定します。")
+            analysis_data['elements'] = []
+
+        if 'sections' not in analysis_data or not analysis_data['sections']:
+            logger.warning("セクション情報がありません。デフォルト値を設定します。")
+            analysis_data['sections'] = []
+
         # 基本解析情報
         layout_info = analysis_data.get('layout', {})
         colors = analysis_data.get('colors', [])
@@ -2521,13 +2578,23 @@ def compress_analysis_results(analysis_data, options=None):
         text_blocks = analysis_data.get('text_blocks', [])
         text_content = analysis_data.get('text', '')
 
+        # テキストデータの構造調整
+        if isinstance(text_content, dict) and 'text' in text_content:
+            # textが辞書の場合、textフィールドを抽出
+            text_data_content = text_content.get('text', '')
+            if 'textBlocks' in text_content:
+                text_blocks = text_content.get('textBlocks', [])
+        else:
+            # textが文字列の場合はそのまま使用
+            text_data_content = text_content if isinstance(text_content, str) else ''
+
         # レイアウト情報を整理
         layout = {
             'width': layout_info.get('width', 1200),
             'height': layout_info.get('height', 800),
             'aspectRatio': layout_info.get('aspectRatio', '3:2'),
-            'type': layout_info.get('type', 'standard'),
-            'template': layout_info.get('type', 'standard'),  # typeと同じ値をtemplateにも設定
+            'type': layout_info.get('layoutType', 'standard'),
+            'template': layout_info.get('layoutType', 'standard'),  # typeと同じ値をtemplateにも設定
             'gridPattern': layout_info.get('gridPattern', {
                 'columns': 12,
                 'rows': 'auto',
@@ -2538,52 +2605,74 @@ def compress_analysis_results(analysis_data, options=None):
             'textPosition': layout_info.get('textPosition', 'center')
         }
 
-        # 色情報を整理（役割の統一）
-        normalized_colors = []
-        standard_roles = ['background', 'text', 'primary', 'secondary', 'accent', 'highlight']
+        # 色情報を整理（役割の統一）- 必ずデータが存在することを保証
+        if not colors or len(colors) == 0:
+            # デフォルトの色を提供
+            normalized_colors = [
+                {
+                    'rgb': 'rgb(255,255,255)',
+                    'hex': '#ffffff',
+                    'role': 'background',
+                    'ratio': 0.8
+                },
+                {
+                    'rgb': 'rgb(0,0,0)',
+                    'hex': '#000000',
+                    'role': 'text',
+                    'ratio': 0.2
+                }
+            ]
+        else:
+            normalized_colors = []
+            standard_roles = ['background', 'text', 'primary', 'secondary', 'accent', 'highlight']
 
-        # 色の役割を推定・正規化する機能
-        def normalize_color_role(color):
-            if not color or not isinstance(color, dict):
-                return {'rgb': 'rgb(0,0,0)', 'hex': '#000000', 'role': 'text', 'ratio': 0}
+            # 色情報の正規化
+            for color in colors:
+                if not color or not isinstance(color, dict):
+                    continue
 
-            role = color.get('role', '')
-
-            # roleが標準ロールに含まれていない場合は推測
-            if not role or role not in standard_roles:
-                # 背景色判定: 量が多いor明るい色
-                if color.get('ratio', 0) > 0.3 or is_light_color(color.get('rgb', '')):
-                    role = 'background'
-                # テキスト色判定: 暗い色
-                elif not is_light_color(color.get('rgb', '')):
-                    role = 'text'
-                # アクセント色判定: 彩度が高い色
-                elif color.get('saturation', 0) > 0.6:
-                    role = 'accent'
-                # それ以外はプライマリまたはセカンダリ
-                else:
-                    existing_roles = [c.get('role') for c in normalized_colors]
-                    if 'primary' not in existing_roles:
+                # roleが標準ロールに含まれているか確認
+                role = color.get('role', '')
+                if not role or role not in standard_roles:
+                    # 役割を推定
+                    if color.get('ratio', 0) > 0.3 or is_light_color(color.get('rgb', '')):
+                        role = 'background'
+                    elif not is_light_color(color.get('rgb', '')):
+                        role = 'text'
+                    elif 'primary' not in [c.get('role') for c in normalized_colors]:
                         role = 'primary'
-                    elif 'secondary' not in existing_roles:
+                    elif 'secondary' not in [c.get('role') for c in normalized_colors]:
                         role = 'secondary'
                     else:
-                        role = 'highlight'
+                        role = 'accent'
 
-            return {
-                'rgb': color.get('rgb', ''),
-                'hex': color.get('hex', ''),
-                'role': role,
-                'ratio': color.get('ratio', 0)
-            }
+                normalized_colors.append({
+                    'rgb': color.get('rgb', ''),
+                    'hex': color.get('hex', ''),
+                    'role': role,
+                    'ratio': color.get('ratio', 0)
+                })
 
-        # 色情報の正規化
-        for color in colors:
-            normalized_colors.append(normalize_color_role(color))
+            # 最低2色は確保（不足時にデフォルト追加）
+            if len(normalized_colors) < 2:
+                if not any(c.get('role') == 'background' for c in normalized_colors):
+                    normalized_colors.append({
+                        'rgb': 'rgb(255,255,255)',
+                        'hex': '#ffffff',
+                        'role': 'background',
+                        'ratio': 0.8
+                    })
+                if not any(c.get('role') == 'text' for c in normalized_colors):
+                    normalized_colors.append({
+                        'rgb': 'rgb(0,0,0)',
+                        'hex': '#000000',
+                        'role': 'text',
+                        'ratio': 0.2
+                    })
 
         # テキスト情報を整理（JS側が期待する構造に変換）
         text_data = {
-            'content': text_content,
+            'content': text_data_content,
             'blocks': text_blocks,
             'hierarchy': []
         }
@@ -2594,16 +2683,13 @@ def compress_analysis_results(analysis_data, options=None):
                 if not isinstance(block, dict):
                     continue
 
-                # ブロックの重要度に基づいてレベルを設定
-                importance = block.get('importance', 0)
-                size = block.get('fontSize', 0)
-                is_bold = block.get('bold', False)
+                # レベルの決定（デフォルトはテキスト）
+                level = 3
 
-                # レベルの決定（重要度、フォントサイズ、太字かで判断）
-                level = 3  # デフォルトはテキスト
-                if importance > 0.8 or (size > 24 and is_bold):
+                # ブロックの特性から見出しレベルを推定
+                if block.get('importance', 0) > 0.8 or block.get('fontSize', 0) > 24:
                     level = 1  # 見出し
-                elif importance > 0.5 or size > 18:
+                elif block.get('importance', 0) > 0.5 or block.get('fontSize', 0) > 18:
                     level = 2  # 小見出し
 
                 text_data['hierarchy'].append({
@@ -2611,31 +2697,15 @@ def compress_analysis_results(analysis_data, options=None):
                     'text': block.get('text', ''),
                     'position': block.get('position', {})
                 })
-        # テキストブロックがなく全文のみの場合
-        elif text_content:
-            # 簡易的に最初の行を見出しとして扱う
-            lines = text_content.split('\n')
-            if lines:
-                text_data['hierarchy'].append({
-                    'level': 1,
-                    'text': lines[0],
-                    'position': {'top': 0, 'left': 0}
-                })
 
-                # 残りの行をテキストとして扱う
-                if len(lines) > 1:
-                    text_data['hierarchy'].append({
-                        'level': 3,
-                        'text': '\n'.join(lines[1:]),
-                        'position': {'top': 50, 'left': 0}
-                    })
+        # 要素情報を整理
+        element_list = []
+        if isinstance(elements, list):
+            element_list = elements
+        elif isinstance(elements, dict) and 'elements' in elements:
+            element_list = elements.get('elements', [])
 
-        # 要素情報を整理（elements.elements形式への統一とsummary追加）
-        element_list = elements.get('elements', [])
-        if not isinstance(element_list, list):
-            element_list = []
-
-        # 要素種類ごとのカウント
+        # 要素サマリー情報の作成
         element_counts = {
             'button': 0,
             'image': 0,
@@ -2691,28 +2761,49 @@ def compress_analysis_results(analysis_data, options=None):
             }
         }
 
+        # データ構造の確認ログ
+        logger.info(f"圧縮後のデータ構造: {list(compressed_data.keys())}")
+        logger.info(f"色情報: {len(compressed_data['colors'])}色")
+        logger.info(f"レイアウトタイプ: {compressed_data['layout']['type']}")
+
         # フォーマットタイプに応じた変換
         if format_type == 'semantic':
-            return convert_to_semantic_format(compressed_data)
+            result = convert_to_semantic_format(compressed_data)
+            compressed_data['semanticFormat'] = result
         elif format_type == 'template':
-            return convert_to_template_format(compressed_data)
+            result = convert_to_template_format(compressed_data)
+            compressed_data['templateFormat'] = result
 
-        # デフォルトは構造化データをそのまま返す
         return compressed_data
 
     except Exception as e:
         logger.error(f"解析データの圧縮中にエラーが発生しました: {str(e)}")
         traceback.print_exc()
 
-        # エラー時の最小限のデータ構造
+        # エラー情報を明示的に含める
         return {
+            'error': str(e),
+            'trace': traceback.format_exc(),
             'layout': {
                 'width': 1200,
                 'height': 800,
                 'type': 'standard',
                 'template': 'standard'
             },
-            'colors': [],
+            'colors': [
+                {
+                    'rgb': 'rgb(255,255,255)',
+                    'hex': '#ffffff',
+                    'role': 'background',
+                    'ratio': 0.8
+                },
+                {
+                    'rgb': 'rgb(0,0,0)',
+                    'hex': '#000000',
+                    'role': 'text',
+                    'ratio': 0.2
+                }
+            ],
             'text': {
                 'content': '',
                 'blocks': [],
@@ -2726,9 +2817,9 @@ def compress_analysis_results(analysis_data, options=None):
                     'hasNavigation': False,
                     'hasForms': False
                 }
-            },
-            'error': str(e)
+            }
         }
+
 
 def convert_to_semantic_format(compressed_data):
     """
@@ -3560,7 +3651,6 @@ def format_analysis_for_ai(analysis_data, format_type="markdown"):
         output = json.dumps(analysis_data, ensure_ascii=False, indent=2)
 
     return output
-
 def is_light_color(rgb_str):
     """
     RGBカラー文字列が明るい色かどうかを判定する
@@ -3807,8 +3897,10 @@ def compress_analysis_results(analysis_data, options=None):
         logger.error(f"解析データの圧縮中にエラーが発生しました: {str(e)}")
         traceback.print_exc()
 
-        # エラー時の最小限のデータ構造
+        # エラー情報を明示的に含める
         return {
+            'error': str(e),
+            'trace': traceback.format_exc(),
             'layout': {
                 'width': 1200,
                 'height': 800,
