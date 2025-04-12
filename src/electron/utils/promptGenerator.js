@@ -7,6 +7,25 @@ const handleAnalysisError = (operation, error, defaultValue) => {
   return defaultValue;
 };
 
+// プロパティの安全なアクセスのためのヘルパー関数
+const safeGetProperty = (obj, path, defaultValue = null) => {
+  if (!obj) return defaultValue;
+  return path.split('.').reduce((prev, curr) =>
+    prev && prev[curr] !== undefined ? prev[curr] : defaultValue, obj);
+};
+
+// データ構造を検証し、ログ出力するヘルパー関数
+const validateAndLogData = (data, type) => {
+  if (!data) {
+    console.warn(`${type}データが存在しません`);
+    return false;
+  }
+
+  console.log(`${type}データ構造:`, typeof data === 'object' ?
+    Object.keys(data).join(', ') : typeof data);
+  return true;
+};
+
 // アクティブプロジェクトから設定を取得する関数（非同期）
 const getSettingsFromActiveProject = async () => {
   try {
@@ -122,7 +141,10 @@ const extractHexValuesFromVariables = (cssVars) => {
 
 // 画像解析を実行して結果を取得する関数（Python APIを使用）
 const analyzeImage = async (imageBase64, imageType) => {
-  if (!imageBase64) return { colors: [], text: '', sections: [], elements: { elements: [] } };
+  if (!imageBase64) {
+    console.warn(`${imageType}画像データが存在しません。空の結果を返します。`);
+    return { colors: [], text: '', sections: [], elements: { elements: [] } };
+  }
 
   console.log(`${imageType}画像の解析を開始します...`);
 
@@ -136,25 +158,45 @@ const analyzeImage = async (imageBase64, imageType) => {
     // 各分析処理を同時に開始（Python APIを使用）
     const colorPromise = window.api.extractColorsFromImage ?
       window.api.extractColorsFromImage(imageBase64)
-        .then(result => result.success ? result.data : [])
+        .then(result => {
+          if (!result.success) {
+            console.warn(`${imageType}画像の色抽出に失敗:`, result.error || '未知のエラー');
+          }
+          return result.success ? result.data : [];
+        })
         .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, [])) :
       Promise.resolve([]);
 
     const textPromise = window.api.extractTextFromImage ?
       window.api.extractTextFromImage(imageBase64)
-        .then(result => result.success ? result.data : '')
+        .then(result => {
+          if (!result.success) {
+            console.warn(`${imageType}画像のテキスト抽出に失敗:`, result.error || '未知のエラー');
+          }
+          return result.success ? result.data : '';
+        })
         .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, '')) :
       Promise.resolve('');
 
     const sectionsPromise = window.api.analyzeImageSections ?
       window.api.analyzeImageSections(imageBase64)
-        .then(result => result.success ? result.data : [])
+        .then(result => {
+          if (!result.success) {
+            console.warn(`${imageType}画像のセクション分析に失敗:`, result.error || '未知のエラー');
+          }
+          return result.success ? result.data : [];
+        })
         .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, [])) :
       Promise.resolve([]);
 
     const elementsPromise = window.api.analyzeImage ?
       window.api.analyzeImage({ image: imageBase64, type: 'features' })
-        .then(result => result.success ? result.data : { elements: [] })
+        .then(result => {
+          if (!result.success) {
+            console.warn(`${imageType}画像の要素検出に失敗:`, result.error || '未知のエラー');
+          }
+          return result.success ? result.data : { elements: [] };
+        })
         .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] })) :
       Promise.resolve({ elements: [] });
 
@@ -165,7 +207,16 @@ const analyzeImage = async (imageBase64, imageType) => {
         type: 'compress',
         options: { format_type: 'structured' } // structured, semantic, template
       })
-        .then(result => result.success ? result.data : null)
+        .then(result => {
+          if (!result.success) {
+            console.warn(`${imageType}画像の圧縮解析に失敗:`, result.error || '未知のエラー');
+          }
+          const data = result.success ? result.data : null;
+          if (data) {
+            console.log(`${imageType}圧縮解析データ構造:`, Object.keys(data).join(', '));
+          }
+          return data;
+        })
         .catch(error => handleAnalysisError(`${imageType}画像の圧縮解析`, error, null)) :
       Promise.resolve(null);
 
@@ -176,18 +227,28 @@ const analyzeImage = async (imageBase64, imageType) => {
 
     // 結果のログと形式確認
     console.log(`${imageType}画像から色を抽出しました:`, colors?.length || 0, "色");
-    console.log(`${imageType}画像からテキストを抽出しました`);
+    console.log(`${imageType}画像からテキストを抽出しました: ${text ? '成功' : '空のテキスト'}`);
     console.log(`${imageType}画像のセクション分析が完了しました:`, sections?.length || 0, "セクション");
     console.log(`${imageType}画像の要素検出が完了しました:`,
       elements && elements.elements ? elements.elements.length : 0, "要素");
     console.log(`${imageType}画像の圧縮解析が完了しました:`, compressedAnalysis ? "成功" : "失敗");
+
+    // 圧縮解析データの構造検証
+    if (compressedAnalysis) {
+      const expectedProps = ['text', 'colors', 'layout', 'elements', 'sections'];
+      const missingProps = expectedProps.filter(prop => !compressedAnalysis.hasOwnProperty(prop));
+
+      if (missingProps.length > 0) {
+        console.warn(`${imageType}圧縮解析データに不足しているプロパティ:`, missingProps.join(', '));
+      }
+    }
 
     // 結果の形式を正規化して返す
     return {
       colors: Array.isArray(colors) ? colors : [],
       text: typeof text === 'string' ? text : '',
       sections: Array.isArray(sections) ? sections : [],
-      elements: elements || { elements: [] },
+      elements: elements && typeof elements === 'object' ? elements : { elements: [] },
       compressedAnalysis: compressedAnalysis || null
     };
   } catch (error) {
@@ -213,88 +274,128 @@ const buildAnalysisSection = (pcAnalysis, spAnalysis) => {
 ## Image Analysis Results
 `;
 
+  // 圧縮解析データが利用可能かチェック
+  const hasPcCompressedData = pcAnalysis && pcAnalysis.compressedAnalysis;
+  const hasSpCompressedData = spAnalysis && spAnalysis.compressedAnalysis;
+
   // 圧縮解析データが利用可能な場合は、それを優先的に使用する
-  if (pcAnalysis.compressedAnalysis || spAnalysis.compressedAnalysis) {
+  if (hasPcCompressedData || hasSpCompressedData) {
     section += `
 ### Structured Analysis:
 `;
 
     // PC画像の圧縮解析データ
-    if (pcAnalysis.compressedAnalysis) {
+    if (hasPcCompressedData) {
       const pcData = pcAnalysis.compressedAnalysis;
+      console.log("PC圧縮解析データの構造検証:", Object.keys(pcData).join(', '));
 
       // レイアウト情報
       if (pcData.layout) {
+        const template = safeGetProperty(pcData, 'layout.template', 'unknown');
+        const aspectRatio = safeGetProperty(pcData, 'layout.aspectRatio', 'unknown');
+        const imagePosition = safeGetProperty(pcData, 'layout.imagePosition', 'N/A');
+        const textPosition = safeGetProperty(pcData, 'layout.textPosition', 'N/A');
+
         section += `
 #### PC Layout:
-- Template: ${pcData.layout.template || 'unknown'}
-- Aspect Ratio: ${pcData.layout.aspectRatio || 'unknown'}
-- Image Position: ${pcData.layout.imagePosition || 'N/A'}
-- Text Position: ${pcData.layout.textPosition || 'N/A'}
+- Template: ${template}
+- Aspect Ratio: ${aspectRatio}
+- Image Position: ${imagePosition}
+- Text Position: ${textPosition}
 `;
+      } else {
+        console.warn("PC圧縮解析データにレイアウト情報がありません");
       }
 
       // テキスト階層
-      if (pcData.text && pcData.text.hierarchy && pcData.text.hierarchy.length > 0) {
+      const textHierarchy = safeGetProperty(pcData, 'text.hierarchy', []);
+      if (Array.isArray(textHierarchy) && textHierarchy.length > 0) {
         section += `
 #### PC Text Hierarchy:
 `;
-        pcData.text.hierarchy.forEach(item => {
-          const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
-          section += `- ${levelName}: ${item.text}\n`;
+        textHierarchy.forEach(item => {
+          if (item && typeof item === 'object') {
+            const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
+            section += `- ${levelName}: ${item.text || '不明なテキスト'}\n`;
+          }
         });
+      } else {
+        console.warn("PC圧縮解析データにテキスト階層情報がないか、不正な形式です");
       }
 
       // 色情報
-      if (pcData.colors && pcData.colors.length > 0) {
+      const colors = safeGetProperty(pcData, 'colors', []);
+      if (Array.isArray(colors) && colors.length > 0) {
         section += `
 #### PC Colors:
 `;
-        pcData.colors.forEach(color => {
-          section += `- ${color.role || 'Color'}: ${color.hex} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+        colors.forEach(color => {
+          if (color && typeof color === 'object') {
+            section += `- ${color.role || 'Color'}: ${color.hex || ''} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+          }
         });
+      } else {
+        console.warn("PC圧縮解析データに色情報がないか、不正な形式です");
       }
     }
 
     // SP画像の圧縮解析データ
-    if (spAnalysis.compressedAnalysis) {
+    if (hasSpCompressedData) {
       const spData = spAnalysis.compressedAnalysis;
+      console.log("SP圧縮解析データの構造検証:", Object.keys(spData).join(', '));
 
       // レイアウト情報
       if (spData.layout) {
+        const template = safeGetProperty(spData, 'layout.template', 'unknown');
+        const aspectRatio = safeGetProperty(spData, 'layout.aspectRatio', 'unknown');
+        const imagePosition = safeGetProperty(spData, 'layout.imagePosition', 'N/A');
+        const textPosition = safeGetProperty(spData, 'layout.textPosition', 'N/A');
+
         section += `
 #### SP Layout:
-- Template: ${spData.layout.template || 'unknown'}
-- Aspect Ratio: ${spData.layout.aspectRatio || 'unknown'}
-- Image Position: ${spData.layout.imagePosition || 'N/A'}
-- Text Position: ${spData.layout.textPosition || 'N/A'}
+- Template: ${template}
+- Aspect Ratio: ${aspectRatio}
+- Image Position: ${imagePosition}
+- Text Position: ${textPosition}
 `;
+      } else {
+        console.warn("SP圧縮解析データにレイアウト情報がありません");
       }
 
       // テキスト階層
-      if (spData.text && spData.text.hierarchy && spData.text.hierarchy.length > 0) {
+      const textHierarchy = safeGetProperty(spData, 'text.hierarchy', []);
+      if (Array.isArray(textHierarchy) && textHierarchy.length > 0) {
         section += `
 #### SP Text Hierarchy:
 `;
-        spData.text.hierarchy.forEach(item => {
-          const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
-          section += `- ${levelName}: ${item.text}\n`;
+        textHierarchy.forEach(item => {
+          if (item && typeof item === 'object') {
+            const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
+            section += `- ${levelName}: ${item.text || '不明なテキスト'}\n`;
+          }
         });
+      } else {
+        console.warn("SP圧縮解析データにテキスト階層情報がないか、不正な形式です");
       }
 
       // 色情報
-      if (spData.colors && spData.colors.length > 0) {
+      const colors = safeGetProperty(spData, 'colors', []);
+      if (Array.isArray(colors) && colors.length > 0) {
         section += `
 #### SP Colors:
 `;
-        spData.colors.forEach(color => {
-          section += `- ${color.role || 'Color'}: ${color.hex} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+        colors.forEach(color => {
+          if (color && typeof color === 'object') {
+            section += `- ${color.role || 'Color'}: ${color.hex || ''} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+          }
         });
+      } else {
+        console.warn("SP圧縮解析データに色情報がないか、不正な形式です");
       }
     }
 
     // セマンティックタグ表現（高度なAIプロンプト生成用）
-    if (pcAnalysis.compressedAnalysis) {
+    if (hasPcCompressedData) {
       section += `
 ### Semantic Tags (PC):
 \`\`\`
@@ -303,7 +404,7 @@ ${generateSemanticTags(pcAnalysis.compressedAnalysis)}
 `;
     }
 
-    if (spAnalysis.compressedAnalysis) {
+    if (hasSpCompressedData) {
       section += `
 ### Semantic Tags (SP):
 \`\`\`
@@ -313,6 +414,7 @@ ${generateSemanticTags(spAnalysis.compressedAnalysis)}
     }
   } else {
     // 従来の方式で情報を表示（圧縮データがない場合のフォールバック）
+    console.warn("圧縮解析データが利用できないため、従来の方式でプロンプトを生成します");
     // テキスト情報
     if (pcAnalysis.text || spAnalysis.text) {
       section += `
@@ -366,119 +468,249 @@ ${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section =
   return section;
 };
 
-// 圧縮データからセマンティックタグを生成する補助関数
-const generateSemanticTags = (compressedData) => {
-  if (!compressedData) return '';
-
-  // イメージの場合は直接Python生成のセマンティックタグを使用
-  if (compressedData.semanticTags) {
-    return compressedData.semanticTags;
+/**
+ * 解析データからセマンティックHTMLタグの提案を生成
+ * @param {Object} data - 正規化された分析データ
+ * @returns {string} セマンティックタグのリスト
+ */
+const generateSemanticTags = (data) => {
+  if (!data) {
+    console.warn('セマンティックタグ生成: データがありません');
+    return '<header>\n  <h1>タイトル</h1>\n</header>\n<main>\n  <section>\n    <h2>セクション</h2>\n  </section>\n</main>';
   }
 
-  // 手動でセマンティックタグを生成
-  const tags = [];
+  try {
+    console.log('セマンティックタグ生成: データ構造確認', typeof data === 'object' ? Object.keys(data).join(', ') : typeof data);
 
-  // レイアウト
-  if (compressedData.layout && compressedData.layout.template) {
-    tags.push(`[layout:${compressedData.layout.template}]`);
-  }
+    // レイアウト情報の取得
+    const layout = safeGetProperty(data, 'layout', {});
+    const layoutType = safeGetProperty(layout, 'type', 'standard');
+    console.log('セマンティックタグ生成: レイアウトタイプ', layoutType);
 
-  if (compressedData.layout && compressedData.layout.imagePosition) {
-    tags.push(`[image-position:${compressedData.layout.imagePosition}]`);
-  }
+    // セクション情報の取得
+    const sections = safeGetProperty(data, 'sections', []);
+    // テキスト情報の取得
+    const textData = safeGetProperty(data, 'text', {});
+    const textBlocks = safeGetProperty(textData, 'blocks', []);
+    const textHierarchy = safeGetProperty(textData, 'hierarchy', []);
 
-  if (compressedData.layout && compressedData.layout.textPosition) {
-    tags.push(`[text-position:${compressedData.layout.textPosition}]`);
-  }
+    // 要素情報の取得
+    const elements = safeGetProperty(data, 'elements.elements', []);
 
-  // テキスト
-  if (compressedData.text && compressedData.text.hierarchy) {
-    compressedData.text.hierarchy.forEach(item => {
-      if (item.level === 1) {
-        tags.push(`[heading] ${item.text}`);
-      } else if (item.level === 2) {
-        tags.push(`[subheading] ${item.text}`);
-      } else {
-        tags.push(`[text] ${item.text}`);
-      }
-    });
-  }
+    let htmlStructure = '';
 
-  // 色
-  if (compressedData.colors && compressedData.colors.length > 0) {
-    const colorParts = compressedData.colors
-      .filter(color => color.role && color.hex)
-      .map(color => `${color.role}=${color.hex}`);
+    // ヘッダー部分を生成
+    htmlStructure += '<header class="header">\n';
+    htmlStructure += '  <div class="header__inner">\n';
+    htmlStructure += '    <h1 class="header__logo">Logo</h1>\n';
 
-    if (colorParts.length > 0) {
-      tags.push(`[colors:${colorParts.join(',')}]`);
+    // ナビゲーションがあれば追加
+    const hasNav = elements.some(el => el.type === 'navigation' || el.type === 'nav');
+    if (hasNav) {
+      htmlStructure += '    <nav class="header__nav">\n';
+      htmlStructure += '      <ul class="nav-list">\n';
+      htmlStructure += '        <li class="nav-list__item"><a href="#">リンク1</a></li>\n';
+      htmlStructure += '        <li class="nav-list__item"><a href="#">リンク2</a></li>\n';
+      htmlStructure += '      </ul>\n';
+      htmlStructure += '    </nav>\n';
     }
-  }
 
-  return tags.join('\n');
+    htmlStructure += '  </div>\n';
+    htmlStructure += '</header>\n\n';
+
+    // メイン部分を生成
+    htmlStructure += '<main class="main">\n';
+
+    // セクションがあれば追加
+    if (Array.isArray(sections) && sections.length > 0) {
+      sections.forEach((section, index) => {
+        const sectionType = safeGetProperty(section, 'type', 'content');
+        const sectionClass = sectionType === 'hero' ? 'mv' : sectionType.replace('-', '_');
+
+        htmlStructure += `  <section class="${sectionClass}">\n`;
+        htmlStructure += `    <div class="${sectionClass}__inner">\n`;
+
+        // セクションのヘッダー
+        const headingLevel = index === 0 ? 'h2' : 'h2';
+        htmlStructure += `      <${headingLevel} class="${sectionClass}__title">Section Title</${headingLevel}>\n`;
+
+        // セクションの内容
+        if (sectionType === 'card-grid' || sectionType === 'features') {
+          htmlStructure += `      <div class="${sectionClass}__items">\n`;
+          for (let i = 0; i < 3; i++) {
+            htmlStructure += `        <div class="${sectionClass}__item">\n`;
+            htmlStructure += `          <h3 class="${sectionClass}__item-title">Item Title</h3>\n`;
+            htmlStructure += `          <p class="${sectionClass}__item-text">テキストが入ります</p>\n`;
+            htmlStructure += '        </div>\n';
+          }
+          htmlStructure += '      </div>\n';
+        } else {
+          htmlStructure += `      <div class="${sectionClass}__content">\n`;
+          htmlStructure += '        <p>コンテンツテキストが入ります</p>\n';
+          htmlStructure += '      </div>\n';
+        }
+
+        htmlStructure += '    </div>\n';
+        htmlStructure += '  </section>\n\n';
+      });
+    } else {
+      // セクションがない場合のデフォルト
+      htmlStructure += '  <section class="section">\n';
+      htmlStructure += '    <div class="section__inner">\n';
+      htmlStructure += '      <h2 class="section__title">Section Title</h2>\n';
+      htmlStructure += '      <div class="section__content">\n';
+      htmlStructure += '        <p>テキストが入ります</p>\n';
+      htmlStructure += '      </div>\n';
+      htmlStructure += '    </div>\n';
+      htmlStructure += '  </section>\n\n';
+    }
+
+    htmlStructure += '</main>\n\n';
+
+    // フッター部分を生成
+    htmlStructure += '<footer class="footer">\n';
+    htmlStructure += '  <div class="footer__inner">\n';
+    htmlStructure += '    <p class="footer__copyright">© 2023 Company Name</p>\n';
+    htmlStructure += '  </div>\n';
+    htmlStructure += '</footer>';
+
+    return htmlStructure;
+  } catch (error) {
+    console.error('セマンティックタグ生成エラー:', error);
+    return '<header>\n  <h1>エラー発生</h1>\n</header>\n<main>\n  <section>\n    <h2>データ処理中にエラーが発生しました</h2>\n  </section>\n</main>';
+  }
 };
 
-// テンプレート形式のタグを生成する補助関数
-const generateTemplateFormat = (compressedData) => {
-  if (!compressedData) return '';
-
-  // イメージの場合は直接Python生成のテンプレートを使用
-  if (compressedData.templateFormat) {
-    return compressedData.templateFormat;
+/**
+ * 解析データからCSSテンプレート形式を生成
+ * @param {Object} data - 正規化された分析データ
+ * @returns {string} CSSテクニックの提案
+ */
+const generateTemplateFormat = (data) => {
+  if (!data) {
+    console.warn('テンプレート形式生成: データがありません');
+    return '<!-- デフォルトのテンプレート構造 -->\n<div class="container">\n  <div class="header">ヘッダー</div>\n  <div class="content">コンテンツ</div>\n  <div class="footer">フッター</div>\n</div>';
   }
 
-  // 手動でテンプレート形式を生成
-  const templates = [];
+  try {
+    console.log('テンプレート形式生成: データ構造確認', typeof data === 'object' ? Object.keys(data).join(', ') : typeof data);
 
-  // レイアウトテンプレート
-  if (compressedData.layout && compressedData.layout.template) {
-    templates.push(`{{layout:${compressedData.layout.template}}}`);
+    // レイアウト情報の取得
+    const layout = safeGetProperty(data, 'layout', {});
+    const layoutType = safeGetProperty(layout, 'type', 'standard');
+    const templateType = safeGetProperty(layout, 'template', 'standard');
+    console.log('テンプレート形式生成: レイアウトタイプ', layoutType, 'テンプレート', templateType);
+
+    // セクション情報の取得
+    const sections = safeGetProperty(data, 'sections', []);
+
+    // テンプレートを決定
+    let template = '';
+
+    switch (templateType.toLowerCase()) {
+      case 'hero':
+      case 'landing':
+        template = `<!-- ヒーローセクション型テンプレート -->
+<div class="container">
+  <header class="header">
+    <!-- ヘッダー内容 -->
+  </header>
+
+  <section class="hero">
+    <div class="hero__content">
+      <h1 class="hero__title">メインタイトル</h1>
+      <p class="hero__subtitle">サブタイトル</p>
+      <div class="hero__action">
+        <button class="btn btn--primary">アクション</button>
+      </div>
+    </div>
+    <div class="hero__image">
+      <!-- メイン画像 -->
+    </div>
+  </section>
+
+  <main class="main">
+    <!-- メインコンテンツ -->
+  </main>
+
+  <footer class="footer">
+    <!-- フッター内容 -->
+  </footer>
+</div>`;
+        break;
+
+      case 'grid':
+      case 'cards':
+        template = `<!-- グリッド型テンプレート -->
+<div class="container">
+  <header class="header">
+    <!-- ヘッダー内容 -->
+  </header>
+
+  <main class="main">
+    <section class="section">
+      <h2 class="section__title">セクションタイトル</h2>
+      <div class="grid">
+        <div class="grid__item">アイテム1</div>
+        <div class="grid__item">アイテム2</div>
+        <div class="grid__item">アイテム3</div>
+        <!-- 追加のグリッドアイテム -->
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <!-- フッター内容 -->
+  </footer>
+</div>`;
+        break;
+
+      case 'split':
+      case 'two-column':
+        template = `<!-- 2カラム型テンプレート -->
+<div class="container">
+  <header class="header">
+    <!-- ヘッダー内容 -->
+  </header>
+
+  <div class="content">
+    <main class="main">
+      <!-- メインコンテンツ -->
+    </main>
+
+    <aside class="sidebar">
+      <!-- サイドバーコンテンツ -->
+    </aside>
+  </div>
+
+  <footer class="footer">
+    <!-- フッター内容 -->
+  </footer>
+</div>`;
+        break;
+
+      default:
+        template = `<!-- 標準テンプレート -->
+<div class="container">
+  <header class="header">
+    <!-- ヘッダー内容 -->
+  </header>
+
+  <main class="main">
+    <!-- メインコンテンツ -->
+  </main>
+
+  <footer class="footer">
+    <!-- フッター内容 -->
+  </footer>
+</div>`;
+    }
+
+    return template;
+  } catch (error) {
+    console.error('テンプレート形式生成エラー:', error);
+    return '<!-- エラー: テンプレート生成に失敗しました -->\n<div class="container">\n  <div class="content">エラーが発生しました</div>\n</div>';
   }
-
-  // 見出し・小見出し・本文
-  if (compressedData.text && compressedData.text.hierarchy) {
-    const headings = [];
-    const subheadings = [];
-    const bodyTexts = [];
-
-    compressedData.text.hierarchy.forEach(item => {
-      if (item.level === 1) {
-        headings.push(item.text);
-      } else if (item.level === 2) {
-        subheadings.push(item.text);
-      } else {
-        bodyTexts.push(item.text);
-      }
-    });
-
-    if (headings.length > 0) {
-      templates.push(`{{heading:${headings[0]}}}`);
-    }
-
-    if (subheadings.length > 0) {
-      templates.push(`{{subheading:${subheadings.join(' / ')}}}`);
-    }
-
-    if (bodyTexts.length > 0) {
-      templates.push(`{{body:${bodyTexts.join(' / ')}}}`);
-    }
-  }
-
-  // 色情報
-  if (compressedData.colors && compressedData.colors.length > 0) {
-    const colorParts = compressedData.colors
-      .filter(color => color.role && color.hex)
-      .map(color => {
-        const shortRole = color.role.substring(0, 2);
-        return `${shortRole}=${color.hex}`;
-      });
-
-    if (colorParts.length > 0) {
-      templates.push(`{{colors:${colorParts.join(',')}}}`);
-    }
-  }
-
-  return templates.join('\n');
 };
 
 // 設定セクションを構築する関数
@@ -982,7 +1214,1130 @@ After going through this checklist, ensure your HTML and SCSS accurately reprodu
 `;
 };
 
-// メイン関数を修正して非同期対応
+/**
+ * 分析データを標準化して、任意の入力形式から一貫した内部形式に変換
+ * @param {Object} rawData - 元の解析データ
+ * @returns {Object} 標準化された圧縮データ
+ */
+function normalizeAnalysisData(rawData) {
+  try {
+    console.log("データ正規化開始:", typeof rawData === 'object' ?
+      (Array.isArray(rawData) ? `配列 (${rawData.length}項目)` : Object.keys(rawData).join(', ')) : typeof rawData);
+
+    // データがすでに適切な形式の場合はそのまま返す
+    if (rawData && typeof rawData === 'object' &&
+      rawData.colors &&
+      rawData.text &&
+      rawData.layout &&
+      rawData.elements) {
+      console.log("データはすでに正規化された形式です");
+      return rawData;
+    }
+
+    // 新しいデータ構造を初期化
+    const normalized = {
+      layout: {
+        type: 'unknown',
+        template: 'standard',
+        width: 1200, // デフォルト値
+        height: 800, // デフォルト値
+        sectionCount: 1,
+        gridPattern: {
+          columns: 12,
+          rows: 'auto',
+          gap: '20px'
+        },
+        aspectRatio: '3:2',
+        imagePosition: 'center',
+        textPosition: 'center'
+      },
+      colors: [],
+      text: {
+        content: '',
+        blocks: [],
+        hierarchy: []
+      },
+      elements: {
+        elements: [],
+        summary: {
+          counts: {
+            total: 0,
+            button: 0,
+            image: 0,
+            card: 0,
+            navigation: 0,
+            form: 0,
+            list: 0,
+            text: 0
+          },
+          hasForms: false,
+          hasNavigation: false,
+          hasButtons: false,
+          hasCards: false,
+          hasImages: false,
+          hasLists: false
+        }
+      },
+      sections: []
+    };
+
+    // データが存在しない場合は初期値を返す
+    if (!rawData) {
+      console.warn("正規化対象データがありません。初期値を返します");
+      return normalized;
+    }
+
+    // 色情報の処理
+    if (Array.isArray(rawData)) {
+      // 色データが配列として直接渡された場合
+      console.log("色データ配列として処理");
+      normalized.colors = rawData.map(color => ({
+        ...color,
+        role: color.role || 'general',
+        hex: color.hex || '#000000',
+        rgb: color.rgb || 'rgb(0,0,0)',
+        ratio: color.ratio || 0
+      }));
+    } else if (rawData && typeof rawData === 'object') {
+      // オブジェクト形式の場合
+      console.log("オブジェクト形式として処理");
+
+      // 色情報の処理
+      if (rawData.colors) {
+        if (Array.isArray(rawData.colors)) {
+          console.log(`colors配列を処理: ${rawData.colors.length}項目`);
+          normalized.colors = rawData.colors.map(color => ({
+            ...color,
+            role: color.role || 'general',
+            hex: color.hex || '#000000',
+            rgb: color.rgb || 'rgb(0,0,0)',
+            ratio: color.ratio || 0
+          }));
+        } else if (typeof rawData.colors === 'object') {
+          console.log("colorsオブジェクトを処理");
+          // オブジェクト形式のcolorsを処理
+          const colorArray = [];
+          for (const role in rawData.colors) {
+            if (typeof rawData.colors[role] === 'string') {
+              colorArray.push({
+                hex: rawData.colors[role],
+                rgb: rawData.colors[role],
+                role: role,
+                ratio: 0
+              });
+            }
+          }
+          normalized.colors = colorArray;
+        }
+      }
+
+      // テキスト情報の処理（複数の形式に対応）
+      if (rawData.text) {
+        if (typeof rawData.text === 'string') {
+          // 文字列の場合
+          console.log("テキストは文字列形式");
+          normalized.text.content = rawData.text;
+
+          // 基本的な階層を作成（最初の行を見出しとして）
+          const lines = rawData.text.split('\n').filter(line => line.trim());
+          if (lines.length > 0) {
+            normalized.text.hierarchy.push({
+              level: 1,
+              text: lines[0]
+            });
+
+            if (lines.length > 1) {
+              normalized.text.hierarchy.push({
+                level: 3,
+                text: lines.slice(1).join('\n')
+              });
+            }
+          }
+        } else if (typeof rawData.text === 'object') {
+          // オブジェクト形式の場合
+          console.log("テキストはオブジェクト形式: ", Object.keys(rawData.text).join(', '));
+
+          // contentの処理
+          if (typeof rawData.text.content === 'string') {
+            normalized.text.content = rawData.text.content;
+          }
+
+          // blocksの処理
+          if (Array.isArray(rawData.text.blocks)) {
+            normalized.text.blocks = rawData.text.blocks;
+          }
+
+          // hierarchyの処理
+          if (Array.isArray(rawData.text.hierarchy)) {
+            normalized.text.hierarchy = rawData.text.hierarchy;
+          }
+        }
+      }
+
+      // textBlocksがある場合はblocksに変換し、階層も構築
+      if (Array.isArray(rawData.textBlocks)) {
+        console.log(`textBlocks配列を処理: ${rawData.textBlocks.length}項目`);
+        normalized.text.blocks = rawData.textBlocks;
+
+        // 階層がまだない場合は、ブロックから階層を構築
+        if (normalized.text.hierarchy.length === 0) {
+          rawData.textBlocks.forEach(block => {
+            if (!block || typeof block !== 'object') return;
+
+            // 重要度またはフォントサイズに基づいてレベルを決定
+            let level = 3; // デフォルトはテキスト
+            if (block.importance > 0.8 || block.fontSize > 24) {
+              level = 1; // 見出し
+            } else if (block.importance > 0.5 || block.fontSize > 18) {
+              level = 2; // 小見出し
+            }
+
+            normalized.text.hierarchy.push({
+              level,
+              text: block.text || '',
+              position: block.position || {}
+            });
+          });
+        }
+      }
+
+      // レイアウト情報の処理
+      if (rawData.layout && typeof rawData.layout === 'object') {
+        console.log("レイアウト情報を処理: ", Object.keys(rawData.layout).join(', '));
+
+        // 既存のプロパティをコピー
+        for (const key in rawData.layout) {
+          if (rawData.layout.hasOwnProperty(key)) {
+            normalized.layout[key] = rawData.layout[key];
+          }
+        }
+
+        // typeとtemplateの相互補完
+        if (rawData.layout.type && !rawData.layout.template) {
+          normalized.layout.template = rawData.layout.type;
+        } else if (!rawData.layout.type && rawData.layout.template) {
+          normalized.layout.type = rawData.layout.template;
+        }
+      }
+
+      // 要素情報の処理
+      if (rawData.elements) {
+        console.log("要素情報を処理");
+        if (Array.isArray(rawData.elements)) {
+          // 配列の場合はelementsに設定
+          normalized.elements.elements = rawData.elements;
+          normalized.elements.summary.counts.total = rawData.elements.length;
+        } else if (typeof rawData.elements === 'object') {
+          // オブジェクト形式の場合
+          if (Array.isArray(rawData.elements.elements)) {
+            normalized.elements.elements = rawData.elements.elements;
+            normalized.elements.summary.counts.total = rawData.elements.elements.length;
+          }
+
+          // summaryが存在する場合はコピー
+          if (rawData.elements.summary && typeof rawData.elements.summary === 'object') {
+            normalized.elements.summary = {
+              ...normalized.elements.summary,
+              ...rawData.elements.summary
+            };
+          } else {
+            // summaryがない場合は、elementsから構築
+            const elements = normalized.elements.elements || [];
+            const counts = { total: elements.length };
+            const features = {
+              hasForms: false,
+              hasNavigation: false,
+              hasButtons: false,
+              hasCards: false,
+              hasImages: false,
+              hasLists: false
+            };
+
+            elements.forEach(el => {
+              if (!el || typeof el !== 'object') return;
+
+              const type = (el.type || '').toLowerCase();
+
+              if (type.includes('button')) {
+                counts.button = (counts.button || 0) + 1;
+                features.hasButtons = true;
+              } else if (type.includes('image') || type.includes('img')) {
+                counts.image = (counts.image || 0) + 1;
+                features.hasImages = true;
+              } else if (type.includes('card')) {
+                counts.card = (counts.card || 0) + 1;
+                features.hasCards = true;
+              } else if (type.includes('nav')) {
+                counts.navigation = (counts.navigation || 0) + 1;
+                features.hasNavigation = true;
+              } else if (type.includes('form') || type.includes('input')) {
+                counts.form = (counts.form || 0) + 1;
+                features.hasForms = true;
+              } else if (type.includes('list') || type.includes('ul') || type.includes('ol')) {
+                counts.list = (counts.list || 0) + 1;
+                features.hasLists = true;
+              }
+            });
+
+            normalized.elements.summary.counts = {
+              ...normalized.elements.summary.counts,
+              ...counts
+            };
+
+            normalized.elements.summary = {
+              ...normalized.elements.summary,
+              ...features
+            };
+          }
+        }
+      }
+
+      // セクション情報の処理
+      if (Array.isArray(rawData.sections)) {
+        console.log(`セクション情報を処理: ${rawData.sections.length}項目`);
+        normalized.sections = rawData.sections;
+        normalized.layout.sectionCount = rawData.sections.length;
+      }
+    }
+
+    console.log("データ正規化完了: ", Object.keys(normalized).join(', '));
+    return normalized;
+  } catch (error) {
+    console.error("データ正規化エラー:", error);
+    console.error("エラーのスタックトレース:", error.stack);
+    return {
+      layout: { type: 'unknown', width: 1200, height: 800 },
+      colors: [],
+      text: { content: '', blocks: [], hierarchy: [] },
+      elements: { elements: [], summary: { counts: { total: 0 } } },
+      sections: []
+    };
+  }
+}
+
+/**
+ * デザイン全体の概要を生成（強化版）
+ * @param {Object} compressedData - 圧縮された解析データ
+ * @returns {string} デザイン概要の文字列
+ */
+function generateEnhancedOverviewSection(compressedData) {
+  const layout = compressedData.layout || {};
+  const layoutType = layout.type || layout.layoutType || 'unknown';
+  const width = layout.width || 'unknown';
+  const height = layout.height || 'unknown';
+  const sectionCount = layout.sectionCount || 0;
+  const gridPattern = layout.gridPattern || {};
+
+  let description = `
+This design appears to be a ${getLayoutTypeDescription(layoutType)} layout with dimensions of ${width}x${height}px.
+The design is organized into ${sectionCount} main sections.`;
+
+  if (gridPattern && gridPattern.type) {
+    description += `
+The layout follows a ${gridPattern.type} grid pattern with ${gridPattern.columns || 1} columns and ${gridPattern.rows || 1} rows.`;
+  }
+
+  const elementCount = compressedData.elements?.count || 0;
+  if (elementCount > 0) {
+    description += `
+The design contains approximately ${elementCount} UI elements.`;
+  }
+
+  return description;
+}
+
+/**
+ * レイアウトタイプの詳細説明を取得
+ * @param {string} layoutType - レイアウトタイプ
+ * @returns {string} レイアウトタイプの説明
+ */
+function getLayoutTypeDescription(layoutType) {
+  const descriptions = {
+    'grid': 'grid-based',
+    'horizontal_scroll': 'horizontally scrollable',
+    'vertical_scroll': 'vertically scrollable',
+    'single_view': 'single-view',
+    'header_content_footer': 'traditional header-content-footer',
+    'columns': 'multi-column',
+    'list': 'list-based'
+  };
+
+  return descriptions[layoutType] || layoutType;
+}
+
+/**
+ * 色彩情報のセクションを生成（強化版）
+ * @param {Array} colors - 色情報の配列
+ * @returns {string} 色彩情報の文字列
+ */
+function generateEnhancedColorSection(colors = []) {
+  console.log("色情報の処理開始:", Array.isArray(colors) ?
+    `配列 (${colors.length}項目)` : typeof colors);
+
+  // 色情報が配列でない場合の処理
+  if (!Array.isArray(colors)) {
+    if (colors && typeof colors === 'object' && colors.colors && Array.isArray(colors.colors)) {
+      colors = colors.colors;
+    } else {
+      return "No color information is available.";
+    }
+  }
+
+  if (!colors || colors.length === 0) {
+    return "No color information is available.";
+  }
+
+  const colorDescriptions = colors.map(color => {
+    // 色情報の形式を確認して適切に処理
+    const rgb = color.rgb || '';
+    const hex = color.hex || '';
+    const role = color.role ? `${color.role} (${translateColorRole(color.role)})` : 'general use';
+    const ratio = typeof color.ratio === 'number' ? color.ratio : 0;
+    const percentage = Math.round(ratio * 100);
+
+    return `- ${hex} (${rgb}): ${role}, ${percentage}% of design`;
+  }).join('\n');
+
+  return `
+The design uses the following color palette:
+
+${colorDescriptions}
+
+These colors should be defined as SCSS variables for consistency throughout the code.`;
+}
+
+/**
+ * 色の役割の日本語訳を取得
+ * @param {string} role - 色の役割
+ * @returns {string} 日本語訳
+ */
+function translateColorRole(role) {
+  const translations = {
+    'background': '背景色',
+    'text': 'テキスト色',
+    'accent': 'アクセント色',
+    'primary': 'プライマリ色',
+    'secondary': 'セカンダリ色'
+  };
+
+  return translations[role] || role;
+}
+
+/**
+ * レイアウト構造のセクションを生成（強化版）
+ * @param {Object} layout - レイアウト情報
+ * @returns {string} レイアウト構造の文字列
+ */
+function generateEnhancedLayoutSection(layout = {}) {
+  console.log("レイアウト情報の処理開始:", typeof layout === 'object' ?
+    Object.keys(layout).join(', ') : typeof layout);
+
+  if (!layout) {
+    return "No layout information is available.";
+  }
+
+  // レイアウト情報の抽出
+  let width = 'unknown';
+  let height = 'unknown';
+  let layoutType = 'unknown';
+  let sectionCount = 0;
+  let sectionSummaries = [];
+  let gridPattern = {};
+
+  // さまざまなデータ構造に対応
+  if (layout.width) width = layout.width;
+  if (layout.height) height = layout.height;
+  if (layout.type) layoutType = layout.type;
+  else if (layout.layoutType) layoutType = layout.layoutType;
+
+  if (typeof layout.sectionCount === 'number') sectionCount = layout.sectionCount;
+
+  // summary形式がある場合
+  const summary = layout.summary || layout;
+  if (summary.width) width = summary.width;
+  if (summary.height) height = summary.height;
+  if (summary.sectionCount) sectionCount = summary.sectionCount;
+  if (summary.sectionSummaries) sectionSummaries = summary.sectionSummaries;
+  if (summary.gridPattern) gridPattern = summary.gridPattern;
+
+  // さらにgridPattern自体もチェック
+  if (layout.gridPattern) gridPattern = layout.gridPattern;
+
+  // セクション説明の生成
+  let sectionDescriptions = '';
+  if (sectionSummaries.length > 0) {
+    sectionDescriptions = sectionSummaries.map(section => {
+      const typeDescription = getFormattedSectionType(section.type);
+      const position = section.position || 'unknown';
+      const height = section.height || 'unknown';
+      const color = section.color || '';
+
+      return `- ${typeDescription} (${position} position, height: ${height}px)${color ? `, color: ${color}` : ''}`;
+    }).join('\n');
+  }
+
+  // グリッドパターンの説明
+  let gridDescription = '';
+  if (gridPattern && gridPattern.type) {
+    const columns = gridPattern.columns || 1;
+    const rows = gridPattern.rows || 1;
+
+    gridDescription = `
+The layout is arranged in a ${gridPattern.type} pattern with ${columns} columns and ${rows} rows.
+You should implement this using ${getRecommendedCSSMethod(gridPattern)}.`;
+  }
+
+  return `
+The design has an overall width of ${width}px and height of ${height}px.
+${gridDescription}
+
+The layout consists of the following sections:
+${sectionDescriptions || 'No distinct sections detected.'}`;
+}
+
+/**
+ * テキスト要素のセクションを生成（強化版）
+ * @param {Object} text - テキスト情報
+ * @returns {string} テキスト要素の文字列
+ */
+function generateEnhancedTextSection(text = {}) {
+  console.log("テキスト情報の処理開始:", typeof text === 'object' ?
+    Object.keys(text).join(', ') : typeof text);
+
+  if (!text) {
+    return "No text content is available.";
+  }
+
+  // テキスト全体コンテンツの取得
+  let content = '';
+  if (typeof text === 'string') {
+    content = text;
+  } else if (text.text && typeof text.text === 'string') {
+    content = text.text;
+  } else if (text.content && typeof text.content === 'string') {
+    content = text.content;
+  }
+
+  // テキストブロックの取得と処理
+  let textBlocks = [];
+  if (Array.isArray(text)) {
+    // テキスト情報が直接配列として提供された場合
+    textBlocks = text;
+  } else if (text.blocks && Array.isArray(text.blocks)) {
+    textBlocks = text.blocks;
+  } else if (text.textBlocks && Array.isArray(text.textBlocks)) {
+    textBlocks = text.textBlocks;
+  }
+
+  if (textBlocks.length === 0 && !content) {
+    return "No text content is available.";
+  }
+
+  console.log(`テキストブロック数: ${textBlocks.length}`);
+
+  // 基本的なテキスト概要を作成
+  let textSection = '';
+  if (content) {
+    const truncatedContent = truncateText(content, 150);
+    textSection += `The design contains the following text content:\n\n"${truncatedContent}"\n\n`;
+  }
+
+  // テキストブロックがある場合は詳細情報を追加
+  if (textBlocks.length > 0) {
+    // テキストブロックを役割ごとにグループ化
+    const groupedBlocks = {};
+    textBlocks.forEach(block => {
+      // 信頼度でソート用にブロックを拡張
+      const confidence = block.confidence || 0;
+      const role = determineTextRole(block);
+
+      if (!groupedBlocks[role]) {
+        groupedBlocks[role] = [];
+      }
+      groupedBlocks[role].push({ ...block, role, confidence });
+    });
+
+    // 各グループ内で信頼度順にソート
+    Object.keys(groupedBlocks).forEach(role => {
+      groupedBlocks[role].sort((a, b) => b.confidence - a.confidence);
+    });
+
+    // グループごとに最大3つまでのテキストブロックを例として表示
+    textSection += "Key text elements by role:\n\n";
+    for (const [role, blocks] of Object.entries(groupedBlocks)) {
+      const examples = blocks.slice(0, 3).map(block => {
+        const text = block.text || '';
+        return `"${truncateText(text, 50)}"${block.confidence ? ` (confidence: ${block.confidence.toFixed(2)})` : ''}`;
+      }).join(', ');
+
+      textSection += `- ${role.charAt(0).toUpperCase() + role.slice(1)}: ${examples} ${blocks.length > 3 ? `and ${blocks.length - 3} more` : ''}\n`;
+    }
+  }
+
+  return `
+The design contains text elements that should be properly incorporated into the implementation.
+
+${textSection}
+
+Ensure proper text hierarchy and typography in your implementation.`;
+}
+
+/**
+ * テキストブロックの役割を判定
+ * @param {Object} block - テキストブロック
+ * @returns {string} 役割の名前
+ */
+function determineTextRole(block) {
+  // すでに役割が定義されている場合はそれを使用
+  if (block.role) return block.role;
+
+  const text = block.text || '';
+  const position = block.position || {};
+  const y = position.y || 0;
+  const height = position.height || 0;
+  const fontSize = height; // 高さをフォントサイズの近似値として使用
+
+  // 文字の高さや位置に基づいて役割を判定
+  if (fontSize > 32 || (text.length < 20 && y < 150)) {
+    return 'heading';
+  } else if (fontSize > 24 || (text.length < 40 && y < 300)) {
+    return 'subheading';
+  } else if (text.match(/^[0-9a-zA-Z._%+-]+@[0-9a-zA-Z.-]+\.[a-zA-Z]{2,}$/)) {
+    return 'email';
+  } else if (text.match(/^(http|https):\/\//)) {
+    return 'url';
+  } else if (text.match(/^[0-9-+() ]{7,}$/)) {
+    return 'phone';
+  } else if (text.length > 100) {
+    return 'paragraph';
+  } else {
+    return 'text';
+  }
+}
+
+/**
+ * テキストを指定された長さで切り詰める
+ * @param {string} text - 元のテキスト
+ * @param {number} maxLength - 最大長
+ * @returns {string} 切り詰められたテキスト
+ */
+function truncateText(text, maxLength) {
+  if (!text || text.length <= maxLength) {
+    return text || '';
+  }
+  return text.substring(0, maxLength) + '...';
+}
+
+/**
+ * UI要素のセクションを生成（強化版）
+ * @param {Object} elements - UI要素情報
+ * @returns {string} UI要素の文字列
+ */
+function generateEnhancedElementsSection(elements = {}) {
+  console.log("UI要素情報の処理開始:", typeof elements === 'object' ?
+    Object.keys(elements).join(', ') : typeof elements);
+
+  if (!elements) {
+    return "No UI element information is available.";
+  }
+
+  const summary = elements.summary || {};
+  let elementTypes = [];
+
+  if (Object.keys(summary).length > 0) {
+    elementTypes = Object.entries(summary)
+      .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`)
+      .join(', ');
+  } else if (elements.elements && elements.elements.length > 0) {
+    // 別の形式の要素オブジェクトを処理
+    const typeCounts = {};
+    elements.elements.forEach(el => {
+      const type = el.type || 'unknown';
+      typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+
+    elementTypes = Object.entries(typeCounts)
+      .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`)
+      .join(', ');
+  }
+
+  let mainElementsDesc = '';
+  if (elements.mainElements && elements.mainElements.length > 0) {
+    mainElementsDesc = elements.mainElements.map(element => {
+      const position = element.position || {};
+      return `- ${element.type}: positioned at x:${position.x || 0}, y:${position.y || 0}, size ${position.width || 0}x${position.height || 0}px`;
+    }).join('\n');
+  } else if (elements.elements && elements.elements.length > 0) {
+    // 取得可能な要素から上位3つを表示
+    mainElementsDesc = elements.elements.slice(0, 3).map(element => {
+      const position = element.position || {};
+      return `- ${element.type || 'Element'}: positioned at x:${position.x || 0}, y:${position.y || 0}, size ${position.width || 0}x${position.height || 0}px`;
+    }).join('\n');
+  }
+
+  const count = elements.count || (elements.elements ? elements.elements.length : 0);
+
+  return `
+The design contains ${count} UI elements${elementTypes ? `, including ${elementTypes}` : ''}.
+
+Key elements:
+${mainElementsDesc || 'No specific key elements were identified.'}`;
+}
+
+/**
+ * セクションタイプの説明を整形
+ * @param {string} sectionType - セクションタイプ
+ * @returns {string} フォーマットされたセクションタイプの説明
+ */
+function getFormattedSectionType(sectionType) {
+  // セクションタイプごとの説明
+  const typeDescriptions = {
+    'hero': 'Hero section',
+    'header': 'Header section',
+    'footer': 'Footer section',
+    'nav': 'Navigation section',
+    'card-grid': 'Card grid section',
+    'features': 'Features section',
+    'about': 'About section',
+    'contact': 'Contact form section',
+    'testimonials': 'Testimonials section',
+    'pricing': 'Pricing section',
+    'gallery': 'Gallery section',
+    'cta': 'Call-to-action section',
+    'faq': 'FAQ section',
+    'content': 'Content section'
+  };
+
+  return typeDescriptions[sectionType] || `${sectionType ? sectionType.charAt(0).toUpperCase() + sectionType.slice(1) : 'Unknown'} section`;
+}
+
+/**
+ * グリッドパターンに基づいて推奨CSSメソッドを取得
+ * @param {Object} gridPattern - グリッドパターン情報
+ * @returns {string} 推奨CSSメソッド
+ */
+function getRecommendedCSSMethod(gridPattern) {
+  const type = gridPattern.type;
+  const columns = gridPattern.columns;
+
+  if (type === 'grid' && columns > 1) {
+    return 'CSS Grid';
+  } else if (type === 'horizontal' || type === 'columns') {
+    return 'Flexbox';
+  } else if (type === 'header_content_footer') {
+    return 'a combination of CSS Grid for the overall layout';
+  } else {
+    return 'appropriate CSS layout techniques';
+  }
+}
+
+/**
+ * デザインの意図を推論する（強化版）
+ * @param {Object} compressedData - 圧縮された解析データ
+ * @returns {string} デザイン意図の推論文
+ */
+function inferEnhancedDesignIntent(compressedData) {
+  // 色彩
+  const colors = compressedData.colors || [];
+  const hasLightBackground = colors.length > 0 && isLightColor(colors[0].rgb);
+
+  // レイアウト
+  const layout = compressedData.layout || {};
+  const layoutType = layout.type || layout.layoutType || '';
+
+  // セクション情報を取得
+  const sections = compressedData.sections || compressedData.layout?.sections || {};
+  const sectionItems = sections.items || [];
+
+  // セクションタイプをカウント
+  const sectionTypes = {};
+  sectionItems.forEach(section => {
+    const type = section.type || 'unknown';
+    sectionTypes[type] = (sectionTypes[type] || 0) + 1;
+  });
+
+  // 特定のセクションの存在を確認
+  const hasHero = sectionTypes['hero'] > 0;
+  const hasFeatures = sectionTypes['features'] > 0;
+  const hasTestimonials = sectionTypes['testimonials'] > 0;
+  const hasPricing = sectionTypes['pricing'] > 0;
+  const hasContact = sectionTypes['contact'] > 0;
+  const hasCta = sectionTypes['cta'] > 0;
+
+  // 要素
+  const elements = compressedData.elements || {};
+  const elementSummary = elements.summary || {};
+  const hasButtons = elementSummary['button'] > 0 || (elements.elements || []).some(el => el.type === 'button');
+  const hasInputs = elementSummary['text_input'] > 0 || (elements.elements || []).some(el => el.type === 'input');
+  const hasCards = elementSummary['card'] > 0 || (elements.elements || []).some(el => el.type === 'card');
+
+  // デザイン目的の推論
+  let purpose = '';
+  if (hasContact || hasInputs) {
+    purpose = 'user input collection';
+  } else if (hasCta || (hasButtons && !hasInputs)) {
+    purpose = 'call-to-action';
+  } else if (hasPricing || hasFeatures) {
+    purpose = 'product or service presentation';
+  } else if (hasTestimonials) {
+    purpose = 'building trust and credibility';
+  } else if (hasCards) {
+    purpose = 'content discovery';
+  } else {
+    purpose = 'information presentation';
+  }
+
+  // デザインスタイルの推論
+  let style = '';
+  if (hasLightBackground) {
+    style = 'clean, minimalist';
+  } else {
+    style = 'bold, contrasting';
+  }
+
+  // ウェブサイトタイプの推論
+  let websiteType = inferWebsiteType(sectionTypes, elementSummary);
+
+  return `
+Based on the analysis, this design appears to be for a ${websiteType} website focused on ${purpose} with a ${style} aesthetic.
+The layout is designed to guide the user's attention ${getAttentionFlow(layoutType)} through the content.
+${hasHero ? 'The hero section at the top establishes the main value proposition.' : ''}
+${hasFeatures ? 'The features section highlights key benefits or services.' : ''}
+${hasTestimonials ? 'Testimonials are used to build credibility and trust.' : ''}
+${hasCta ? 'Call-to-action elements encourage user engagement and conversion.' : ''}
+${hasContact ? 'The contact section facilitates direct communication with users.' : ''}
+
+When implementing this design, focus on maintaining the visual hierarchy and ensuring that the ${purpose} aspects are emphasized.`;
+}
+
+/**
+ * レイアウトタイプに基づいた注目誘導フローを取得
+ * @param {string} layoutType - レイアウトタイプ
+ * @returns {string} 注目誘導フローの説明
+ */
+function getAttentionFlow(layoutType) {
+  switch (layoutType) {
+    case 'vertical_scroll':
+      return 'from top to bottom';
+    case 'horizontal_scroll':
+      return 'from left to right';
+    case 'grid':
+      return 'across different grid areas';
+    case 'header_content_footer':
+      return 'from the header through the main content to the footer';
+    default:
+      return 'naturally';
+  }
+}
+
+/**
+ * 色が明るいかどうかを判定
+ * @param {string} rgbString - RGB文字列（例: 'rgb(255,255,255)'）
+ * @returns {boolean} 明るい色の場合true
+ */
+function isLightColor(rgbString) {
+  if (!rgbString || typeof rgbString !== 'string') {
+    return true;
+  }
+
+  // RGB文字列から値を抽出
+  const match = rgbString.match(/rgb\((\d+),(\d+),(\d+)\)/);
+  if (!match) {
+    return true;
+  }
+
+  const r = parseInt(match[1]);
+  const g = parseInt(match[2]);
+  const b = parseInt(match[3]);
+
+  // 輝度の計算（YIQ方式）
+  const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+
+  // 輝度が128以上なら明るい色と判定
+  return yiq >= 128;
+}
+
+/**
+ * ウェブサイトのタイプを推論
+ * @param {Object} sectionTypes - セクションタイプのカウント
+ * @param {Object} elementSummary - 要素タイプのカウント
+ * @returns {string} 推論されたウェブサイトタイプ
+ */
+function inferWebsiteType(sectionTypes, elementSummary) {
+  // eコマースサイトの特徴
+  if (sectionTypes['pricing'] > 0 || elementSummary['product_card'] > 0) {
+    return 'e-commerce';
+  }
+
+  // ポートフォリオサイトの特徴
+  if (sectionTypes['gallery'] > 0 || sectionTypes['portfolio'] > 0) {
+    return 'portfolio';
+  }
+
+  // LPの特徴
+  if (sectionTypes['hero'] > 0 && sectionTypes['cta'] > 0 && Object.keys(sectionTypes).length < 5) {
+    return 'landing page';
+  }
+
+  // コーポレートサイトの特徴
+  if (sectionTypes['about'] > 0 || sectionTypes['team'] > 0) {
+    return 'corporate';
+  }
+
+  // ブログの特徴
+  if (elementSummary['article'] > 0 || sectionTypes['blog'] > 0) {
+    return 'blog';
+  }
+
+  // SaaSの特徴
+  if (sectionTypes['features'] > 0 && sectionTypes['pricing'] > 0) {
+    return 'SaaS';
+  }
+
+  // デフォルト
+  return 'business';
+}
+
+/**
+ * rawDataに基づいてより良いプロンプトを構築する
+ * @param {Object} rawData - Python APIから返される生データ
+ * @returns {string|null} 構築されたプロンプト、または処理できなかった場合はnull
+ */
+const buildBetterPrompt = (rawData) => {
+  try {
+    console.log("拡張プロンプト構築開始:", typeof rawData);
+    if (!rawData) {
+      console.warn("buildBetterPrompt: データが提供されていません");
+      return null;
+    }
+
+    // 生データを標準化された形式に変換
+    const compressedData = normalizeAnalysisData(rawData);
+
+    if (!compressedData) {
+      console.warn("buildBetterPrompt: データ正規化に失敗しました");
+      return null;
+    }
+
+    // データ検証
+    if (!compressedData.colors || !Array.isArray(compressedData.colors) || compressedData.colors.length === 0) {
+      console.warn("buildBetterPrompt: 色情報が不足しています");
+      // 色情報が無くても処理を続行する
+    }
+
+    // セマンティックなタグの生成
+    const semanticTags = generateSemanticTags(compressedData);
+
+    // テンプレート形式の取得
+    const templateFormat = generateTemplateFormat(compressedData);
+
+    // デザインの意図の推論
+    const designIntent = inferEnhancedDesignIntent(compressedData);
+
+    // 各セクションの生成
+    const overviewSection = generateEnhancedOverviewSection(compressedData);
+    const colorSection = generateEnhancedColorSection(compressedData.colors || []);
+    const layoutSection = generateEnhancedLayoutSection(compressedData.layout || {});
+    const textSection = generateEnhancedTextSection(compressedData.text || {});
+    const elementsSection = generateEnhancedElementsSection(compressedData.elements || {});
+
+    const prompt = `# Website Design Implementation Task
+
+## Overview
+${overviewSection}
+
+## Design Intent Analysis
+${designIntent}
+
+## Design Details
+
+### Colors
+${colorSection}
+
+### Layout
+${layoutSection}
+
+### Typography and Text
+${textSection}
+
+### UI Elements
+${elementsSection}
+
+## Implementation Guidelines
+- Use semantic HTML tags like ${semanticTags}.
+- Implement a responsive design that works well on all screen sizes.
+- Apply modern CSS techniques like ${templateFormat}.
+- Ensure all interactive elements have appropriate hover and focus states.
+- Follow accessibility best practices (WCAG 2.1 AA compliance).
+
+## Final Instructions
+- Create clean, maintainable code with proper comments.
+- Optimize all images for web performance.
+- Ensure smooth animations and transitions where appropriate.
+- Test thoroughly across different browsers and devices.`;
+
+    console.log("拡張プロンプト構築完了: 文字数=" + prompt.length);
+    return prompt;
+  } catch (error) {
+    console.error("拡張プロンプト構築エラー:", error);
+    return null;
+  }
+}
+
+/**
+ * デザイン意図を分析して生成
+ * @param {Object} data - 正規化された分析データ
+ * @returns {string} デザイン意図の文章
+ */
+const analyzeDesignIntent = (data) => {
+  try {
+    const designTraits = [];
+
+    // 色彩分析によるデザイン意図
+    if (data.colors && data.colors.length > 0) {
+      // 色の数からデザインスタイルを推測
+      if (data.colors.length <= 2) {
+        designTraits.push("ミニマリスト");
+      } else if (data.colors.length >= 5) {
+        designTraits.push("カラフル");
+      }
+
+      // 色相に基づく分析
+      const hasWarmColors = data.colors.some(c =>
+        c.hex && (c.hex.startsWith('#f') || c.hex.startsWith('#e') || c.hex.startsWith('#d')));
+      const hasCoolColors = data.colors.some(c =>
+        c.hex && (c.hex.startsWith('#0') || c.hex.startsWith('#1') || c.hex.startsWith('#2')));
+
+      if (hasWarmColors && !hasCoolColors) {
+        designTraits.push("温かみのある");
+      } else if (hasCoolColors && !hasWarmColors) {
+        designTraits.push("クールな");
+      } else if (hasWarmColors && hasCoolColors) {
+        designTraits.push("コントラストのある");
+      }
+    }
+
+    // レイアウト分析によるデザイン意図
+    if (data.layout) {
+      if (data.layout.type === "grid") {
+        designTraits.push("整然とした");
+      } else if (data.layout.type === "asymmetric") {
+        designTraits.push("動的な");
+      }
+
+      if (data.layout.whitespace === "abundant") {
+        designTraits.push("余白を重視した");
+      } else if (data.layout.whitespace === "dense") {
+        designTraits.push("情報密度の高い");
+      }
+    }
+
+    // 要素分析によるデザイン意図
+    if (data.elements) {
+      if (data.elements.buttons && data.elements.buttons.some(b => b.style === "rounded")) {
+        designTraits.push("柔らかい印象の");
+      }
+
+      if (data.elements.images && data.elements.images.length > 3) {
+        designTraits.push("ビジュアル重視の");
+      }
+    }
+
+    // タイポグラフィ分析
+    if (data.typography) {
+      if (data.typography.fontFamily && data.typography.fontFamily.includes("sans-serif")) {
+        designTraits.push("モダンな");
+      } else if (data.typography.fontFamily && data.typography.fontFamily.includes("serif")) {
+        designTraits.push("伝統的な");
+      }
+    }
+
+    // デザイン意図がない場合はデフォルト値を設定
+    if (designTraits.length === 0) {
+      designTraits.push("クリーンでモダンな", "ユーザーフレンドリーな");
+    }
+
+    // 重複を削除し、最大4つの特性を選択
+    const uniqueTraits = [...new Set(designTraits)].slice(0, 4);
+    return `${uniqueTraits.join("、")}デザイン`;
+  } catch (error) {
+    console.error("デザイン意図分析エラー:", error);
+    return "クリーンでモダンなデザイン";
+  }
+};
+
+/**
+ * デザインシステムの推奨事項を生成
+ * @param {Object} data - 正規化された分析データ
+ * @returns {string} デザインシステム推奨事項
+ */
+const suggestDesignSystem = (data) => {
+  try {
+    const recommendations = [];
+
+    // カラーパレット推奨
+    if (data.colors && data.colors.length > 0) {
+      const colorCount = Math.min(data.colors.length, 5);
+      recommendations.push(`${colorCount}色の基本カラーパレット（プライマリ、セカンダリ、アクセント）`);
+
+      if (data.colors.length > 5) {
+        recommendations.push("複数の明度バリエーション");
+      }
+    } else {
+      recommendations.push("4色の基本カラーパレット");
+    }
+
+    // タイポグラフィ推奨
+    if (data.typography) {
+      const fontType = data.typography.fontFamily && data.typography.fontFamily.includes("serif")
+        ? "セリフ体とサンセリフ体の組み合わせ"
+        : "サンセリフ体2種のファミリー";
+      recommendations.push(fontType);
+      recommendations.push("5段階のタイポグラフィスケール（見出し3種、本文2種）");
+    } else {
+      recommendations.push("サンセリフ体のタイポグラフィシステム");
+    }
+
+    // スペーシングシステム推奨
+    if (data.layout) {
+      if (data.layout.whitespace === "abundant") {
+        recommendations.push("8pxを基準とした余白の広いスペーシングスケール");
+      } else if (data.layout.whitespace === "dense") {
+        recommendations.push("4pxを基準としたコンパクトなスペーシングスケール");
+      } else {
+        recommendations.push("8pxを基準としたスペーシングスケール");
+      }
+    } else {
+      recommendations.push("8pxを基準としたスペーシングスケール");
+    }
+
+    // コンポーネント推奨
+    const componentSuggestions = ["ボタン（プライマリ、セカンダリ、テキスト）", "フォーム要素", "カード"];
+
+    if (data.elements) {
+      if (data.elements.forms && data.elements.forms.length > 0) {
+        componentSuggestions.push("入力フィールドバリエーション");
+      }
+
+      if (data.elements.buttons && data.elements.buttons.length > 0) {
+        componentSuggestions.push("ボタンステートシステム");
+      }
+
+      if (data.elements.images && data.elements.images.length > 0) {
+        componentSuggestions.push("画像表示コンポーネント");
+      }
+    }
+
+    recommendations.push(`基本コンポーネント：${componentSuggestions.slice(0, 4).join("、")}`);
+
+    return recommendations.join("、");
+  } catch (error) {
+    console.error("デザインシステム推奨エラー:", error);
+    return "4色カラーパレット、サンセリフ体タイポグラフィ、8pxベースのスペーシングシステム、基本コンポーネント一式";
+  }
+};
+
+// メイン関数を修正して新機能を統合
 export const generatePrompt = async (options) => {
   console.log('プロンプト生成処理を開始');
   const {
@@ -997,8 +2352,22 @@ export const generatePrompt = async (options) => {
     const pcAnalysis = pcImage ? await analyzeImage(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
     const spAnalysis = spImage ? await analyzeImage(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
 
+    // 解析結果の検証
+    if (!pcImage && !spImage) {
+      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。');
+    } else {
+      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
+        console.error('PC画像の解析結果が空です。');
+      }
+      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
+        console.error('SP画像の解析結果が空です。');
+      }
+    }
+
     // プロジェクト設定を取得（非同期）
+    console.log('プロジェクト設定を取得中...');
     const settings = await getSettingsFromActiveProject();
+    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
 
     // プロンプトの構築を開始
     console.log('プロンプトの構築を開始');
@@ -1030,15 +2399,174 @@ export const generatePrompt = async (options) => {
 - Include comments for major sections
 `;
 
-    console.log('プロンプト生成が完了しました');
-    return prompt;
-  } catch (error) {
-    console.error('プロンプト生成中にエラーが発生しました:', error);
-    // 簡易的なフォールバックプロンプトを返す
-    return `
-# HTML/SCSS Code Generation
-Please generate HTML and SCSS code for a design matching the uploaded image.
-Use clean, semantic HTML5 and BEM methodology for class naming.
+    // 最終プロンプトを生成
+    let finalPrompt = '';
+
+    // 拡張された分析機能を使用（オプション）
+    try {
+      // 画像解析結果に応じて高度なプロンプト生成を試みる
+      console.log("拡張プロンプト生成を試みます...");
+
+      // compressedAnalysisがなければ画像解析結果を直接使用
+      let analysisData = null;
+
+      if (pcAnalysis && pcAnalysis.compressedAnalysis) {
+        console.log("PC画像の圧縮解析データを使用");
+        analysisData = pcAnalysis.compressedAnalysis;
+        validateAndLogData(analysisData, 'PC圧縮解析');
+      } else if (spAnalysis && spAnalysis.compressedAnalysis) {
+        console.log("SP画像の圧縮解析データを使用");
+        analysisData = spAnalysis.compressedAnalysis;
+        validateAndLogData(analysisData, 'SP圧縮解析');
+      } else {
+        // 圧縮解析データがない場合は、生の解析データから統合オブジェクトを作成
+        console.log("圧縮解析データがないため、生の解析データから構築");
+
+        // 基本オブジェクト構造を作成
+        analysisData = {
+          text: '',
+          textBlocks: [],
+          colors: [],
+          layout: {
+            width: 1200,  // デフォルト値
+            height: 800,  // デフォルト値
+            type: 'standard'
+          },
+          elements: {
+            elements: []
+          },
+          sections: []
+        };
+
+        // テキスト情報を追加
+        if (pcAnalysis && typeof pcAnalysis.text === 'string' && pcAnalysis.text.trim()) {
+          analysisData.text = pcAnalysis.text;
+        } else if (spAnalysis && typeof spAnalysis.text === 'string' && spAnalysis.text.trim()) {
+          analysisData.text = spAnalysis.text;
+        }
+
+        // 色情報を追加
+        if (pcAnalysis && Array.isArray(pcAnalysis.colors) && pcAnalysis.colors.length > 0) {
+          analysisData.colors = pcAnalysis.colors;
+        } else if (spAnalysis && Array.isArray(spAnalysis.colors) && spAnalysis.colors.length > 0) {
+          analysisData.colors = spAnalysis.colors;
+        }
+
+        // 要素情報を追加
+        if (pcAnalysis && pcAnalysis.elements && pcAnalysis.elements.elements) {
+          analysisData.elements = pcAnalysis.elements;
+        } else if (spAnalysis && spAnalysis.elements && spAnalysis.elements.elements) {
+          analysisData.elements = spAnalysis.elements;
+        }
+
+        // セクション情報を追加
+        if (pcAnalysis && Array.isArray(pcAnalysis.sections) && pcAnalysis.sections.length > 0) {
+          analysisData.sections = pcAnalysis.sections;
+        } else if (spAnalysis && Array.isArray(spAnalysis.sections) && spAnalysis.sections.length > 0) {
+          analysisData.sections = spAnalysis.sections;
+        }
+
+        // テキストブロック情報の探索とフォールバック
+        const getTextBlocks = (analysis) => {
+          if (!analysis) return null;
+
+          // 直接textBlocksが存在する場合
+          if (Array.isArray(analysis.textBlocks)) {
+            return analysis.textBlocks;
+          }
+
+          // 圧縮解析データのtext.blocksを探索
+          if (analysis.compressedAnalysis &&
+            analysis.compressedAnalysis.text &&
+            Array.isArray(analysis.compressedAnalysis.text.blocks)) {
+            return analysis.compressedAnalysis.text.blocks;
+          }
+
+          return null;
+        };
+
+        // テキストブロックを追加
+        const pcTextBlocks = getTextBlocks(pcAnalysis);
+        const spTextBlocks = getTextBlocks(spAnalysis);
+
+        if (pcTextBlocks) {
+          analysisData.textBlocks = pcTextBlocks;
+        } else if (spTextBlocks) {
+          analysisData.textBlocks = spTextBlocks;
+        }
+
+        // データ構造の検証
+        validateAndLogData(analysisData, '統合解析');
+      }
+
+      if (analysisData) {
+        console.log("解析データ確認:",
+          typeof analysisData === 'object' ?
+            Object.keys(analysisData).join(', ') : typeof analysisData);
+
+        // 重要なプロパティがあるか確認
+        const requiredProps = ['text', 'colors', 'layout'];
+        const missingProps = requiredProps.filter(prop => !analysisData.hasOwnProperty(prop));
+
+        if (missingProps.length > 0) {
+          console.warn("解析データに不足しているプロパティがあります:", missingProps.join(', '));
+          // 不足プロパティのフォールバック
+          missingProps.forEach(prop => {
+            switch (prop) {
+              case 'text':
+                analysisData.text = '';
+                break;
+              case 'colors':
+                analysisData.colors = [];
+                break;
+              case 'layout':
+                analysisData.layout = { width: 1200, height: 800, type: 'standard' };
+                break;
+            }
+          });
+        }
+
+        // 拡張プロンプト生成
+        const enhancedPrompt = buildBetterPrompt(analysisData);
+
+        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
+          console.log("拡張プロンプト生成に成功しました");
+          return enhancedPrompt; // 拡張プロンプトを使用
+        } else {
+          console.log("拡張プロンプト生成失敗 - 出力が短すぎるか空です:",
+            enhancedPrompt ? `長さ: ${enhancedPrompt.length}文字` : '出力なし');
+        }
+      } else {
+        console.log("解析データが利用できません");
+      }
+    } catch (error) {
+      console.error("拡張プロンプト生成エラー:", error);
+      // エラー詳細をログ出力
+      if (error.stack) {
+        console.error("エラースタック:", error.stack);
+      }
+      // エラー時は通常のプロンプト生成にフォールバック
+    }
+
+    // 拡張プロンプトが生成できなかった場合は従来の方法でプロンプト生成
+    console.log("従来のプロンプト生成方法にフォールバックします");
+    finalPrompt = `
+# ウェブサイトデザイン実装タスク
+
+${prompt}
+
+${buildGuidelinesSection(responsiveMode)}
+
+${buildFinalInstructionsSection()}
 `;
+
+    console.log('プロンプト生成が完了しました');
+    return finalPrompt.trim();
+  } catch (error) {
+    console.error('プロンプト生成エラー:', error);
+    if (error.stack) {
+      console.error("エラースタック:", error.stack);
+    }
+    return 'プロンプト生成中にエラーが発生しました。再試行してください。';
   }
-}
+};
