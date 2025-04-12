@@ -171,6 +171,50 @@ const convertPxToRem = (scss) => {
   return result.join('\n');
 };
 
+// 画像から色を抽出する関数
+const analyzeImageColors = async (file) => {
+  return new Promise((resolve) => {
+    // 実際の実装では色抽出ライブラリを使用するか、APIを呼び出す
+    // ここではモックデータを返す
+    setTimeout(() => {
+      const mockColors = [
+        'rgb(45, 52, 64)',
+        'rgb(76, 86, 106)',
+        'rgb(236, 239, 244)',
+        'rgb(129, 161, 193)',
+        'rgb(94, 129, 172)'
+      ];
+      resolve(mockColors);
+    }, 1000);
+  });
+};
+
+// 画像からテキストを抽出する関数（OCR）
+const analyzeImageText = async (file, updateProgress) => {
+  return new Promise((resolve) => {
+    // 実際の実装ではTesseractなどのOCRライブラリを使用するか、APIを呼び出す
+    // ここではモックデータを返す
+
+    // 進捗状況をシミュレート - 40%から70%の範囲で進捗を更新
+    let progress = 40;
+    const interval = setInterval(() => {
+      progress += 3;
+      if (progress <= 70) {
+        updateProgress(progress);
+      } else {
+        clearInterval(interval);
+      }
+    }, 300);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      updateProgress(70);  // 最終進捗を70%に設定
+      const mockText = "サンプルテキスト:\nヘッダー：ロゴ、ナビゲーション\nメインセクション：画像、テキスト\nフッター：著作権情報、リンク";
+      resolve(mockText);
+    }, 3000);
+  });
+};
+
 const AICodeGenerator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [generatedHTML, setGeneratedHTML] = useState("");
@@ -203,6 +247,7 @@ const AICodeGenerator = () => {
   const [spImageBase64, setSpImageBase64] = useState(null);
   const [imageAnalysisResult, setImageAnalysisResult] = useState(null);
   const [analyzingImage, setAnalyzingImage] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
 
   // 生成コード修正用のステート
   const [editingHTML, setEditingHTML] = useState("");
@@ -1240,18 +1285,37 @@ const AICodeGenerator = () => {
     }, 300);
 
     try {
-      // API設定コンポーネントから保存されたAPIキーを取得
-      const apiKey = await window.api.getClaudeApiKey?.(); // Electron経由で取得
+      console.log("API設定からAPIキーを取得します...");
 
-      if (!apiKey) {
-        alert("APIキーが取得できませんでした。/secret/api_key.json を確認してください。");
+      // APIが存在するか確認
+      if (!window.api || !window.api.getClaudeApiKey) {
+        console.error("APIインターフェースが利用できません");
+        alert("API機能が利用できません。アプリケーションの再起動をお試しください。");
         setLoading(false);
         clearInterval(progressTimer);
         return;
       }
 
+      // API設定コンポーネントから保存されたAPIキーを取得
+      const apiKeyResponse = await window.api.getClaudeApiKey(); // Electron経由で取得
+      console.log("APIキー取得レスポンス:", apiKeyResponse ? "データあり" : "データなし");
+
+      // APIキーのチェック
+      if (!apiKeyResponse || !apiKeyResponse.success || !apiKeyResponse.claudeKey) {
+        console.error("APIキー取得エラー:", apiKeyResponse?.error || "不明なエラー");
+        alert("APIキーが取得できませんでした。secret/api_key.json に有効なAPIキーが設定されているか確認してください。");
+        setLoading(false);
+        clearInterval(progressTimer);
+        return;
+      }
+
+      console.log("APIキーの取得に成功しました");
+
+      const apiKey = apiKeyResponse.claudeKey;
+
       if (!apiKey) {
-        alert("API設定から APIキーを設定してください。");
+        console.error("APIキーが空です");
+        alert("有効なAPIキーがありません。/secret/api_key.json を確認してください。");
         setLoading(false);
         clearInterval(progressTimer);
         return;
@@ -1519,64 +1583,74 @@ ${editingCSS}
   };
 
   const handleGenerateCode = async () => {
-    // API設定コンポーネントから保存されたAPIキーを取得
-    const apiKey = await window.api.getClaudeApiKey?.(); // Electron経由で取得
+    try {
+      console.log("API設定からAPIキーを取得します...");
 
-    if (!apiKey) {
-      alert("APIキーが取得できませんでした。/secret/api_key.json を確認してください。");
-      return;
-    }
-
-    if (!apiKey) {
-      alert("API設定から APIキーを設定してください。");
-      return;
-    }
-
-    if (!pcImageBase64 && !spImageBase64) {
-      // 画像なしでテスト実行するかどうか確認
-      if (confirm("画像がアップロードされていません。テキストのみでコード生成を試みますか？")) {
-        console.log("画像なしでコード生成を試行します");
-      } else {
-        alert("画像をアップロードしてください。");
+      // APIが存在するか確認
+      if (!window.api || !window.api.getClaudeApiKey) {
+        console.error("APIインターフェースが利用できません");
+        alert("API機能が利用できません。アプリケーションの再起動をお試しください。");
         return;
       }
-    }
 
-    setLoading(true);
-    setLoadingProgress(0);
-    setLoadingStage("準備中...");
+      // API設定コンポーネントから保存されたAPIキーを取得
+      const apiKeyResponse = await window.api.getClaudeApiKey(); // Electron経由で取得
+      console.log("APIキー取得レスポンス:", apiKeyResponse ? "データあり" : "データなし");
 
-    // 擬似的に進捗状態を更新するタイマー
-    const progressTimer = setInterval(() => {
-      setLoadingProgress(prevProgress => {
-        // 進捗が80%を超えたら、APIの応答待ちとみなしてゆっくり進める
-        if (prevProgress >= 80) {
-          return Math.min(prevProgress + 0.2, 99);
+      // APIキーのチェック
+      if (!apiKeyResponse || !apiKeyResponse.success || !apiKeyResponse.claudeKey) {
+        console.error("APIキー取得エラー:", apiKeyResponse?.error || "不明なエラー");
+        alert("APIキーが取得できませんでした。secret/api_key.json に有効なAPIキーが設定されているか確認してください。");
+        return;
+      }
+
+      console.log("APIキーの取得に成功しました");
+
+      if (!pcImageBase64 && !spImageBase64) {
+        // 画像なしでテスト実行するかどうか確認
+        if (confirm("画像がアップロードされていません。テキストのみでコード生成を試みますか？")) {
+          console.log("画像なしでコード生成を試行します");
+        } else {
+          alert("画像をアップロードしてください。");
+          return;
         }
-        return Math.min(prevProgress + 1, 80);
-      });
-    }, 300);
+      }
 
-    try {
-      console.log("コード生成ボタンがクリックされました");
-      setLoadingStage("プロンプト生成中...");
+      setLoading(true);
+      setLoadingProgress(0);
+      setLoadingStage("準備中...");
 
-      let prompt;
-      try {
-        // プロンプト生成を別のtry-catchで囲む
-        prompt = await generatePrompt({
-          responsiveMode,
-          aiBreakpoints,
-          pcImageBase64,
-          spImageBase64,
+      // 擬似的に進捗状態を更新するタイマー
+      const progressTimer = setInterval(() => {
+        setLoadingProgress(prevProgress => {
+          // 進捗が80%を超えたら、APIの応答待ちとみなしてゆっくり進める
+          if (prevProgress >= 80) {
+            return Math.min(prevProgress + 0.2, 99);
+          }
+          return Math.min(prevProgress + 1, 80);
         });
-        console.log("プロンプト生成成功");
-        setLoadingProgress(30);
-        setLoadingStage("AIに問合せ中...");
-      } catch (promptError) {
-        console.error("プロンプト生成でエラーが発生:", promptError);
-        // エラー時はデフォルトのプロンプトを使用
-        prompt = `
+      }, 300);
+
+      try {
+        console.log("コード生成ボタンがクリックされました");
+        setLoadingStage("プロンプト生成中...");
+
+        let prompt;
+        try {
+          // プロンプト生成を別のtry-catchで囲む
+          prompt = await generatePrompt({
+            responsiveMode,
+            aiBreakpoints,
+            pcImageBase64,
+            spImageBase64,
+          });
+          console.log("プロンプト生成成功");
+          setLoadingProgress(30);
+          setLoadingStage("AIに問合せ中...");
+        } catch (promptError) {
+          console.error("プロンプト生成でエラーが発生:", promptError);
+          // エラー時はデフォルトのプロンプトを使用
+          prompt = `
 Generate HTML and SCSS code based on the image.
 Code only what is visible in the image without adding invisible elements or making assumptions.
 Create HTML and CSS that accurately reflect the design shown in the image.
@@ -1599,206 +1673,212 @@ Create a diving information website section with:
 
 Provide code in \`\`\`html\` and \`\`\`scss\` format.
 `;
-      }
-
-      console.log("生成されたプロンプト:", prompt.substring(0, 100) + "...");
-
-      // 空のプロンプトを送らないようチェック
-      if (!prompt || prompt.trim() === "") {
-        console.error("エラー: 送信するプロンプトが空です");
-        alert("プロンプトが空のため、コードを生成できません。");
-        setLoading(false);
-        clearInterval(progressTimer);
-        return;
-      }
-
-      // 画像データの処理
-      const imageToUse = pcImageBase64 || spImageBase64;
-      let uploadedImage = null;
-
-      if (imageToUse) {
-        setLoadingStage("画像処理中...");
-        setLoadingProgress(40);
-
-        const imageInfo = pcImageBase64
-          ? { fileName: pcImage?.fileName || "image.jpg", preview: pcImage?.preview, mimeType: pcImage?.mimeType || 'image/jpeg' }
-          : { fileName: spImage?.fileName || "image.jpg", preview: spImage?.preview, mimeType: spImage?.mimeType || 'image/jpeg' };
-
-        // 画像サイズの確認と調整
-        let processedImageData = imageToUse;
-
-        try {
-          // 画像データの最適化
-          console.log("画像の前処理を実行します");
-
-          // 画像のメディアタイプを確認
-          const mediaTypeMatch = processedImageData.match(/^data:([^;]+);base64,/);
-          const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : imageInfo.mimeType;
-
-          console.log(`画像のメディアタイプ: ${mediaType}`);
-
-          // サイズが大きい場合はリサイズ（メディアタイプを保持）
-          if (processedImageData && processedImageData.length > 10000000) { // 10MB以上なら
-            console.log("画像サイズが大きいため、画像を最適化します（元サイズ: " + processedImageData.length + " bytes）");
-            processedImageData = await resizeImage(processedImageData, 1200); // 最大幅1200pxに縮小
-            console.log("画像を最適化しました（新サイズ: " + processedImageData.length + " bytes）");
-          }
-
-          // 画像データの準備
-          uploadedImage = {
-            name: imageInfo.fileName,
-            path: imageInfo.preview,
-            data: processedImageData,
-            mimeType: mediaType // メディアタイプをそのまま保持
-          };
-
-          console.log("画像情報を送信:", uploadedImage.name);
-          console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
-          console.log("画像メディアタイプ:", uploadedImage.mimeType);
-          setLoadingProgress(50);
-        } catch (imgErr) {
-          console.error("画像最適化エラー:", imgErr);
-          alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
-          // エラーが発生しても処理を続行（画像なしで）
-          uploadedImage = null;
-        }
-      }
-
-      console.log("window.api:", window.api ? "存在します" : "存在しません");
-      console.log("window.api.generateCode:", window.api.generateCode ? "存在します" : "存在しません");
-
-      try {
-        // デバッグ
-        console.log("generateCode関数を呼び出し中...");
-        setLoadingStage("AIにコード生成を依頼中...");
-        setLoadingProgress(60);
-
-        // 引数形式を修正: オブジェクトパラメータに変更
-        const result = await window.api.generateCode({
-          prompt: prompt,
-          uploadedImage: uploadedImage
-        });
-        console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
-
-        setLoadingProgress(80);
-        setLoadingStage("コードの解析と最適化中...");
-
-        if (!result || !result.generatedCode) {
-          throw new Error("コード生成に失敗しました");
         }
 
-        const generatedCode = result.generatedCode;
-        console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
+        console.log("生成されたプロンプト:", prompt.substring(0, 100) + "...");
 
-        // 生成されたコードをHTMLとCSSに分割
-        const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
-        const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
-
-        console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
-        console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
-
-        const html = htmlMatch ? htmlMatch[1].trim() : "";
-        const css = cssMatch ? cssMatch[1].trim() : "";
-
-        if (!html || !css) {
-          console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
-          console.log("HTML:", html);
-          console.log("CSS:", css);
-          alert("生成されたコードの形式が正しくありません。");
+        // 空のプロンプトを送らないようチェック
+        if (!prompt || prompt.trim() === "") {
+          console.error("エラー: 送信するプロンプトが空です");
+          alert("プロンプトが空のため、コードを生成できません。");
           setLoading(false);
           clearInterval(progressTimer);
           return;
         }
 
-        // SCSSのネスト構造を検出してフラット化
-        setLoadingProgress(85);
-        setLoadingStage("SCSSのフラット化中...");
-        const flattenedCSS = flattenSCSS(css);
+        // 画像データの処理
+        const imageToUse = pcImageBase64 || spImageBase64;
+        let uploadedImage = null;
 
-        // ネスト構造が検出されたかどうかチェック
-        if (flattenedCSS !== css) {
-          console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
-          // 次回のAI生成時の参考情報として表示
+        if (imageToUse) {
+          setLoadingStage("画像処理中...");
+          setLoadingProgress(40);
 
-        }
+          const imageInfo = pcImageBase64
+            ? { fileName: pcImage?.fileName || "image.jpg", preview: pcImage?.preview, mimeType: pcImage?.mimeType || 'image/jpeg' }
+            : { fileName: spImage?.fileName || "image.jpg", preview: spImage?.preview, mimeType: spImage?.mimeType || 'image/jpeg' };
 
-        // pxをremに変換
-        setLoadingProgress(90);
-        setLoadingStage("単位の最適化中...");
-        const remCSS = convertPxToRem(flattenedCSS);
+          // 画像サイズの確認と調整
+          let processedImageData = imageToUse;
 
-        try {
-          // HEX値を色変数に変換
-          setLoadingProgress(95);
-          setLoadingStage("カラー変数の最適化中...");
-          // 非同期関数なのでawaitを使用
-          const colorVarsResult = await replaceHexWithVariables(remCSS);
-          const { modifiedCode: cssWithVars, replacedCount } = colorVarsResult || { modifiedCode: remCSS, replacedCount: 0 };
+          try {
+            // 画像データの最適化
+            console.log("画像の前処理を実行します");
 
-          // 未定義色変数をチェックして置換
-          // 非同期関数なのでawaitを使用
-          const undefinedVarsResult = await replaceUndefinedColorVariables(cssWithVars);
-          const { modifiedCode: finalCSS, replacedVars } = undefinedVarsResult || { modifiedCode: cssWithVars, replacedVars: [] };
+            // 画像のメディアタイプを確認
+            const mediaTypeMatch = processedImageData.match(/^data:([^;]+);base64,/);
+            const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : imageInfo.mimeType;
 
-          if (replacedVars && replacedVars.length > 0) {
-            console.log(`${replacedVars.length}個の未定義変数をHEX値に置換しました`);
-          }
+            console.log(`画像のメディアタイプ: ${mediaType}`);
 
-          setEditingCSS(finalCSS);
-          setGeneratedCSS(finalCSS); // 表示用の状態も同時に更新
-          setEditingHTML(html);
-          setGeneratedHTML(html);
-          setShowGeneratedCode(true);
-
-          // 画面を生成されたコードセクションまでスクロール
-          setTimeout(() => {
-            if (generatedCodeRef.current) {
-              generatedCodeRef.current.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-              });
-              console.log("コード生成後、コードセクションまでスクロールしました");
+            // サイズが大きい場合はリサイズ（メディアタイプを保持）
+            if (processedImageData && processedImageData.length > 10000000) { // 10MB以上なら
+              console.log("画像サイズが大きいため、画像を最適化します（元サイズ: " + processedImageData.length + " bytes）");
+              processedImageData = await resizeImage(processedImageData, 1200); // 最大幅1200pxに縮小
+              console.log("画像を最適化しました（新サイズ: " + processedImageData.length + " bytes）");
             }
 
+            // 画像データの準備
+            uploadedImage = {
+              name: imageInfo.fileName,
+              path: imageInfo.preview,
+              data: processedImageData,
+              mimeType: mediaType // メディアタイプをそのまま保持
+            };
+
+            console.log("画像情報を送信:", uploadedImage.name);
+            console.log("画像データサイズ:", uploadedImage.data ? uploadedImage.data.length + " bytes" : "データなし");
+            console.log("画像メディアタイプ:", uploadedImage.mimeType);
+            setLoadingProgress(50);
+          } catch (imgErr) {
+            console.error("画像最適化エラー:", imgErr);
+            alert(`画像の処理中にエラーが発生しました: ${imgErr.message}\nテキストのみでコード生成を続行します。`);
+            // エラーが発生しても処理を続行（画像なしで）
+            uploadedImage = null;
+          }
+        }
+
+        console.log("window.api:", window.api ? "存在します" : "存在しません");
+        console.log("window.api.generateCode:", window.api.generateCode ? "存在します" : "存在しません");
+
+        try {
+          // デバッグ
+          console.log("generateCode関数を呼び出し中...");
+          setLoadingStage("AIにコード生成を依頼中...");
+          setLoadingProgress(60);
+
+          // 引数形式を修正: オブジェクトパラメータに変更
+          const result = await window.api.generateCode({
+            prompt: prompt,
+            uploadedImage: uploadedImage
+          });
+          console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
+
+          setLoadingProgress(80);
+          setLoadingStage("コードの解析と最適化中...");
+
+          if (!result || !result.generatedCode) {
+            throw new Error("コード生成に失敗しました");
+          }
+
+          const generatedCode = result.generatedCode;
+          console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
+
+          // 生成されたコードをHTMLとCSSに分割
+          const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
+          const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
+
+          console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
+          console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
+
+          const html = htmlMatch ? htmlMatch[1].trim() : "";
+          const css = cssMatch ? cssMatch[1].trim() : "";
+
+          if (!html || !css) {
+            console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
+            console.log("HTML:", html);
+            console.log("CSS:", css);
+            alert("生成されたコードの形式が正しくありません。");
+            setLoading(false);
+            clearInterval(progressTimer);
+            return;
+          }
+
+          // SCSSのネスト構造を検出してフラット化
+          setLoadingProgress(85);
+          setLoadingStage("SCSSのフラット化中...");
+          const flattenedCSS = flattenSCSS(css);
+
+          // ネスト構造が検出されたかどうかチェック
+          if (flattenedCSS !== css) {
+            console.warn("AIが生成したSCSSにネスト構造が含まれています。自動的にフラット構造に変換しました。");
+            // 次回のAI生成時の参考情報として表示
+
+          }
+
+          // pxをremに変換
+          setLoadingProgress(90);
+          setLoadingStage("単位の最適化中...");
+          const remCSS = convertPxToRem(flattenedCSS);
+
+          try {
+            // HEX値を色変数に変換
+            setLoadingProgress(95);
+            setLoadingStage("カラー変数の最適化中...");
+            // 非同期関数なのでawaitを使用
+            const colorVarsResult = await replaceHexWithVariables(remCSS);
+            const { modifiedCode: cssWithVars, replacedCount } = colorVarsResult || { modifiedCode: remCSS, replacedCount: 0 };
+
+            // 未定義色変数をチェックして置換
+            // 非同期関数なのでawaitを使用
+            const undefinedVarsResult = await replaceUndefinedColorVariables(cssWithVars);
+            const { modifiedCode: finalCSS, replacedVars } = undefinedVarsResult || { modifiedCode: cssWithVars, replacedVars: [] };
+
+            if (replacedVars && replacedVars.length > 0) {
+              console.log(`${replacedVars.length}個の未定義変数をHEX値に置換しました`);
+            }
+
+            setEditingCSS(finalCSS);
+            setGeneratedCSS(finalCSS); // 表示用の状態も同時に更新
+            setEditingHTML(html);
+            setGeneratedHTML(html);
+            setShowGeneratedCode(true);
+
+            // 画面を生成されたコードセクションまでスクロール
+            setTimeout(() => {
+              if (generatedCodeRef.current) {
+                generatedCodeRef.current.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start'
+                });
+                console.log("コード生成後、コードセクションまでスクロールしました");
+              }
+
+              setLoadingProgress(100);
+              setLoadingStage("完了");
+              setTimeout(() => {
+                setLoading(false);
+                clearInterval(progressTimer);
+              }, 500);
+            }, 500);
+          } catch (colorProcessingError) {
+            console.error("色変数処理中にエラーが発生しました:", colorProcessingError);
+
+            // エラー時は基本処理の結果を使用
+            setEditingCSS(remCSS);
+            setGeneratedCSS(remCSS);
+            setEditingHTML(html);
+            setGeneratedHTML(html);
+            setShowGeneratedCode(true);
+
             setLoadingProgress(100);
-            setLoadingStage("完了");
+            setLoadingStage("完了 (警告: 色変数処理に失敗)");
             setTimeout(() => {
               setLoading(false);
               clearInterval(progressTimer);
             }, 500);
-          }, 500);
-        } catch (colorProcessingError) {
-          console.error("色変数処理中にエラーが発生しました:", colorProcessingError);
+          }
 
-          // エラー時は基本処理の結果を使用
-          setEditingCSS(remCSS);
-          setGeneratedCSS(remCSS);
-          setEditingHTML(html);
-          setGeneratedHTML(html);
-          setShowGeneratedCode(true);
+        } catch (error) {
+          console.error("コード生成エラー:", error);
 
-          setLoadingProgress(100);
-          setLoadingStage("完了 (警告: 色変数処理に失敗)");
-          setTimeout(() => {
-            setLoading(false);
-            clearInterval(progressTimer);
-          }, 500);
+          // エラーメッセージをより具体的に
+          let errorMessage = `エラーが発生しました: ${error.message}`;
+
+          // ステータスコード529のエラー対応
+          if (error.message.includes('status code 529')) {
+            errorMessage = "サーバーが混雑しているか一時的に利用できません。しばらく待ってから再試行してください。(エラー529)";
+          } else if (error.message.includes('timeout')) {
+            errorMessage = "リクエストがタイムアウトしました。画像のサイズを小さくするか、複雑さを減らして再試行してください。";
+          }
+
+          alert(errorMessage);
+          setLoading(false);
+          clearInterval(progressTimer);
         }
-
       } catch (error) {
-        console.error("コード生成エラー:", error);
-
-        // エラーメッセージをより具体的に
-        let errorMessage = `エラーが発生しました: ${error.message}`;
-
-        // ステータスコード529のエラー対応
-        if (error.message.includes('status code 529')) {
-          errorMessage = "サーバーが混雑しているか一時的に利用できません。しばらく待ってから再試行してください。(エラー529)";
-        } else if (error.message.includes('timeout')) {
-          errorMessage = "リクエストがタイムアウトしました。画像のサイズを小さくするか、複雑さを減らして再試行してください。";
-        }
-
-        alert(errorMessage);
+        console.error("エラー:", error);
+        alert(`エラーが発生しました: ${error.message}`);
         setLoading(false);
         clearInterval(progressTimer);
       }
@@ -3179,67 +3259,58 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
   // 画像分析ボタンがクリックされたときの処理
   const handleAnalyzeImage = async (type) => {
-    if (!pcImageBase64 && !spImageBase64) {
-      alert("分析する画像をアップロードしてください");
-      return;
-    }
-
-    // 分析対象の画像を選択
-    const imageToAnalyze = type === 'pc' ? pcImageBase64 : spImageBase64;
-    if (!imageToAnalyze) {
-      alert(`${type.toUpperCase()}画像がアップロードされていません`);
-      return;
-    }
-
-    setAnalyzingImage(true);
     try {
-      console.log(`画像分析開始 (${type}):`, imageToAnalyze.substring(0, 50) + '...');
-
-      // APIが利用可能か確認
-      if (window.api && window.api.analyzeImage) {
-        console.log('Electron APIを使用して画像分析を実行します');
-        const result = await window.api.analyzeImage({ image_data: imageToAnalyze });
-
-        // デバッグ: 完全な解析結果をコンソールに出力
-        console.log('===== フロントエンド側: 画像解析結果の完全なデータ =====');
-        console.log(JSON.stringify(result, null, 2));
-        console.log('===== フロントエンド側: 画像解析結果の出力終了 =====');
-
-        if (result.success) {
-          console.log('画像分析結果:', result);
-          setImageAnalysisResult({
-            ...result,
-            type,
-            timestamp: new Date().toISOString()
-          });
-
-          // 分析結果に基づいてデータを更新
-          if (type === 'pc') {
-            if (result.text) setPcText(result.text);
-            if (result.dominant_color && result.dominant_color.rgb) {
-              const colorArray = result.dominant_color.rgb.map(color => `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
-              setPcColors(colorArray);
-            }
-          } else {
-            if (result.text) setSpText(result.text);
-            if (result.dominant_color && result.dominant_color.rgb) {
-              const colorArray = result.dominant_color.rgb.map(color => `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
-              setSpColors(colorArray);
-            }
-          }
-        } else {
-          console.error('画像分析エラー:', result.error);
-          alert(`画像分析中にエラーが発生しました: ${result.error}`);
-        }
-      } else {
-        console.error('画像分析APIが利用できません');
-        alert('画像分析APIが利用できません。Electron環境で実行してください。');
+      const image = type === 'pc' ? pcImage : spImage;
+      if (!image) {
+        alert(`${type.toUpperCase()}画像がアップロードされていません`);
+        return;
       }
+
+      // 分析開始前に状態を更新
+      setAnalyzingImage(true);
+      setAnalysisProgress(0);
+
+      // 少し遅延を入れて状態更新が確実に反映されるようにする
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 進捗状況を更新する関数
+      const updateProgress = (progress) => {
+        console.log(`画像分析進捗: ${progress}%`);
+        setAnalysisProgress(progress);
+      };
+
+      // 初期進捗を表示
+      updateProgress(10);
+
+      // 画像から色を抽出
+      const colors = await analyzeImageColors(image.file);
+      updateProgress(40);
+
+      // 画像からテキストを抽出（OCR）
+      const text = await analyzeImageText(image.file, updateProgress);
+      updateProgress(80);
+
+      if (type === 'pc') {
+        setPcColors(colors);
+        setPcText(text);
+      } else {
+        setSpColors(colors);
+        setSpText(text);
+      }
+
+      updateProgress(100);
+
+      // 少し待ってから分析完了状態にする
+      setTimeout(() => {
+        setAnalyzingImage(false);
+        setAnalysisProgress(0);
+      }, 1000);
+
     } catch (error) {
-      console.error('画像分析エラー:', error);
-      alert(`画像分析中にエラーが発生しました: ${error.message || error}`);
-    } finally {
+      console.error('Image analysis error:', error);
       setAnalyzingImage(false);
+      setAnalysisProgress(0);
+      alert('画像分析中にエラーが発生しました');
     }
   };
 
@@ -3275,6 +3346,17 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 >
                   {analyzingImage ? '分析中...' : '詳細分析'}
                 </button>
+                {analyzingImage && (
+                  <div className="analysis-progress-container">
+                    <div className="analysis-progress-bar">
+                      <div
+                        className="analysis-progress-fill"
+                        style={{ width: `${analysisProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="analysis-progress-text">画像分析中...{analysisProgress}%</div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="upload-placeholder">
@@ -3321,6 +3403,17 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 >
                   {analyzingImage ? '分析中...' : '詳細分析'}
                 </button>
+                {analyzingImage && (
+                  <div className="analysis-progress-container">
+                    <div className="analysis-progress-bar">
+                      <div
+                        className="analysis-progress-fill"
+                        style={{ width: `${analysisProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="analysis-progress-text">画像分析中...{analysisProgress}%</div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="upload-placeholder">

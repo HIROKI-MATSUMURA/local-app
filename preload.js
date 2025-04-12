@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('api', {
     extname: (filePath) => path.extname(filePath),
   },
 
+  // Claude APIキーを取得
+  getClaudeApiKey: () => ipcRenderer.invoke('get-claude-api-key'),
+
   // ファイル操作 - 基本的な機能のみ
   fs: {
     readFileSync: (filePath, encoding = 'utf8') => {
@@ -279,10 +282,7 @@ contextBridge.exposeInMainWorld('api', {
       return Promise.resolve(false);
     }
   },
-  //APIキー取得
-  getClaudeApiKey: () => ipcRenderer.invoke('get-claude-api-key'),
-
-  // Python関連機能
+  //Python関連機能
   checkPythonBridge: () => ipcRenderer.invoke('check-python-bridge'),
   startPythonBridge: () => ipcRenderer.invoke('start-python-bridge'),
   checkPythonEnvironmentStatus: () => ipcRenderer.invoke('check-python-environment-status'),

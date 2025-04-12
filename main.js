@@ -31,6 +31,35 @@ const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
 // Pythonブリッジをロード
 let pythonBridge;
 try {
+  // python_scriptsディレクトリの存在を確認し、必要なら作成
+  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
+  if (!fs.existsSync(pythonScriptsDir)) {
+    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
+    fs.mkdirSync(pythonScriptsDir, { recursive: true });
+  }
+
+  // テスト用スクリプトを作成（存在しない場合のみ）
+  const testBridgePath = path.join(pythonScriptsDir, 'test_bridge.py');
+  if (!fs.existsSync(testBridgePath)) {
+    console.log(`テスト用Pythonスクリプトを作成します: ${testBridgePath}`);
+    const testScript = `
+# テスト用Python Bridgeスクリプト
+import sys
+import json
+
+def main():
+    print(json.dumps({
+        "success": True,
+        "message": "Python bridge test script executed successfully"
+    }))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+`;
+    fs.writeFileSync(testBridgePath, testScript.trim(), 'utf8');
+  }
+
   pythonBridge = require('./python_bridge');
   console.log('Pythonブリッジを読み込みました');
 } catch (error) {
@@ -1208,16 +1237,73 @@ $mediaquerys: (
     return getApiKey();
   });
 
+  // Claude APIキー取得ハンドラ - 統合バージョン
+  ipcMain.handle('get-claude-api-key', async (event) => {
+    try {
+      console.log('Claude APIキーの取得をリクエストされました');
+
+      // API keyファイルパスの作成
+      const secretApiKeyPath = path.join(__dirname, 'secret', 'api_key.json');
+      console.log(`APIキーファイルパス: ${secretApiKeyPath}`);
+      console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
+
+      if (fs.existsSync(secretApiKeyPath)) {
+        const fileContent = fs.readFileSync(secretApiKeyPath, 'utf8');
+        console.log(`APIキーファイルの読み込み成功。内容の長さ: ${fileContent.length}文字`);
+
+        const apiData = JSON.parse(fileContent);
+        console.log(`APIデータ解析成功: ${apiData.claudeKey ? 'キーあり' : 'キーなし'}`);
+
+        if (!apiData.claudeKey) {
+          console.error('Claude APIキーがファイル内に見つかりません');
+          return { success: false, error: 'API key is empty or invalid' };
+        }
+
+        console.log(`Claude APIキーの取得に成功: ${apiData.claudeKey.substring(0, 10)}...`);
+        return { success: true, claudeKey: apiData.claudeKey };
+      } else {
+        console.log(`Claude API キーファイルが存在しません: ${secretApiKeyPath}`);
+        return { success: false, error: 'API key file not found' };
+      }
+    } catch (error) {
+      console.error('Error reading Claude API key:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // AIコード生成ハンドラ
   ipcMain.handle('generate-code', async (event, params) => {
     try {
       console.log('AIコード生成リクエストを受信しました');
 
-      // ハードコードされたAPIキーを使用
+      // APIキーを取得
       const selectedProvider = DEFAULT_PROVIDER;
-      const apiKey = selectedProvider === 'openai' ? OPENAI_API_KEY : CLAUDE_API_KEY;
+      let apiKey;
 
-      console.log(`選択されたAIプロバイダ: ${selectedProvider}`);
+      // APIキーを明示的に取得
+      if (selectedProvider === 'claude') {
+        try {
+          console.log('ファイルからClaude APIキーを読み込みます');
+          const secretApiKeyPath = path.join(__dirname, 'secret', 'api_key.json');
+
+          if (fs.existsSync(secretApiKeyPath)) {
+            const fileContent = fs.readFileSync(secretApiKeyPath, 'utf8');
+            const apiData = JSON.parse(fileContent);
+            apiKey = apiData.claudeKey;
+            console.log(`Claude APIキーを読み込みました: ${apiKey ? '成功' : '失敗'}`);
+          } else {
+            console.error(`APIキーファイルが見つかりません: ${secretApiKeyPath}`);
+            apiKey = CLAUDE_API_KEY; // フォールバック
+          }
+        } catch (keyError) {
+          console.error('APIキー読み込みエラー:', keyError);
+          apiKey = CLAUDE_API_KEY; // エラー時はハードコードされたキーを使用
+        }
+      } else {
+        apiKey = OPENAI_API_KEY;
+      }
+
+      console.log(`選択されたAIプロバイダ: ${selectedProvider}, APIキー存在: ${apiKey ? 'はい' : 'いいえ'}`);
 
       if (!apiKey) {
         throw new Error(`APIキーが設定されていません`);

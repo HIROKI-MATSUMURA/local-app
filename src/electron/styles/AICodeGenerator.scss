@@ -1978,103 +1978,47 @@ $radius-xl: 16px;
       }
 
       .image-upload-area {
-        border: 2px dashed $border-color;
-        border-radius: $radius-md;
-        padding: $spacing-lg;
-        min-height: 200px;
+        border: 2px dashed #ccc;
+        border-radius: 5px;
+        padding: 10px;
         cursor: pointer;
-        transition: $transition-base;
+        min-height: 150px;
+        position: relative;
+        overflow: visible; /* 進捗バーがはみ出ても表示されるように */
+
+        &:hover {
+          border-color: #1890ff;
+          background-color: rgba(24, 144, 255, 0.05);
+        }
+      }
+
+      .preview-container {
+        position: relative;
+        width: 100%;
+        min-height: 150px;
         display: flex;
         align-items: center;
         justify-content: center;
-        position: relative;
 
-        &:hover {
-          border-color: $primary-color;
-          background-color: rgba($primary-color, 0.02);
-        }
+        .analyze-image-btn {
+          position: absolute;
+          bottom: 10px;
+          right: 10px;
+          background-color: #1890ff;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 5px 10px;
+          cursor: pointer;
+          z-index: 5;
 
-        .upload-placeholder {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-
-          .upload-icon {
-            font-size: 2rem;
-            margin-bottom: $spacing-sm;
-            color: $text-tertiary;
+          &:hover {
+            background-color: #40a9ff;
           }
 
-          .upload-text {
-            font-size: $font-size-md;
-            color: $text-secondary;
-            margin-bottom: $spacing-xs;
-          }
-
-          .upload-subtext {
-            font-size: $font-size-sm;
-            color: $text-tertiary;
-          }
-        }
-
-        .preview-container {
-          width: 100%;
-          height: 100%;
-          position: relative;
-
-          .image-preview {
-            max-width: 100%;
-            max-height: 200px;
-            display: block;
-            margin: 0 auto;
-            object-fit: contain;
-          }
-
-          .remove-image-btn {
-            position: absolute;
-            top: 0;
-            right: 0;
-            background-color: rgba($error-color, 0.8);
-            color: white;
-            border: none;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: $transition-base;
-
-            &:hover {
-              background-color: $error-color;
-              transform: scale(1.1);
-            }
-          }
-
-          .analyze-image-btn {
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            background-color: rgba($primary-color, 0.8);
-            color: white;
-            border: none;
-            padding: $spacing-xs $spacing-sm;
-            border-radius: $radius-sm;
-            font-size: $font-size-sm;
-            cursor: pointer;
-            transition: $transition-base;
-
-            &:hover {
-              background-color: $primary-color;
-            }
-
-            &:disabled {
-              background-color: rgba($text-tertiary, 0.5);
-              cursor: not-allowed;
-            }
+          &:disabled {
+            background-color: #d9d9d9;
+            cursor: not-allowed;
           }
         }
       }
@@ -3035,5 +2979,50 @@ $radius-xl: 16px;
   }
   100% {
     box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
+  }
+}
+
+/* 進捗バーのスタイル強化 */
+.analysis-progress-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px;
+  background-color: rgba(0, 0, 0, 0.8);
+  border-radius: 0 0 4px 4px;
+  z-index: 10;
+  animation: fadeIn 0.3s ease;
+
+  .analysis-progress-bar {
+    width: 100%;
+    height: 10px;
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 5px;
+
+    .analysis-progress-fill {
+      height: 100%;
+      background-color: #1890ff;
+      border-radius: 5px;
+      transition: width 0.3s ease;
+    }
+  }
+
+  .analysis-progress-text {
+    color: white;
+    font-size: 12px;
+    text-align: center;
+    font-weight: bold;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

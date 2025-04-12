@@ -1471,7 +1471,7 @@ def compress_analysis_results(analysis_data, options=None):
                     level = 2  # 小見出し
 
                 text_data['hierarchy'].append({
-                    'level': level,
+                        'level': level,
                     'text': block.get('text', ''),
                     'position': block.get('position', {})
                 })
@@ -1958,9 +1958,9 @@ def estimate_text_role(text_block, all_blocks):
 def detect_grid_pattern(layout_details):
     """レイアウトからグリッドパターンを検出する"""
     # 画像のサイズ情報を取得
-    dimensions = layout_details.get('dimensions', {})
-    width = dimensions.get('width', 0)
-    height = dimensions.get('height', 0)
+        dimensions = layout_details.get('dimensions', {})
+        width = dimensions.get('width', 0)
+        height = dimensions.get('height', 0)
 
     if not width or not height:
         return {'type': 'unknown'}
@@ -1990,7 +1990,7 @@ def detect_grid_pattern(layout_details):
         grid_type = 'header_content_footer'
         column_count = 1
         row_count = num_sections
-    else:
+            else:
         # セクションの位置関係から列数を推定
         columns = estimate_column_count(sections, width)
         grid_type = 'grid'

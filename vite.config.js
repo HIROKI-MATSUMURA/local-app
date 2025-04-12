@@ -50,7 +50,8 @@ export default defineConfig({
         'https',
         'net',
         'tls',
-        'events'
+        'events',
+        'antd'
       ],
     },
     polyfillModulePreload: false,
@@ -85,7 +86,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['react', 'react-dom'],
+    include: ['react', 'react-dom', 'antd'],
     exclude: [
       'vite',
       'electron',
