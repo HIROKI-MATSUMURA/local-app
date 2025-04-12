@@ -1789,6 +1789,12 @@ $mediaquerys: (
             analyzeLayout: true
           });
 
+          // 詳細な解析結果をログに出力
+          console.log('画像解析結果の詳細：');
+          console.log('========== 画像解析結果の詳細ログ開始 ==========');
+          console.log(JSON.stringify(imageAnalysisResult, null, 2));
+          console.log('========== 画像解析結果の詳細ログ終了 ==========');
+
           // 解析結果をプロンプトに追加
           if (imageAnalysisResult) {
             console.log('画像解析結果:', JSON.stringify(imageAnalysisResult).substring(0, 100) + '...');
