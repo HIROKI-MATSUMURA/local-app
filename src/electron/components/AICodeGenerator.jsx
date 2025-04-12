@@ -1676,6 +1676,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         }
 
         console.log("生成されたプロンプト:", prompt.substring(0, 100) + "...");
+        console.log("生成されたプロンプト:", prompt);
 
         // 空のプロンプトを送らないようチェック
         if (!prompt || prompt.trim() === "") {

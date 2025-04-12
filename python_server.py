@@ -31,7 +31,7 @@ os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, f'python_server_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file),  # ファイルにログを出力
@@ -104,13 +104,50 @@ def send_response(request_id: str, result: Any = None, error: str = None):
         "error": error
     }
 
+    # 関数開始時の詳細なデバッグログを追加
+    logger.debug(f"===== send_response開始 =====")
+    logger.debug(f"リクエストID: {request_id}")
+    logger.debug(f"レスポンスタイプ: {'成功' if error is None else 'エラー'}")
+    logger.debug(f"結果データタイプ: {type(result).__name__ if result is not None else 'None'}")
+
     try:
+        # データの概要をログに記録
+        if result is not None:
+            if isinstance(result, dict):
+                logger.info(f"Python→JS送信データ構造: キー={list(result.keys())}")
+                # 特に重要な色情報の確認
+                if 'colors' in result:
+                    logger.info(f"Python→JS送信色情報: {len(result['colors'])}色")
+                    for i, color in enumerate(result['colors'][:3]):  # 最初の3色だけ表示
+                        logger.info(f"色{i+1}: {color.get('hex', 'なし')} ({color.get('role', 'なし')})")
+            # 配列の場合は色情報として処理（extract_colorsの直接返り値対応）
+            elif isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+                logger.info(f"Python→JS送信データ構造: 配列（要素数={len(result)}）")
+                # 配列が色情報である可能性をチェック（最初の要素にhexキーがあるか）
+                if 'hex' in result[0] or 'rgb' in result[0]:
+                    logger.info(f"Python→JS送信色情報: {len(result)}色")
+                    for i, color in enumerate(result[:3]):  # 最初の3色だけ表示
+                        logger.info(f"色{i+1}: {color.get('hex', 'なし')} ({color.get('role', 'なし')})")
+
+                # データサイズの記録
+                try:
+                    json_size = len(json.dumps(result))
+                    logger.debug(f"結果データサイズ: 約{json_size/1024:.2f}KB")
+                except Exception as size_err:
+                    logger.debug(f"データサイズ計算エラー: {str(size_err)}")
+
+        # 送信前の最終確認
+        logger.info(f"Python→JS送信直前: request_id={request_id}, 成功={error is None}")
+
         # JSONをシリアライズして標準出力に送信
         json_response = json.dumps(response)
+        logger.debug(f"JSONシリアライズ成功: {len(json_response)}バイト")
         print(json_response, flush=True)
+        logger.debug(f"標準出力への書き込み完了")
 
     except Exception as e:
         logger.error(f"レスポンス送信中にエラーが発生しました: {str(e)}")
+        logger.error(traceback.format_exc())  # スタックトレースを追加
         # 緊急フォールバックとしてエラーレスポンスを送信
         fallback_response = {
             "id": request_id,
@@ -118,6 +155,8 @@ def send_response(request_id: str, result: Any = None, error: str = None):
             "error": f"レスポンス送信エラー: {str(e)}"
         }
         print(json.dumps(fallback_response), flush=True)
+    finally:
+        logger.debug(f"===== send_response終了 =====")
 
 def handle_check_environment(request_id: str, params: Dict[str, Any]):
     """Pythonサーバー環境が正常に動作しているか確認する"""
@@ -215,7 +254,13 @@ def handle_extract_colors(request_id: str, params: Dict[str, Any]):
         # image_analyzer.pyのextract_colors関数を呼び出す
         colors = image_analyzer.extract_colors_from_image(image, **options)
 
-        send_response(request_id, colors)
+        # JSが期待する形式（colorsプロパティを持つ辞書）に変換
+        result = {"colors": colors}
+
+        # デバッグログを追加
+        logger.debug(f"色抽出結果をJSに適した形式に変換: {len(colors)}色 → colors辞書プロパティ")
+
+        send_response(request_id, result)
 
     except Exception as e:
         logger.error(f"色抽出中にエラーが発生しました: {str(e)}")
@@ -387,30 +432,33 @@ def handle_analyze_all(request_id, params):
         # デバッグ用：受信データの詳細表示
         logger.info(f"[debug] 受信データ構造: キー={list(params.keys())}")
 
-        # 各キーの存在と型を確認
-        if 'image' in params:
-            image_type = type(params['image']).__name__
-            image_length = len(params['image']) if isinstance(params['image'], str) else '?'
-            logger.info(f"[debug] image: 型={image_type}, 長さ={image_length}")
-        else:
-            logger.warning("[debug] imageキーが見つかりません")
+        # 画像データのパラメータ名チェック（複数のキー名をチェック）
+        image_data = None
+        for key in ['image', 'image_data', 'imageData']:
+            if key in params and params[key]:
+                image_data = params[key]
+                logger.info(f"[debug] 画像データを'{key}'キーから取得")
+                break
 
-        if 'options' in params:
-            options_keys = list(params['options'].keys()) if isinstance(params['options'], dict) else '非辞書'
-            logger.info(f"[debug] options: キー={options_keys}")
-
-        if 'type' in params:
-            logger.info(f"[debug] type: {params['type']}")
-
-        # パラメータを取得（修正：image_dataではなくimageを使用）
-        image_data = params.get('image', '')
         analysis_type = params.get('type', 'all')  # compress/basic/features
         options = params.get('options', {})
 
-        logger.info(f"[debug] 解析タイプ: {analysis_type}, 画像データ長: {len(image_data) if isinstance(image_data, str) else 'not string'}")
+        logger.info(f"[debug] 解析タイプ: {analysis_type}, 画像データ存在: {'あり' if image_data else 'なし'}")
 
         if not image_data:
-            raise ValueError("画像データが提供されていません")
+            logger.warning("[debug] 画像データが提供されていません - 空の結果を返します")
+            # 空の結果を返す（エラーではなく空のデータ）
+            empty_result = {
+                "colors": [],
+                "text": {"text": "", "textBlocks": []},
+                "sections": {"sections": []},
+                "layout": {"layoutType": "unknown", "confidence": 0.0},
+                "elements": [],
+                "timestamp": datetime.now().isoformat(),
+                "status": "no_image"  # ステータスを追加して画像がないことを示す
+            }
+            send_response(request_id, empty_result)
+            return
 
         # Base64データを画像に変換
         try:
@@ -447,7 +495,7 @@ def handle_analyze_all(request_id, params):
                 logger.info("[debug] セクション解析成功")
             except Exception as section_err:
                 logger.error(f"[debug] セクション解析失敗: {str(section_err)}")
-                sections = []
+                sections = {'sections': []}
 
             try:
                 layout = image_analyzer.analyze_layout_pattern(image, **options)
@@ -463,14 +511,15 @@ def handle_analyze_all(request_id, params):
                 logger.error(f"[debug] 要素検出失敗: {str(element_err)}")
                 elements = []
 
-            # 結果を集約
+            # 結果を集約 - JSが期待する形式に合わせる
             analysis_data = {
-                "colors": colors,
-                "text": text,
-                "sections": sections,
-                "layout": layout,
-                "elements": elements,
-                "timestamp": datetime.now().isoformat()
+                "colors": colors,  # すでに配列として返されているはず
+                "text": text,      # すでに辞書として返されているはず
+                "sections": sections,  # セクション情報
+                "layout": layout,      # レイアウト情報
+                "elements": elements,  # 要素情報
+                "timestamp": datetime.now().isoformat(),
+                "status": "success"    # 成功ステータスを追加
             }
 
             # データ構造のログ出力
@@ -482,53 +531,92 @@ def handle_analyze_all(request_id, params):
             try:
                 compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
                 logger.info("[debug] 圧縮処理成功")
+
+                # キー名の確認と保証
+                if 'colors' not in compressed_data and len(analysis_data['colors']) > 0:
+                    compressed_data['colors'] = analysis_data['colors']
+                    logger.info("[debug] 色情報を元データから補完")
+
             except Exception as compress_err:
                 logger.error(f"[debug] 圧縮処理失敗: {str(compress_err)}")
-                # デフォルトのデータ構造を返す
-                compressed_data = {
-                    'error': str(compress_err),
-                    'layout': { 'type': 'unknown', 'width': 1200, 'height': 800 },
-                    'colors': [],
-                    'text': { 'content': '', 'blocks': [] },
-                    'elements': { 'elements': [] }
-                }
-
-            # 圧縮形式オプションに基づいてフォーマット変換
-            format_type = options.get('format_type', 'structured')
-            logger.info(f"[debug] フォーマットタイプ: {format_type}")
+                # 圧縮に失敗した場合、元の解析データを返す
+                compressed_data = analysis_data
+                compressed_data['compress_error'] = str(compress_err)
+                logger.info("[debug] 圧縮失敗: 元の解析データを返します")
 
             # タイムスタンプを追加
-            if 'timestamp' not in compressed_data:
-                compressed_data['timestamp'] = datetime.now().isoformat()
+            compressed_data['timestamp'] = datetime.now().isoformat()
 
             logger.info(f"[debug] 最終結果を送信: キー={list(compressed_data.keys())}")
             send_response(request_id, compressed_data)
             return
 
-        # 通常の解析プロセス
-        # 各解析処理を実行
-        colors = image_analyzer.extract_colors_from_image(image, **options)
-        text = image_analyzer.extract_text_from_image(image, **options)
-        sections = image_analyzer.analyze_image_sections(image, **options)
-        layout = image_analyzer.analyze_layout_pattern(image, **options)
-        elements = image_analyzer.detect_feature_elements(image, **options)
+        # 通常の解析プロセス - 各解析処理を実行
+        try:
+            colors = image_analyzer.extract_colors_from_image(image, **options)
+            logger.info(f"[debug] 色抽出成功: {len(colors)}色")
+        except Exception as color_err:
+            logger.error(f"[debug] 色抽出失敗: {str(color_err)}")
+            colors = []
 
-        # 結果を集約
+        try:
+            text = image_analyzer.extract_text_from_image(image, **options)
+            logger.info("[debug] テキスト抽出成功")
+        except Exception as text_err:
+            logger.error(f"[debug] テキスト抽出失敗: {str(text_err)}")
+            text = { 'text': '', 'textBlocks': [] }
+
+        try:
+            sections = image_analyzer.analyze_image_sections(image, **options)
+            logger.info("[debug] セクション解析成功")
+        except Exception as section_err:
+            logger.error(f"[debug] セクション解析失敗: {str(section_err)}")
+            sections = {'sections': []}
+
+        try:
+            layout = image_analyzer.analyze_layout_pattern(image, **options)
+            logger.info("[debug] レイアウト解析成功")
+        except Exception as layout_err:
+            logger.error(f"[debug] レイアウト解析失敗: {str(layout_err)}")
+            layout = { 'layoutType': 'unknown', 'confidence': 0.5 }
+
+        try:
+            elements = image_analyzer.detect_feature_elements(image, **options)
+            logger.info("[debug] 要素検出成功")
+        except Exception as element_err:
+            logger.error(f"[debug] 要素検出失敗: {str(element_err)}")
+            elements = []
+
+        # 結果を集約 - JSの期待するデータ構造に合わせる
         result = {
-            "colors": colors,
-            "text": text,
-            "sections": sections,
-            "layout": layout,
-            "elements": elements,
-            "timestamp": datetime.now().isoformat()
+            "colors": colors,  # 色情報
+            "text": text,      # テキスト情報
+            "sections": sections,  # セクション情報
+            "layout": layout,      # レイアウト情報
+            "elements": elements,  # 要素情報
+            "timestamp": datetime.now().isoformat(),
+            "status": "success"    # 成功ステータスを追加
         }
+
+        # データ構造のログ出力
+        logger.info(f"[debug] 解析結果構造: {list(result.keys())}")
+        logger.info(f"[debug] colors項目数: {len(result['colors']) if isinstance(result['colors'], list) else 'オブジェクト'}")
 
         send_response(request_id, result)
 
     except Exception as e:
         logger.error(f"総合分析中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
-        send_response(request_id, None, f"総合分析エラー: {str(e)}")
+        send_response(request_id, {
+            "colors": [],
+            "text": {"text": "", "textBlocks": []},
+            "sections": {"sections": []},
+            "layout": {"layoutType": "unknown", "confidence": 0.0},
+            "elements": [],
+            "timestamp": datetime.now().isoformat(),
+            "status": "error",
+            "error": str(e)
+        }, f"総合分析エラー: {str(e)}")
 
 def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
     """画像解析結果を圧縮して重要な情報だけを抽出する"""

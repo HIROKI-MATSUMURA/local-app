@@ -25,8 +25,28 @@ const AICodeGenerator = ({ imageData, onCodeGenerated }) => {
       const compressedResults = await window.imageAnalysis.compressAnalysisResults(analysisResults);
       console.log('分析結果を圧縮しました', compressedResults);
 
+      // プロンプト生成のコンソールログを追加
+      console.log('==== 生成されるプロンプトの完全版 ====');
+      // プロンプトが生成される処理を呼び出す前にプロンプトを取得して表示
+      try {
+        const promptPreview = await window.api.getPromptPreview(compressedResults);
+        console.log(promptPreview);
+        console.log('==== プロンプト完全版ここまで ====');
+      } catch (promptError) {
+        console.error('プロンプトプレビュー取得エラー:', promptError);
+      }
+
       // 圧縮結果からコード生成
+      console.log('=== BEFORE GENERATE CODE CALL ===');
+      console.log('compressedResults:', JSON.stringify(compressedResults, null, 2));
+
       const response = await window.api.generateCodeFromAnalysis(compressedResults);
+
+      console.log('=== AFTER GENERATE CODE CALL ===');
+      if (response.success && response.data && response.data.prompt) {
+        console.log('実際に使用されたプロンプト:');
+        console.log(response.data.prompt);
+      }
 
       if (response.success) {
         console.log('コード生成成功:', response.data);
@@ -144,105 +164,4 @@ const AICodeGenerator = ({ imageData, onCodeGenerated }) => {
       }
     } catch (error) {
       console.error('フィードバック処理中にエラーが発生しました:', error);
-      setError(`フィードバック処理中にエラーが発生しました: ${error.message || '不明なエラー'}`);
-    } finally {
-      setFeedbackInProgress(false);
-    }
-  };
-
-  return (
-    <Box sx={{ mt: 2 }}>
-      <Paper elevation={3} sx={{ p: 2, mb: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          AIコード生成
-        </Typography>
-
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={generateCodeFromImage}
-          disabled={loading || !imageData}
-          sx={{ mb: 2 }}
-        >
-          {loading ? (
-            <>
-              <CircularProgress size={24} color="inherit" sx={{ mr: 1 }} />
-              処理中...
-            </>
-          ) : 'デザインからコードを生成'}
-        </Button>
-
-        {comparisonResult && (
-          <Box sx={{ mt: 2 }}>
-            <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle1" gutterBottom>
-              比較結果: {(comparisonResult.ssim * 100).toFixed(1)}% 一致
-            </Typography>
-
-            {comparisonResult.differenceImage && (
-              <Box sx={{ mt: 1, mb: 2 }}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  差分ヒートマップ:
-                </Typography>
-                <img
-                  src={comparisonResult.differenceImage}
-                  alt="Difference heatmap"
-                  style={{ maxWidth: '100%', border: '1px solid #ddd' }}
-                />
-              </Box>
-            )}
-
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={regenerateCodeWithFeedback}
-              disabled={feedbackInProgress || !comparisonResult}
-              sx={{ mt: 1 }}
-            >
-              {feedbackInProgress ? (
-                <>
-                  <CircularProgress size={24} color="inherit" sx={{ mr: 1 }} />
-                  修正中...
-                </>
-              ) : 'フィードバックに基づき修正'}
-            </Button>
-          </Box>
-        )}
-      </Paper>
-
-      {/* プレビュー要素 (非表示) */}
-      <div
-        ref={previewRef}
-        style={{
-          position: 'absolute',
-          left: '-9999px',
-          width: '1024px',
-          height: '768px',
-          overflow: 'hidden'
-        }}
-      >
-        {generatedCode && (
-          <div dangerouslySetInnerHTML={{
-            __html: `
-            <style>${generatedCode.scss}</style>
-            ${generatedCode.html}
-          `}} />
-        )}
-      </div>
-
-      {error && (
-        <Snackbar
-          open={!!error}
-          autoHideDuration={6000}
-          onClose={() => setError(null)}
-        >
-          <Alert onClose={() => setError(null)} severity="error">
-            {error}
-          </Alert>
-        </Snackbar>
-      )}
-    </Box>
-  );
-};
-
-export default AICodeGenerator;
+      setError(`

@@ -1568,10 +1568,8 @@ def compress_analysis_results(analysis_data, options=None):
         logger.error(f"解析データの圧縮中にエラーが発生しました: {str(e)}")
         traceback.print_exc()
 
-        # エラー情報を明示的に含める
+        # エラー時の最小限のデータ構造
         return {
-            'error': str(e),
-            'trace': traceback.format_exc(),
             'layout': {
                 'width': 1200,
                 'height': 800,
@@ -1593,6 +1591,7 @@ def compress_analysis_results(analysis_data, options=None):
                     'hasForms': False
                 }
             },
+            'error': str(e)
         }
 
 def convert_to_semantic_format(compressed_data):
@@ -2705,10 +2704,8 @@ def compress_analysis_results(analysis_data, options=None):
         elif isinstance(elements, dict) and 'elements' in elements:
             element_list = elements.get('elements', [])
 
-        # 要素サマリー情報の作成
+        # エラー時の最小限のデータ構造
         element_counts = {
-            'button': 0,
-            'image': 0,
             'card': 0,
             'navigation': 0,
             'form': 0,
@@ -3805,6 +3802,7 @@ def compress_analysis_results(analysis_data, options=None):
                     'position': block.get('position', {})
                 })
         # テキストブロックがなく全文のみの場合
+            # テキストブロックがなく全文のみの場合
         elif text_content:
             # 簡易的に最初の行を見出しとして扱う
             lines = text_content.split('\n')
@@ -3815,13 +3813,13 @@ def compress_analysis_results(analysis_data, options=None):
                     'position': {'top': 0, 'left': 0}
                 })
 
-                # 残りの行をテキストとして扱う
-                if len(lines) > 1:
-                    text_data['hierarchy'].append({
-                        'level': 3,
-                        'text': '\n'.join(lines[1:]),
-                        'position': {'top': 50, 'left': 0}
-                    })
+        # 残りの行をテキストとして扱う
+        if len(lines) > 1:
+            text_data['hierarchy'].append({
+                'level': 3,
+                'text': '\n'.join(lines[1:]),
+                'position': {'top': 50, 'left': 0}
+            })
 
         # 要素情報を整理（elements.elements形式への統一とsummary追加）
         element_list = elements.get('elements', [])

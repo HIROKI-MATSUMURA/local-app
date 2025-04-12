@@ -2218,8 +2218,8 @@ $mediaquerys: (
       // image_dataが存在するか確認
       const imageData = data.image_data || data.image;
       if (!imageData) {
-        console.error('画像データが提供されていません');
-        return { success: false, error: '画像データが提供されていません' };
+        console.error('画像データが提供されていません_main.js_1');
+        return { success: false, error: '画像データが提供されていません_main.js_2' };
       }
 
       console.log('Pythonブリッジに解析リクエスト送信...');
@@ -2416,6 +2416,21 @@ $mediaquerys: (
     } catch (error) {
       console.error('選択されたタグの同期読み込み中にエラーが発生しました:', error);
       event.returnValue = [];
+    }
+  });
+
+  // プロンプトプレビュー取得（デバッグ用）
+  ipcMain.handle('get-prompt-preview', async (event, analysisData) => {
+    try {
+      console.log('プロンプトプレビュー生成リクエストを受信しました');
+      // promptGenerator.jsからプロンプト生成関数をロード
+      const promptGenerator = require('./promptGenerator');
+      // プロンプト生成
+      const prompt = promptGenerator.generatePromptFromCompressedData(analysisData);
+      return prompt;
+    } catch (error) {
+      console.error('プロンプトプレビュー生成エラー:', error);
+      return `プロンプト生成エラー: ${error.message}`;
     }
   });
 }

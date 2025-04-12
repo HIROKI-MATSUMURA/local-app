@@ -314,7 +314,7 @@ class PythonBridge {
       return;
     }
 
-    const { resolve, reject, timeoutId } = this.requestMap.get(id);
+    const { resolve, reject, timeoutId, command } = this.requestMap.get(id);
 
     // タイムアウトをクリア
     if (timeoutId) {
@@ -325,7 +325,61 @@ class PythonBridge {
       console.error(`Pythonブリッジ: エラーレスポンス受信 (ID: ${id.substring(0, 8)}...):`, error);
       reject(new Error(error));
     } else {
-      console.log(`Pythonブリッジ: 成功レスポンス受信 (ID: ${id.substring(0, 8)}...)`);
+      console.log(`Pythonブリッジ: 成功レスポンス受信 (ID: ${id.substring(0, 8)}...), コマンド: ${command}`);
+
+      // データ構造の詳細ログ
+      console.log(`Pythonブリッジ: 結果データタイプ: ${typeof result}`);
+
+      if (result) {
+        // 結果が配列かどうかをチェック
+        if (Array.isArray(result)) {
+          console.log(`Pythonブリッジ: 結果は配列です (${result.length}項目)`);
+          // 配列の最初の項目の詳細を表示
+          if (result.length > 0) {
+            console.log(`Pythonブリッジ: 配列の最初の項目のキー: ${Object.keys(result[0])}`);
+            // hex, rgbなどの色情報の有無をチェック
+            if (result[0].hex || result[0].rgb) {
+              console.log(`Pythonブリッジ: 配列は色情報のようです (hex: ${result[0].hex}, rgb: ${result[0].rgb})`);
+              // ⚠️ 警告: colors配列を直接返すのではなく、{colors:[...]}の形式で返すべき
+              console.log(`Pythonブリッジ: ⚠️警告: JSは色情報を{colors:[...]}の形式で期待していますが、配列が直接返されています`);
+
+              // 修正した形式に変換（オリジナルの動作には影響させない）
+              console.log(`Pythonブリッジ: 色情報のみの場合、自動的に{colors:[...]}形式に変換します`);
+              if (command === 'extract_colors') {
+                console.log(`Pythonブリッジ: extract_colorsコマンドの結果を修正形式に変換`);
+                result = { colors: result };
+              }
+            }
+          }
+        }
+        // 結果がオブジェクトかどうかをチェック
+        else if (typeof result === 'object') {
+          console.log(`Pythonブリッジ: 結果はオブジェクトです (キー: ${Object.keys(result).join(', ')})`);
+
+          // colorsキーの有無と構造をチェック
+          if ('colors' in result) {
+            console.log(`Pythonブリッジ: colorsキーがあります (${Array.isArray(result.colors) ? `配列: ${result.colors.length}項目` : typeof result.colors})`);
+            if (Array.isArray(result.colors) && result.colors.length > 0) {
+              console.log(`Pythonブリッジ: colors[0]のサンプル: ${JSON.stringify(result.colors[0])}`);
+            }
+          } else {
+            console.log(`Pythonブリッジ: colorsキーがありません`);
+          }
+
+          // textキーの有無をチェック
+          if ('text' in result) {
+            console.log(`Pythonブリッジ: textキーがあります (${typeof result.text === 'object' ? `キー: ${Object.keys(result.text).join(', ')}` : typeof result.text})`);
+          }
+
+          // layoutキーの有無をチェック
+          if ('layout' in result) {
+            console.log(`Pythonブリッジ: layoutキーがあります (${typeof result.layout === 'object' ? `キー: ${Object.keys(result.layout).join(', ')}` : typeof result.layout})`);
+          }
+        }
+      } else {
+        console.log(`Pythonブリッジ: 結果はnullまたはundefinedです`);
+      }
+
       // レスポンスのプレビュー（大きなデータの場合は一部だけ表示）
       const resultStr = JSON.stringify(result);
       const previewLength = Math.min(100, resultStr.length);
@@ -676,7 +730,7 @@ class PythonBridge {
             Object.keys(dataObj).join(', '));
           return {
             success: false,
-            error: '画像データが提供されていません',
+            error: '画像データが提供されていません_python_bridge.js_1',
             layout: { layoutType: "unknown" },
             elements: [],
             text: { text: "" },
@@ -744,6 +798,63 @@ class PythonBridge {
         text: { text: "" },
         colors: [] // 色情報を空配列として含める
       };
+    }
+  }
+
+  /**
+   * リクエストを送信する
+   * @param {string} requestId - リクエストID
+   * @param {string} command - コマンド名
+   * @param {object} params - コマンドパラメータ
+   * @param {number} timeout - タイムアウト（ミリ秒）
+   * @private
+   */
+  _sendRequest(requestId, command, params, timeout) {
+    const request = {
+      id: requestId,
+      command,
+      params: params || {}
+    };
+
+    console.log(`Pythonブリッジ: リクエスト送信 (ID: ${requestId.substring(0, 8)}...): ${command}`);
+
+    const requestData = JSON.stringify(request) + '\n';
+    try {
+      this.pythonProcess.stdin.write(requestData);
+
+      // リクエストごとに詳細なデバッグログを記録
+      if (command === 'extract_colors' || command === 'analyze_all' || command === 'extract_text') {
+        console.log(`Pythonブリッジ: ${command} リクエスト詳細: パラメータキー = ${Object.keys(params || {}).join(', ')}`);
+
+        // 画像データの有無を確認（内容は表示しない）
+        if (params && (params.image_data || params.image || params.imageData)) {
+          const imageKey = params.image_data ? 'image_data' : params.image ? 'image' : 'imageData';
+          const imageDataLength = params[imageKey] ? params[imageKey].length : 0;
+          console.log(`Pythonブリッジ: 画像データ (${imageKey}): ${imageDataLength}バイト`);
+        } else {
+          console.warn(`Pythonブリッジ: ${command} リクエストに画像データが含まれていません`);
+        }
+      }
+
+      // タイムアウト処理
+      let timeoutId = null;
+      if (timeout > 0) {
+        timeoutId = setTimeout(() => {
+          console.error(`Pythonブリッジ: リクエストタイムアウト (ID: ${requestId.substring(0, 8)}..., コマンド: ${command})`);
+          if (this.requestMap.has(requestId)) {
+            const { reject } = this.requestMap.get(requestId);
+            reject(new Error(`リクエストがタイムアウトしました (${timeout}ms)`));
+            this.requestMap.delete(requestId);
+          }
+        }, timeout);
+      }
+
+      return new Promise((resolve, reject) => {
+        this.requestMap.set(requestId, { resolve, reject, timeoutId, command });
+      });
+    } catch (error) {
+      console.error(`Pythonブリッジ: リクエスト送信エラー (ID: ${requestId.substring(0, 8)}...):`, error);
+      return Promise.reject(error);
     }
   }
 }

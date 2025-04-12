@@ -389,6 +389,11 @@ contextBridge.exposeInMainWorld('codeGeneration', {
     });
   },
 
+  // プロンプトプレビューを取得（デバッグ用）
+  getPromptPreview: async (analysisData) => {
+    return await ipcRenderer.invoke('get-prompt-preview', analysisData);
+  },
+
   // AIコードを保存
   saveAICode: async (data) => {
     return await ipcRenderer.invoke('save-ai-code', data);

@@ -496,7 +496,7 @@ function inferWebsiteType(sectionTypes, elementSummary) {
   return 'business';
 }
 
-// モジュールをエクスポート
+// モジュールエクスポート
 module.exports = {
   generatePromptFromCompressedData,
   generateOverviewSection,
