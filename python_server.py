@@ -17,6 +17,9 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 import importlib.util
+import time
+import threading
+import cv2
 
 # ロギング設定
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
@@ -419,11 +422,95 @@ def handle_analyze_all(request_id: str, params: Dict[str, Any]):
         send_response(request_id, None, f"総合分析エラー: {str(e)}")
 
 
+def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
+    """画像解析結果を圧縮して重要な情報だけを抽出する"""
+    try:
+        if not image_analyzer:
+            raise ValueError("画像解析モジュールが初期化されていません")
+
+        # パラメータを取得
+        analysis_data = params.get('analysis_data', {})
+        options = params.get('options', {})
+
+        if not analysis_data:
+            raise ValueError("解析データが提供されていません")
+
+        # 圧縮処理を実行
+        compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
+
+        # タイムスタンプを追加
+        if 'timestamp' not in compressed_data:
+            compressed_data['timestamp'] = datetime.now().isoformat()
+
+        send_response(request_id, compressed_data)
+
+    except Exception as e:
+        logger.error(f"解析結果圧縮中にエラーが発生しました: {str(e)}")
+        logger.error(traceback.format_exc())
+        send_response(request_id, None, f"解析結果圧縮エラー: {str(e)}")
+
+
+def handle_compare_images(request_id: str, params: Dict[str, Any]):
+    """元画像とレンダリング画像を比較して類似度を評価する"""
+    try:
+        if not image_analyzer:
+            raise ValueError("画像解析モジュールが初期化されていません")
+
+        # パラメータを取得
+        original_image_data = params.get('original_image', '')
+        rendered_image_data = params.get('rendered_image', '')
+
+        if not original_image_data or not rendered_image_data:
+            raise ValueError("画像データが提供されていません")
+
+        # Base64データを画像に変換
+        original_image, _ = base64_to_image_data(original_image_data)
+        rendered_image, _ = base64_to_image_data(rendered_image_data)
+
+        # 画像比較を実行
+        comparison_result = image_analyzer.compare_images(original_image, rendered_image)
+
+        # 差分ヒートマップをBase64に変換
+        if comparison_result.get('success') and 'diff_heatmap' in comparison_result:
+            heatmap = comparison_result['diff_heatmap']
+            _, buffer = cv2.imencode('.png', heatmap)
+            heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
+            comparison_result['diff_heatmap_base64'] = heatmap_base64
+            del comparison_result['diff_heatmap']  # OpenCV画像は直接JSONシリアライズできないので削除
+
+        # フィードバックを生成
+        feedback = image_analyzer.generate_feedback(comparison_result)
+        comparison_result['feedback'] = feedback
+
+        send_response(request_id, comparison_result)
+
+    except Exception as e:
+        logger.error(f"画像比較中にエラーが発生しました: {str(e)}")
+        logger.error(traceback.format_exc())
+        send_response(request_id, None, f"画像比較エラー: {str(e)}")
+
+
 def handle_exit(request_id: str, params: Dict[str, Any]):
-    """サーバーを終了する"""
-    logger.info("終了コマンドを受信しました。サーバーを停止します...")
-    send_response(request_id, {"status": "shutting_down"})
-    sys.exit(0)
+    """Pythonサーバーを終了する"""
+    try:
+        # 終了のための応答を送信
+        send_response(request_id, {"status": "ok", "message": "Python server shutting down"})
+
+        # 数秒後に強制終了するタイマーを設定（応答が送信される時間を確保）
+        def delayed_exit():
+            time.sleep(1)
+            sys.exit(0)
+
+        exit_timer = threading.Timer(1, delayed_exit)
+        exit_timer.daemon = True
+        exit_timer.start()
+
+    except Exception as e:
+        logger.error(f"終了処理中にエラーが発生しました: {str(e)}")
+        send_response(request_id, None, f"終了処理エラー: {str(e)}")
+        # エラーが発生しても1秒後に終了
+        time.sleep(1)
+        sys.exit(1)
 
 
 # コマンドハンドラーのマッピング
@@ -438,6 +525,8 @@ COMMAND_HANDLERS = {
     "detect_card_elements": handle_detect_card_elements,
     "detect_elements": handle_detect_elements,
     "analyze_all": handle_analyze_all,
+    "compress_analysis": handle_compress_analysis,
+    "compare_images": handle_compare_images,
     "exit": handle_exit
 }
 

@@ -455,22 +455,57 @@ class PythonBridge {
    * @returns {Promise<object>} レイアウト分析結果
    */
   async analyzeLayoutPattern(imageData, options = {}) {
+    // レイアウトパターンを解析する
     try {
+      await this._ensureRunning();
+
       return await this.sendCommand('analyze_layout', {
         image_data: imageData,
         options
       });
     } catch (error) {
-      console.error('レイアウト分析エラー:', error);
-      return {
-        layoutType: "unknown",
-        confidence: 0.6,
-        layoutDetails: {
-          dimensions: { width: 1200, height: 800, aspectRatio: 1.5 },
-          sections: [],
-          styles: { colors: [] }
-        }
-      };
+      console.error('レイアウトパターン分析エラー:', error);
+      throw new Error(`レイアウトパターン分析中にエラーが発生しました: ${error.message}`);
+    }
+  }
+
+  /**
+   * 画像解析結果を圧縮して重要な情報だけを抽出する
+   * @param {object} analysisData - 元の解析結果
+   * @param {object} options - 圧縮オプション
+   * @returns {Promise<object>} 圧縮された解析結果
+   */
+  async compressAnalysisResults(analysisData, options = {}) {
+    try {
+      await this._ensureRunning();
+
+      return await this.sendCommand('compress_analysis', {
+        analysis_data: analysisData,
+        options
+      });
+    } catch (error) {
+      console.error('解析結果圧縮エラー:', error);
+      throw new Error(`解析結果の圧縮中にエラーが発生しました: ${error.message}`);
+    }
+  }
+
+  /**
+   * 元画像とレンダリング画像を比較し類似度を評価する
+   * @param {string} originalImage - Base64エンコードされた元画像データ
+   * @param {string} renderedImage - Base64エンコードされたレンダリング画像データ
+   * @returns {Promise<object>} 比較結果
+   */
+  async compareImages(originalImage, renderedImage) {
+    try {
+      await this._ensureRunning();
+
+      return await this.sendCommand('compare_images', {
+        original_image: originalImage,
+        rendered_image: renderedImage
+      });
+    } catch (error) {
+      console.error('画像比較エラー:', error);
+      throw new Error(`画像比較中にエラーが発生しました: ${error.message}`);
     }
   }
 

@@ -1,9 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const fsPromises = fs.promises;
-const { PythonShell } = require('python-shell');
-const { debounce } = require('lodash');
 const axios = require('axios');
 const { exec } = require('child_process');
 const { promisify } = require('util');
@@ -18,7 +15,6 @@ const CATEGORIES_PATH = path.join(app.getPath('userData'), 'categories.json');
 const TAGS_PATH = path.join(app.getPath('userData'), 'tags.json');
 const SELECTED_CATEGORY_PATH = path.join(app.getPath('userData'), 'selected-category.json');
 const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.json');
-const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
 
 // 新しいファイルパスを追加（app.getName()を使用）
 const appName = app.getName() || 'electron-app';
@@ -27,20 +23,6 @@ const appName = app.getName() || 'electron-app';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
-
-// Pythonブリッジをロード
-let pythonBridge;
-try {
-  pythonBridge = require('./python_bridge');
-  console.log('Pythonブリッジを読み込みました');
-} catch (error) {
-  console.error('Pythonブリッジの読み込みに失敗しました:', error);
-  pythonBridge = {
-    checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }),
-    extractTextFromImage: () => Promise.resolve({ success: false, error: 'Pythonブリッジが初期化されていません' }),
-    extractColorsFromImage: () => Promise.resolve({ success: false, error: 'Pythonブリッジが初期化されていません' })
-  };
-}
 
 // グローバルエラーハンドリング
 process.on('uncaughtException', (error) => {
@@ -59,7 +41,6 @@ let splashWindow;
 // グローバル変数の宣言
 let isElectronAppReloadBlocked = true; // Electronアプリでのリロードをブロックするフラグ
 let isAICodeSaving = false; // AIコード保存中のフラグ
-const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
 
 // 監視するディレクトリ
 const htmlDirectory = path.join(__dirname, 'src');
@@ -325,41 +306,11 @@ app.whenReady().then(async () => {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;"
+          "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com"
         ]
       }
     });
   });
-
-  // Pythonブリッジの初期化
-  try {
-    console.log('Pythonブリッジを初期化しています...');
-
-    // Pythonの実行パスを設定
-    const pythonPath = isDevelopment
-      ? 'python' // 開発環境ではシステムのPythonを使用
-      : path.join(process.resourcesPath, 'python', 'python'); // 本番環境ではバンドルされたPythonを使用
-
-    // PythonShellの設定
-    let options = {
-      mode: 'text',
-      pythonPath: pythonPath,
-      pythonOptions: ['-u'], // 出力をバッファリングしない
-      scriptPath: path.join(__dirname, 'python_scripts'),
-    };
-
-    // Pythonブリッジの動作確認
-    PythonShell.run('test_bridge.py', options, function (err, results) {
-      if (err) {
-        console.error('Pythonブリッジの初期化中にエラーが発生しました:', err);
-      } else {
-        console.log('Pythonブリッジが正常に初期化されました');
-        console.log('Pythonからの応答:', results);
-      }
-    });
-  } catch (error) {
-    console.error('Pythonブリッジの設定中にエラーが発生しました:', error);
-  }
 
   // 重要: カテゴリとタグの初期化を他の処理より先に実行
   try {
@@ -511,71 +462,41 @@ function saveDefaultSettings(settings) {
   }
 }
 
-function watchProjectFiles(projectId, projectPath, patterns = ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json']) {
-  try {
-    console.log(`プロジェクト[${projectId}]のファイル監視を開始します。パス: ${projectPath}`);
-    console.log(`監視パターン: ${patterns.join(', ')}`);
+// プロジェクトファイル監視用のMap
+const projectWatchers = new Map();
 
-    if (projectWatchers.has(projectId)) {
-      console.log(`プロジェクト[${projectId}]の以前の監視を停止して再開します`);
-      unwatchProjectFiles(projectId);
+function watchProjectFiles(projectId, callback) {
+  try {
+    const project = loadProjectsConfig().projects.find(p => p.id === projectId);
+    if (!project) {
+      throw new Error('プロジェクトが見つかりません');
     }
 
-    // chokidar または fs.watch を使用してファイル監視を実装
+    const projectPath = project.path;
     const watcher = fs.watch(projectPath, { recursive: true }, (eventType, filename) => {
-      if (!filename) return;
-
-      // パターンマッチングを簡易的に実装
-      const matchesPattern = patterns.some(pattern => {
-        // 簡易ワイルドカードマッチング
-        const regexPattern = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*\*/g, '.*')
-          .replace(/\*/g, '[^/]*');
-        return new RegExp(regexPattern).test(filename);
-      });
-
-      if (matchesPattern) {
-        console.log(`ファイル変更を検出: ${filename} (${eventType})`);
-        // 必要に応じてレンダラープロセスに通知
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('project-file-changed', {
-            projectId,
-            eventType,
-            filename,
-            timestamp: new Date().toISOString()
-          });
-        }
+      if (filename) {
+        callback({
+          eventType,
+          filename,
+          timestamp: new Date().toISOString()
+        });
       }
     });
 
-    // ウォッチャーを保存
     projectWatchers.set(projectId, watcher);
-    console.log(`プロジェクト[${projectId}]のファイル監視を開始しました`);
     return true;
   } catch (error) {
-    console.error('ファイル監視の設定中にエラーが発生しました:', error);
+    console.error('プロジェクトファイルの監視に失敗:', error);
     return false;
   }
 }
 
-// ファイル監視の停止
+// プロジェクトファイルの監視解除
 function unwatchProjectFiles(projectId) {
-  try {
-    console.log(`プロジェクト[${projectId}]のファイル監視を停止します`);
-    if (projectWatchers.has(projectId)) {
-      // ウォッチャーを閉じる
-      projectWatchers.get(projectId).close();
-      projectWatchers.delete(projectId);
-      console.log(`プロジェクト[${projectId}]のファイル監視を停止しました`);
-      return true;
-    } else {
-      console.log(`プロジェクト[${projectId}]の監視は既に停止しています`);
-      return false;
-    }
-  } catch (error) {
-    console.error('ファイル監視の停止中にエラーが発生しました:', error);
-    return false;
+  const watcher = projectWatchers.get(projectId);
+  if (watcher) {
+    watcher.close();
+    projectWatchers.delete(projectId);
   }
 }
 
@@ -671,6 +592,8 @@ async function saveTags(tags) {
   }
 }
 
+// 選択中のカテゴリを保存するパス
+const SELECTED_CATEGORY_PATH = path.join(app.getPath('userData'), 'selected-category.json');
 
 // 選択中のカテゴリを保存
 async function saveSelectedCategory(category) {
@@ -704,6 +627,8 @@ async function loadSelectedCategory() {
   }
 }
 
+// 選択中のタグを保存するパス
+const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.json');
 
 // 選択中のタグを保存
 async function saveSelectedTags(tags) {
@@ -1850,57 +1775,6 @@ $mediaquerys: (
     return await loadSelectedTags();
   });
 
-  // プロジェクトファイル監視ハンドラー
-  ipcMain.handle('watch-project-files', async (event, { projectId, projectPath, patterns }) => {
-    try {
-      console.log(`プロジェクトファイル監視リクエスト: ${projectId} - ${projectPath}`);
-      // パターンが正しく配列であることを確認
-      const watchPatterns = Array.isArray(patterns) ? patterns : ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json'];
-
-      // watchProjectFiles関数を呼び出してファイル監視を開始
-      const result = watchProjectFiles(projectId, projectPath, watchPatterns);
-      return { success: result };
-    } catch (error) {
-      console.error('プロジェクトファイル監視エラー:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // プロジェクトファイル監視停止ハンドラー
-  ipcMain.handle('unwatch-project-files', async (event, projectId) => {
-    try {
-      console.log(`プロジェクトファイル監視停止リクエスト: ${projectId}`);
-      const result = unwatchProjectFiles(projectId);
-      return { success: result };
-    } catch (error) {
-      console.error('プロジェクトファイル監視停止エラー:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // プロジェクトデータの保存/読み込みハンドラー
-  ipcMain.handle('save-project-data', async (event, { projectId, section, data }) => {
-    try {
-      console.log(`プロジェクトデータ保存リクエスト: ${projectId}/${section}`);
-      const result = await saveProjectData(projectId, section, data);
-      return { success: result };
-    } catch (error) {
-      console.error('プロジェクトデータ保存エラー:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('load-project-data', async (event, { projectId, section }) => {
-    try {
-      console.log(`プロジェクトデータ読み込みリクエスト: ${projectId}/${section}`);
-      const data = await loadProjectData(projectId, section);
-      return data;
-    } catch (error) {
-      console.error('プロジェクトデータ読み込みエラー:', error);
-      return null;
-    }
-  });
-
   // Python画像処理ハンドラー
   ipcMain.handle('extract-text-from-image', async (event, imageData) => {
     try {
@@ -1938,61 +1812,6 @@ $mediaquerys: (
     }
   });
 
-  // Python環境状態確認
-  ipcMain.handle('check-python-bridge', async () => {
-    try {
-      console.log('Pythonブリッジの状態を確認します');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { running: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      // 簡単なコマンドを送信して応答を確認
-      const pingResult = await pythonBridge.sendCommand('ping', {}, 5000);
-      console.log('Pythonブリッジの状態確認結果:', pingResult);
-      return { running: true, result: pingResult };
-    } catch (error) {
-      console.error('Pythonブリッジの状態確認エラー:', error);
-      return { running: false, error: error.message || String(error) };
-    }
-  });
-
-  // Pythonブリッジ起動
-  ipcMain.handle('start-python-bridge', async () => {
-    try {
-      console.log('Pythonブリッジの起動を試みます');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジオブジェクトが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      await pythonBridge.start();
-      console.log('Pythonブリッジが正常に起動しました');
-      return { success: true };
-    } catch (error) {
-      console.error('Pythonブリッジの起動エラー:', error);
-      return { success: false, error: error.message || String(error) };
-    }
-  });
-
-  // Python環境状態確認
-  ipcMain.handle('check-python-environment-status', async () => {
-    try {
-      console.log('Python環境の状態を確認します');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { installed: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      const checkResult = await pythonBridge.checkPythonEnvironment();
-      console.log('Python環境の状態確認結果:', checkResult);
-      return checkResult;
-    } catch (error) {
-      console.error('Python環境の状態確認エラー:', error);
-      return { installed: false, error: error.message || String(error) };
-    }
-  });
-
   ipcMain.handle('install-python-packages', async () => {
     try {
       console.log('Python環境のセットアップを開始します...');
@@ -2010,65 +1829,4 @@ $mediaquerys: (
       return { success: false, error: error.message || String(error) };
     }
   });
-}
-
-// プロジェクトデータの保存
-async function saveProjectData(projectId, section, data) {
-  try {
-    if (!projectId) {
-      console.error('プロジェクトIDが指定されていません');
-      return false;
-    }
-
-    // JSONデータの保存先ディレクトリを確保
-    const projectDir = path.join(PROJECT_DATA_DIR, projectId);
-    await fs.promises.mkdir(projectDir, { recursive: true });
-
-    // セクション別のJSONファイルパス
-    const filePath = path.join(projectDir, `${section}.json`);
-
-    // データと最終更新日時を保存
-    const jsonData = {
-      data,
-      lastModified: new Date().toISOString()
-    };
-
-    // JSONファイルに保存
-    await fs.promises.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
-    console.log(`プロジェクトデータを保存しました: ${projectId}/${section}`);
-    return true;
-  } catch (error) {
-    console.error(`プロジェクトデータの保存エラー (${projectId}/${section}):`, error);
-    return false;
-  }
-}
-
-// プロジェクトデータの読み込み
-async function loadProjectData(projectId, section) {
-  try {
-    if (!projectId) {
-      console.error('プロジェクトIDが指定されていません');
-      return null;
-    }
-
-    // セクション別のJSONファイルパス
-    const filePath = path.join(PROJECT_DATA_DIR, projectId, `${section}.json`);
-
-    // ファイルが存在するか確認
-    if (!fs.existsSync(filePath)) {
-      console.log(`プロジェクトデータが見つかりません: ${projectId}/${section}`);
-      return null;
-    }
-
-    // JSONファイルから読み込み
-    const fileData = await fs.promises.readFile(filePath, 'utf8');
-    const jsonData = JSON.parse(fileData);
-    console.log(`プロジェクトデータを読み込みました: ${projectId}/${section}`);
-
-    // データ部分のみを返す
-    return jsonData.data;
-  } catch (error) {
-    console.error(`プロジェクトデータの読み込みエラー (${projectId}/${section}):`, error);
-    return null;
-  }
 }

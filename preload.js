@@ -205,6 +205,18 @@ contextBridge.exposeInMainWorld('api', {
   loadProjectData: (projectId, section) => ipcRenderer.invoke('load-project-data', { projectId, section }),
   saveProjectData: (projectId, section, data) => ipcRenderer.invoke('save-project-data', { projectId, section, data }),
 
+  // ファイル操作関連のAPI
+  getFileContent: (filePath) => ipcRenderer.invoke('get-file-content', filePath),
+  saveHtmlFile: (fileName, content) => ipcRenderer.invoke('save-html-file', { fileName, content }),
+  saveScssFile: (fileName, content) => ipcRenderer.invoke('save-scss-file', { fileName, content }),
+  saveAIGeneratedCode: (htmlFileName, htmlContent, scssFileName, scssContent) =>
+    ipcRenderer.invoke('save-ai-generated-code', {
+      htmlFileName,
+      htmlContent,
+      scssFileName,
+      scssContent
+    }),
+
   // ファイル操作イベント - 直接メソッド呼び出し用
   onFileChanged: (callback) => {
     if (typeof callback !== 'function') {
@@ -252,9 +264,7 @@ contextBridge.exposeInMainWorld('api', {
 
   unwatchProjectFiles: (projectId) => {
     try {
-      return ipcRenderer.invoke('unwatch-project-files', {
-        projectId: String(projectId)
-      });
+      return ipcRenderer.invoke('unwatch-project-files', projectId);
     } catch (error) {
       console.error('unwatchProjectFiles呼び出しエラー:', error);
       return Promise.resolve(false);
@@ -313,6 +323,136 @@ contextBridge.exposeInMainWorld('electron', {
     once: (channel, listener) => {
       ipcRenderer.once(channel, (event, ...args) => listener(...args));
     }
+  }
+});
+
+// コード生成
+contextBridge.exposeInMainWorld('codeGeneration', {
+  // 新しいAIコード生成リクエスト
+  requestAICodeGeneration: async (data) => {
+    return await ipcRenderer.invoke('request-ai-code-generation', data);
+  },
+
+  // 保存済みのAIコードを取得
+  getSavedAICode: async (blockId) => {
+    return await ipcRenderer.invoke('get-saved-ai-code', blockId);
+  },
+
+  // 画像解析結果からコードを生成
+  generateCodeFromAnalysis: async (analysisData, options = {}) => {
+    return await ipcRenderer.invoke('generate-code-from-analysis', {
+      analysisData,
+      options
+    });
+  },
+
+  // AIコードを保存
+  saveAICode: async (data) => {
+    return await ipcRenderer.invoke('save-ai-code', data);
+  }
+});
+
+// 画像解析
+contextBridge.exposeInMainWorld('imageAnalysis', {
+  // 画像の色を抽出
+  extractColors: async (imageData) => {
+    return await ipcRenderer.invoke('extract-colors', imageData);
+  },
+
+  // 画像のテキストを抽出
+  extractText: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('extract-text', imageData, options);
+  },
+
+  // 画像のセクションを分析
+  analyzeSections: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('analyze-sections', imageData, options);
+  },
+
+  // 画像のレイアウトを分析
+  analyzeLayout: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('analyze-layout', imageData, options);
+  },
+
+  // 画像の要素を検出
+  detectElements: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('detect-elements', imageData, options);
+  },
+
+  // 画像の総合分析
+  analyzeAll: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('analyze-all', imageData, options);
+  },
+
+  // 画像解析結果を圧縮
+  compressAnalysisResults: async (analysisData, options = {}) => {
+    return await ipcRenderer.invoke('compress-analysis', { analysisData, options });
+  },
+
+  // 元画像とレンダリング画像を比較
+  compareImages: async (originalImage, renderedImage) => {
+    return await ipcRenderer.invoke('compare-images', { originalImage, renderedImage });
+  },
+
+  // 環境チェック
+  checkEnvironment: async () => {
+    return await ipcRenderer.invoke('check-environment');
+  }
+});
+
+// 画像分析とコード生成のためのAPIをレンダラープロセスに公開
+contextBridge.exposeInMainWorld('electronAPI', {
+  // 画像保存
+  saveImage: (imageData) => {
+    return ipcRenderer.invoke('save-image', imageData);
+  },
+
+  // 画像分析結果からコード生成
+  generateCodeFromAnalysis: (analysisData) => {
+    return ipcRenderer.invoke('generate-code-from-analysis', analysisData);
+  },
+
+  // 生成されたコードと元の画像を比較
+  compareImages: (originalImageData, renderedImageData) => {
+    return ipcRenderer.invoke('compare-images', {
+      originalImage: originalImageData,
+      renderedImage: renderedImageData
+    });
+  },
+
+  // フィードバックを基にコードを再生成
+  regenerateCodeWithFeedback: (data) => {
+    return ipcRenderer.invoke('regenerate-code-with-feedback', data);
+  },
+
+  // 高精度画像分析を実行
+  performAdvancedImageAnalysis: (imageData, options = {}) => {
+    return ipcRenderer.invoke('perform-advanced-analysis', { imageData, options });
+  },
+
+  // 意味的な色抽出を行う
+  extractSemanticColors: (imageData) => {
+    return ipcRenderer.invoke('extract-semantic-colors', imageData);
+  },
+
+  // UI要素の階層構造を検出
+  detectUIHierarchy: (imageData) => {
+    return ipcRenderer.invoke('detect-ui-hierarchy', imageData);
+  },
+
+  // レスポンシブデザイン推論
+  inferResponsiveDesign: (imageData) => {
+    return ipcRenderer.invoke('infer-responsive-design', imageData);
+  },
+
+  // 設計意図を抽出
+  extractDesignIntent: (analysisData) => {
+    return ipcRenderer.invoke('extract-design-intent', analysisData);
+  },
+
+  // 自然言語プロンプトを生成
+  generateNaturalLanguagePrompt: (analysisData) => {
+    return ipcRenderer.invoke('generate-nl-prompt', analysisData);
   }
 });
 
