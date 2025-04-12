@@ -18,6 +18,7 @@ import cv2
 import re
 import math
 from collections import Counter
+import logging
 
 try:
     import pytesseract
@@ -110,6 +111,9 @@ SECTION_TYPES = {
 # EasyOCRのreaderインスタンスをキャッシュ
 _easyocr_reader = None
 
+# ロガー設定
+logger = logging.getLogger('image_analyzer')
+
 def get_easyocr_reader():
     """EasyOCRのreaderインスタンスを取得（キャッシュ対応）"""
     global _easyocr_reader
@@ -121,9 +125,9 @@ def get_easyocr_reader():
             try:
                 # GPU利用失敗時はCPUモードで再試行
                 _easyocr_reader = easyocr.Reader(['ja', 'en'], gpu=False)
-                print("EasyOCR: CPUモードで動作します")
+                logger.info("EasyOCR: CPUモードで動作します")
             except Exception as e:
-                print(f"EasyOCR初期化エラー: {e}")
+                logger.error(f"EasyOCR初期化エラー: {e}")
                 return None
     return _easyocr_reader
 
@@ -251,7 +255,7 @@ def extract_colors(image_data):
 
             return color_info
     except Exception as e:
-        print(f"色抽出エラー: {str(e)}")
+        logger.error(f"色抽出エラー: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -284,18 +288,19 @@ def extract_text(image_data):
         if EASYOCR_AVAILABLE:
             try:
                 result = extract_text_with_easyocr(img)
-                print("EasyOCRでテキスト抽出完了")
+                # ログをprintからloggingに変更
+                logging.info("EasyOCRでテキスト抽出完了")
             except Exception as e:
-                print(f"EasyOCRでのテキスト抽出に失敗: {e}")
+                logging.error(f"EasyOCRでのテキスト抽出に失敗: {e}")
                 result = None
 
         # EasyOCR失敗またはインストールされていない場合はTesseractにフォールバック
         if result is None and TESSERACT_AVAILABLE:
             try:
                 result = extract_text_with_tesseract(img)
-                print("Tesseractでテキスト抽出完了")
+                logging.info("Tesseractでテキスト抽出完了")
             except Exception as e:
-                print(f"Tesseractでのテキスト抽出に失敗: {e}")
+                logging.error(f"Tesseractでのテキスト抽出に失敗: {e}")
                 result = {'text': '', 'textBlocks': []}
         elif result is None:
             # どちらのOCRも利用できない場合
@@ -304,7 +309,7 @@ def extract_text(image_data):
         return result
 
     except Exception as e:
-        print(f"テキスト抽出エラー: {str(e)}")
+        logging.error(f"テキスト抽出エラー: {str(e)}")
         traceback.print_exc()
         return {'text': '', 'textBlocks': []}
 
@@ -399,7 +404,7 @@ def extract_text_with_easyocr(image, min_confidence=0.4):
             'textBlocks': text_blocks
         }
     except Exception as e:
-        print(f"EasyOCRでの処理中にエラーが発生: {e}")
+        logger.error(f"EasyOCRでの処理中にエラーが発生: {e}")
         traceback.print_exc()
         raise
     finally:
@@ -766,7 +771,7 @@ def analyze_sections(image_data):
             'sections': sections
         }
     except Exception as e:
-        print(f"セクション分析エラー: {str(e)}")
+        logger.error(f"セクション分析エラー: {str(e)}")
         traceback.print_exc()
         return {
             'error': str(e),
@@ -899,7 +904,7 @@ def analyze_layout(image_data):
 
         return layout_info
     except Exception as e:
-        print(f"レイアウト分析エラー: {str(e)}")
+        logger.error(f"レイアウト分析エラー: {str(e)}")
         traceback.print_exc()
         return {
             'error': str(e),
@@ -984,7 +989,7 @@ def detect_elements(image_data):
 
         return {'elements': elements}
     except Exception as e:
-        print(f"要素検出エラー: {str(e)}")
+        logger.error(f"要素検出エラー: {str(e)}")
         traceback.print_exc()
         return {'error': str(e), 'elements': []}
 
@@ -1105,7 +1110,7 @@ def extract_colors_from_image(image, **options):
         else:
             return extract_colors(image)
     except Exception as e:
-        print(f"色抽出エラー: {str(e)}")
+        logger.error(f"色抽出エラー: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -1133,7 +1138,7 @@ def extract_text_from_image(image, **options):
         else:
             return extract_text(image)
     except Exception as e:
-        print(f"テキスト抽出エラー: {str(e)}")
+        logger.error(f"テキスト抽出エラー: {str(e)}")
         traceback.print_exc()
         return {
             'text': '',
@@ -1165,7 +1170,7 @@ def analyze_image_sections(image, **options):
         else:
             return analyze_sections(image)
     except Exception as e:
-        print(f"セクション分析エラー: {str(e)}")
+        logger.error(f"セクション分析エラー: {str(e)}")
         traceback.print_exc()
         return {
             'sections': [],
@@ -1196,7 +1201,7 @@ def analyze_layout_pattern(image, **options):
         else:
             return analyze_layout(image)
     except Exception as e:
-        print(f"レイアウト分析エラー: {str(e)}")
+        logger.error(f"レイアウト分析エラー: {str(e)}")
         traceback.print_exc()
         return {
             'layout': 'unknown',
@@ -1228,7 +1233,7 @@ def detect_feature_elements(image, **options):
         else:
             return detect_elements(image)
     except Exception as e:
-        print(f"特徴要素検出エラー: {str(e)}")
+        logger.error(f"特徴要素検出エラー: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -1768,7 +1773,7 @@ def compare_images(original_image, rendered_image, mask=None):
         }
 
     except Exception as e:
-        print(f"画像比較エラー: {str(e)}")
+        logger.error(f"画像比較エラー: {str(e)}")
         traceback.print_exc()
         return {
             'success': False,

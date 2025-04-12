@@ -1904,18 +1904,37 @@ $mediaquerys: (
   // Python画像処理ハンドラー
   ipcMain.handle('extract-text-from-image', async (event, imageData) => {
     try {
-      console.log('画像からテキスト抽出リクエストを受信');
-      // pythonブリッジを通じて画像からテキストを抽出
+      console.log('画像からテキスト抽出リクエストを受信 - データサイズ:',
+        imageData ? (typeof imageData === 'string' ? imageData.length : 'データ型:' + typeof imageData) : 'データなし');
+
+      // pythonブリッジの状態確認
       if (!pythonBridge) {
         console.error('Pythonブリッジが初期化されていません');
         return { success: false, error: 'Pythonブリッジが初期化されていません' };
       }
 
+      console.log('Pythonブリッジにリクエスト送信を開始...');
+
+      // 画像データの形式をログ出力
+      if (imageData && typeof imageData === 'string') {
+        const isProbablyBase64 = imageData.startsWith('data:') || /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$/.test(imageData);
+        console.log('画像データ形式: ' + (isProbablyBase64 ? 'Base64エンコード' : 'その他のテキスト'));
+        console.log('画像データプレビュー:', imageData.substring(0, 50) + '...');
+      }
+
+      // pythonブリッジを通じて画像からテキストを抽出
       const result = await pythonBridge.extractTextFromImage(imageData);
+      console.log('Python処理完了:', result ? '成功' : '失敗');
+
+      if (result) {
+        console.log('処理結果:', JSON.stringify(result).substring(0, 100) + '...');
+      }
+
       console.log('画像からテキスト抽出が完了しました');
       return result;
     } catch (error) {
       console.error('画像からテキスト抽出エラー:', error);
+      console.error('エラースタック:', error.stack);
       return { success: false, error: error.message || String(error) };
     }
   });

@@ -157,16 +157,21 @@ class PythonBridge {
   async sendCommand(command, params = {}, timeout = 30000) {
     // リクエストIDを生成
     const requestId = crypto.randomUUID();
+    console.log(`Pythonブリッジ: コマンド[${command}]送信開始 (ID: ${requestId.substring(0, 8)}...)`);
 
     // プロセスが起動していなければ起動
     if (!this.pythonProcess && !this.isStarting) {
+      console.log(`Pythonブリッジ: プロセスが未起動のため、起動処理を行います (コマンド: ${command})`);
       // リクエストをキューに追加して後で処理
       this.requestQueue.push({ requestId, command, params });
       try {
         await this.start();
+        console.log(`Pythonブリッジ: プロセス起動完了 (コマンド: ${command})`);
       } catch (error) {
+        console.error(`Pythonブリッジ: プロセス起動失敗 (コマンド: ${command})`, error);
         return Promise.reject(error);
       }
+      console.log(`Pythonブリッジ: コマンド[${command}]をキューに追加しました`);
       return new Promise((resolve, reject) => {
         this.requestMap.set(requestId, { resolve, reject });
       });
@@ -174,16 +179,19 @@ class PythonBridge {
 
     // プロセス起動中ならキューに追加して終了を待つ
     if (this.isStarting) {
+      console.log(`Pythonブリッジ: プロセス起動中のため、コマンド[${command}]をキューに追加します`);
       return new Promise((resolve, reject) => {
         this.requestQueue.push({ requestId, command, params });
         this.requestMap.set(requestId, { resolve, reject });
       });
     }
 
+    console.log(`Pythonブリッジ: コマンド[${command}]処理開始 - タイムアウト: ${timeout}ms`);
     return new Promise((resolve, reject) => {
       // タイムアウト処理
       const timeoutId = setTimeout(() => {
         if (this.requestMap.has(requestId)) {
+          console.error(`Pythonブリッジ: コマンド[${command}]がタイムアウトしました (${timeout}ms)`);
           this.requestMap.delete(requestId);
           reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${timeout}ms)`));
         }
@@ -199,9 +207,21 @@ class PythonBridge {
         ...params
       };
 
+      // リクエストデータのサイズをチェック
+      const requestStr = JSON.stringify(requestData);
+      const dataSize = requestStr.length;
+      console.log(`Pythonブリッジ: コマンド[${command}]送信データサイズ: ${Math.round(dataSize / 1024)}KB`);
+
+      // 大きなデータの場合は警告
+      if (dataSize > 5000000) { // 5MB以上
+        console.warn(`Pythonブリッジ: 送信データが非常に大きいです (${Math.round(dataSize / 1024 / 1024)}MB)`);
+      }
+
       try {
-        this.pythonProcess.stdin.write(JSON.stringify(requestData) + '\n');
+        this.pythonProcess.stdin.write(requestStr + '\n');
+        console.log(`Pythonブリッジ: コマンド[${command}]送信完了 (ID: ${requestId.substring(0, 8)}...)`);
       } catch (error) {
+        console.error(`Pythonブリッジ: コマンド[${command}]送信エラー:`, error);
         clearTimeout(timeoutId);
         this.requestMap.delete(requestId);
         reject(new Error(`コマンド送信エラー: ${error.message}`));
@@ -221,7 +241,17 @@ class PythonBridge {
    */
   _handleStdout(data) {
     // データバッファーに追加
-    this.responseBuffer += data.toString();
+    const dataStr = data.toString();
+    this.responseBuffer += dataStr;
+
+    console.log(`Pythonブリッジ: stdout データ受信 (${dataStr.length}バイト)`);
+
+    // データが大きい場合はプレビューのみ表示
+    if (dataStr.length > 200) {
+      console.log(`Pythonブリッジ: stdout プレビュー: ${dataStr.substring(0, 100)}...`);
+    } else {
+      console.log(`Pythonブリッジ: stdout 内容: ${dataStr}`);
+    }
 
     // 完全なJSONレスポンスを探す
     let endIndex;
@@ -232,10 +262,13 @@ class PythonBridge {
       if (!responseStr.trim()) continue;
 
       try {
+        console.log(`Pythonブリッジ: JSONレスポンス解析中 (${responseStr.length}バイト)`);
         const response = JSON.parse(responseStr);
         this._processResponse(response);
       } catch (err) {
-        console.error('JSONパースエラー:', err, 'データ:', responseStr);
+        console.error('Pythonブリッジ: JSONパースエラー:', err);
+        console.error('Pythonブリッジ: 解析できないデータ:', responseStr.length > 100 ?
+          responseStr.substring(0, 100) + '...' : responseStr);
       }
     }
   }
@@ -247,12 +280,22 @@ class PythonBridge {
    */
   _handleStderr(data) {
     const stderr = data.toString();
-    console.error('Python stderr:', stderr);
+    console.error('Pythonブリッジ: stderr 受信:', stderr);
+
+    // エラーメッセージの分析
+    if (stderr.includes('Traceback')) {
+      console.error('Pythonブリッジ: Pythonスタックトレースを検出しました。');
+    }
+
+    if (stderr.includes('MemoryError')) {
+      console.error('Pythonブリッジ: Pythonのメモリエラーを検出しました。リソース不足の可能性があります。');
+    }
 
     // クリティカルなエラーが発生した場合、プロセスを再起動
     if (stderr.includes('Fatal error') || stderr.includes('Segmentation fault')) {
+      console.error('Pythonブリッジ: 深刻なエラーを検出したため、プロセスを再起動します');
       this.restart().catch(err => {
-        console.error('エラー後の再起動に失敗:', err);
+        console.error('Pythonブリッジ: エラー後の再起動に失敗:', err);
       });
     }
   }
@@ -264,9 +307,10 @@ class PythonBridge {
    */
   _processResponse(response) {
     const { id, result, error } = response;
+    console.log(`Pythonブリッジ: レスポンス受信 (ID: ${id ? id.substring(0, 8) : 'unknown'}...)`);
 
     if (!this.requestMap.has(id)) {
-      console.warn(`リクエストID '${id}' に対応するハンドラーが見つかりません`);
+      console.warn(`Pythonブリッジ: リクエストID '${id}' に対応するハンドラーが見つかりません`);
       return;
     }
 
@@ -278,12 +322,20 @@ class PythonBridge {
     }
 
     if (error) {
+      console.error(`Pythonブリッジ: エラーレスポンス受信 (ID: ${id.substring(0, 8)}...):`, error);
       reject(new Error(error));
     } else {
+      console.log(`Pythonブリッジ: 成功レスポンス受信 (ID: ${id.substring(0, 8)}...)`);
+      // レスポンスのプレビュー（大きなデータの場合は一部だけ表示）
+      const resultStr = JSON.stringify(result);
+      const previewLength = Math.min(100, resultStr.length);
+      console.log(`Pythonブリッジ: レスポンスデータサイズ: ${Math.round(resultStr.length / 1024)}KB, プレビュー: ${resultStr.substring(0, previewLength)}${resultStr.length > previewLength ? '...' : ''}`);
+
       resolve(result);
     }
 
     this.requestMap.delete(id);
+    console.log(`Pythonブリッジ: リクエスト完了 (ID: ${id.substring(0, 8)}...)`);
   }
 
   /**
@@ -416,12 +468,37 @@ class PythonBridge {
    */
   async extractTextFromImage(imageData, options = {}) {
     try {
-      return await this.sendCommand('extract_text', {
+      console.log('Pythonブリッジ: テキスト抽出開始...');
+      console.log('画像データサイズ:', imageData ? (typeof imageData === 'string' ? imageData.length : 'データ型:' + typeof imageData) : 'データなし');
+
+      // データ形式をチェック
+      if (imageData && typeof imageData === 'string') {
+        const isProbablyBase64 = imageData.startsWith('data:') || /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$/.test(imageData);
+        console.log('Pythonブリッジ: 画像データ形式: ' + (isProbablyBase64 ? 'Base64エンコード' : 'その他のテキスト'));
+
+        // 大きすぎるデータを処理する場合は警告
+        if (imageData.length > 10000000) { // 10MB以上
+          console.warn('Pythonブリッジ: 大きな画像データ（' + Math.round(imageData.length / 1024 / 1024) + 'MB）を処理します。メモリ不足に注意してください。');
+        }
+      }
+
+      // 実行前にプロセスが動いているか確認
+      if (!this.pythonProcess) {
+        console.warn('Pythonブリッジ: プロセスが起動していません。起動を試みます...');
+        await this.start();
+      }
+
+      console.log('Pythonブリッジ: sendCommandを呼び出します...');
+      const result = await this.sendCommand('extract_text', {
         image_data: imageData,
         options
       });
+
+      console.log('Pythonブリッジ: 処理完了', result ? '成功' : '失敗');
+      return result;
     } catch (error) {
-      console.error('テキスト抽出エラー:', error);
+      console.error('Pythonブリッジ: テキスト抽出エラー:', error);
+      console.error('Pythonブリッジ: エラースタック:', error.stack);
       return {
         text: '',
         error: error.message,

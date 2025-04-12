@@ -97,7 +97,9 @@ const extractColorsFromImage = async (imageBase64) => {
     if (result.success) {
       return result.data;
     } else {
-      console.error("Python処理エラー:", result.error);
+      if (!result?.success) {
+        console.error('Python処理エラー:', result?.error ?? 'unknown');
+      }
 
       // エラー時のフォールバックカラー
       return [
@@ -135,16 +137,18 @@ const extractTextFromImage = async (imageBase64) => {
     // Electronのメインプロセス経由でPython処理を実行
     const result = await window.api.extractTextFromImage(imageBase64);
 
-    if (result.success) {
+    if (result && result.success) {
       return result.data;
     } else {
-      console.error("Python OCR処理エラー:", result.error);
+      const errorMessage = result?.error ?? '不明なエラー（successがfalse）';
+      console.error("Python OCR処理エラー:", errorMessage);
       return "OCR処理中にエラーが発生しました。";
     }
   } catch (error) {
-    console.error("Python OCR処理エラー:", error);
+    console.error("Python OCR処理中に例外が発生しました:", error);
     return "OCR処理中に例外が発生しました。";
   }
+
 };
 
 /**

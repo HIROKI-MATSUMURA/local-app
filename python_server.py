@@ -20,25 +20,26 @@ import importlib.util
 import time
 import threading
 import cv2
+import argparse
 
 # ロギング設定
-log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-os.makedirs(log_dir, exist_ok=True)
-
-log_file = os.path.join(log_dir, f'python_server_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stderr)
+        logging.StreamHandler(sys.stderr)  # 標準出力ではなく標準エラー出力にログを出力
     ]
 )
+
+# ロガー作成
 logger = logging.getLogger('python_server')
 
 # グローバル変数
 image_analyzer = None  # 画像解析モジュールのインスタンス
 
+# 実行ディレクトリをスクリプトのある場所に変更
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
 
 def initialize_image_analyzer():
     """画像解析モジュールを初期化する"""
@@ -69,7 +70,6 @@ def initialize_image_analyzer():
         logger.error(traceback.format_exc())
         return False
 
-
 def read_request() -> Optional[Dict[str, Any]]:
     """標準入力からJSONリクエストを読み取る"""
     try:
@@ -86,7 +86,6 @@ def read_request() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"リクエスト読み取り中にエラーが発生しました: {str(e)}")
         return None
-
 
 def send_response(request_id: str, result: Any = None, error: str = None):
     """JSONレスポンスを標準出力に送信する"""
@@ -110,7 +109,6 @@ def send_response(request_id: str, result: Any = None, error: str = None):
             "error": f"レスポンス送信エラー: {str(e)}"
         }
         print(json.dumps(fallback_response), flush=True)
-
 
 def handle_check_environment(request_id: str, params: Dict[str, Any]):
     """Pythonサーバー環境が正常に動作しているか確認する"""
@@ -141,7 +139,6 @@ def handle_check_environment(request_id: str, params: Dict[str, Any]):
         logger.error(f"環境チェック中にエラーが発生しました: {str(e)}")
         send_response(request_id, None, f"環境チェックエラー: {str(e)}")
 
-
 def handle_setup_environment(request_id: str, params: Dict[str, Any]):
     """Pythonサーバー環境をセットアップする"""
     try:
@@ -161,7 +158,6 @@ def handle_setup_environment(request_id: str, params: Dict[str, Any]):
     except Exception as e:
         logger.error(f"環境セットアップ中にエラーが発生しました: {str(e)}")
         send_response(request_id, None, f"環境セットアップエラー: {str(e)}")
-
 
 def base64_to_image_data(image_data_base64: str) -> Tuple[Any, str]:
     """Base64エンコードされた画像データをデコードする"""
@@ -191,7 +187,6 @@ def base64_to_image_data(image_data_base64: str) -> Tuple[Any, str]:
         logger.error(f"画像データのデコード中にエラーが発生しました: {str(e)}")
         raise
 
-
 def handle_extract_colors(request_id: str, params: Dict[str, Any]):
     """画像から色を抽出する"""
     try:
@@ -217,7 +212,6 @@ def handle_extract_colors(request_id: str, params: Dict[str, Any]):
         logger.error(f"色抽出中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"色抽出エラー: {str(e)}")
-
 
 def handle_extract_text(request_id: str, params: Dict[str, Any]):
     """画像からテキストを抽出する"""
@@ -245,7 +239,6 @@ def handle_extract_text(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"テキスト抽出エラー: {str(e)}")
 
-
 def handle_analyze_sections(request_id: str, params: Dict[str, Any]):
     """画像のセクションを分析する"""
     try:
@@ -271,7 +264,6 @@ def handle_analyze_sections(request_id: str, params: Dict[str, Any]):
         logger.error(f"セクション分析中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"セクション分析エラー: {str(e)}")
-
 
 def handle_analyze_layout(request_id: str, params: Dict[str, Any]):
     """画像のレイアウトパターンを分析する"""
@@ -299,7 +291,6 @@ def handle_analyze_layout(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"レイアウト分析エラー: {str(e)}")
 
-
 def handle_detect_main_sections(request_id: str, params: Dict[str, Any]):
     """画像のメインセクションを検出する"""
     try:
@@ -325,7 +316,6 @@ def handle_detect_main_sections(request_id: str, params: Dict[str, Any]):
         logger.error(f"メインセクション検出中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"メインセクション検出エラー: {str(e)}")
-
 
 def handle_detect_card_elements(request_id: str, params: Dict[str, Any]):
     """画像からカード要素を検出する"""
@@ -353,7 +343,6 @@ def handle_detect_card_elements(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"カード要素検出エラー: {str(e)}")
 
-
 def handle_detect_elements(request_id: str, params: Dict[str, Any]):
     """画像から特徴的な要素を検出する"""
     try:
@@ -379,7 +368,6 @@ def handle_detect_elements(request_id: str, params: Dict[str, Any]):
         logger.error(f"特徴的要素検出中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"特徴的要素検出エラー: {str(e)}")
-
 
 def handle_analyze_all(request_id: str, params: Dict[str, Any]):
     """画像の総合分析を行う"""
@@ -421,7 +409,6 @@ def handle_analyze_all(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"総合分析エラー: {str(e)}")
 
-
 def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
     """画像解析結果を圧縮して重要な情報だけを抽出する"""
     try:
@@ -448,7 +435,6 @@ def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
         logger.error(f"解析結果圧縮中にエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"解析結果圧縮エラー: {str(e)}")
-
 
 def handle_compare_images(request_id: str, params: Dict[str, Any]):
     """元画像とレンダリング画像を比較して類似度を評価する"""
@@ -489,7 +475,6 @@ def handle_compare_images(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"画像比較エラー: {str(e)}")
 
-
 def handle_exit(request_id: str, params: Dict[str, Any]):
     """Pythonサーバーを終了する"""
     try:
@@ -512,7 +497,6 @@ def handle_exit(request_id: str, params: Dict[str, Any]):
         time.sleep(1)
         sys.exit(1)
 
-
 # コマンドハンドラーのマッピング
 COMMAND_HANDLERS = {
     "check_environment": handle_check_environment,
@@ -530,7 +514,6 @@ COMMAND_HANDLERS = {
     "exit": handle_exit
 }
 
-
 def main():
     """メインの実行ループ"""
     logger.info("Pythonサーバーを起動しています...")
@@ -543,6 +526,15 @@ def main():
         sys.exit(1)
 
     logger.info("リクエスト待機中...")
+
+    # コマンドライン引数のパース
+    parser = argparse.ArgumentParser(description='Python処理サーバー')
+    parser.add_argument('--debug', action='store_true', help='デバッグモードを有効化')
+    args = parser.parse_args()
+
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("デバッグモードが有効です")
 
     while True:
         try:
@@ -585,7 +577,6 @@ def main():
                 pass
 
     logger.info("Pythonサーバーが終了しました。")
-
 
 if __name__ == "__main__":
     main()
