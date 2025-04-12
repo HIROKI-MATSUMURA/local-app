@@ -1361,52 +1361,49 @@ def detect_feature_elements(image, **options):
 # 新しい関数を追加
 def compress_analysis_results(analysis_data, options=None):
     """
-    画像解析結果を圧縮し、重要な情報だけを抽出してAI向けに最適化
+    画像解析結果を3層構造に圧縮し、必要な情報のみを保持します。
 
     Args:
-        analysis_data: 元の解析結果
-        options: 圧縮オプション
+        analysis_data: 元の解析結果辞書
+        options: 圧縮オプション（省略可能）
 
     Returns:
-        dict: 圧縮・最適化された解析結果
+        dict: 圧縮された解析結果
     """
+    logger.info("🧠 圧縮処理を開始（compress_analysis_results）")
+
     options = options or {}
-    min_text_confidence = options.get('min_text_confidence', 0.3)
-    max_colors = options.get('max_colors', 3)
-    format_type = options.get('format_type', 'structured')  # structured/semantic/template
 
+    # デフォルト値の設定
+    min_text_confidence = options.get('min_text_confidence', 0.6)
+    max_colors = options.get('max_colors', 5)
+    include_sections = options.get('include_sections', True)
+    include_layout = options.get('include_layout', True)
+    include_colors = options.get('include_colors', True)
+    include_text = options.get('include_text', True)
+    include_elements = options.get('include_elements', True)
+
+    # 初期化
     compressed = {}
-
-    # 色情報の圧縮と役割推定
-    colors_data = []
-    if 'colors' in analysis_data:
-        colors = merge_similar_colors(analysis_data['colors'], max_colors)
-        # 色の役割を推定
-        colors = estimate_color_roles(colors, analysis_data)
-
-        # 色情報を簡略化
-        for color in colors[:max_colors]:  # 上位3色のみ
-            role = color.get('role', '')
-            colors_data.append({
-                'hex': color.get('hex', ''),
-                'role': role,
-                'ratio': round(color.get('ratio', 0), 2) if color.get('ratio', 0) > 0.05 else None
-            })
-
-        compressed['colors'] = colors_data
-
-    # テキスト情報を階層構造に整理
-    filtered_blocks = []
     text_hierarchy = []
-    if 'text' in analysis_data:
+    filtered_blocks = []
+
+    # テキスト情報の処理（第1層圧縮）
+    if 'text' in analysis_data and include_text:
         text_data = analysis_data['text']
+
+        logger.info(f"▶️ 元のテキストブロック数: {len(text_data.get('textBlocks', []))}")
+        original_text_length = len(text_data.get('text', ''))
+        logger.info(f"▶️ 元のテキスト長: {original_text_length}文字")
 
         if 'textBlocks' in text_data:
             # 信頼度の高いテキストブロックのみ保持
             blocks = text_data['textBlocks']
+
             # 信頼度でソート
             blocks.sort(key=lambda x: x.get('confidence', 0), reverse=True)
 
+            excluded_blocks = 0
             for block in blocks:
                 confidence = block.get('confidence', 0)
                 if confidence >= min_text_confidence:
@@ -1433,121 +1430,118 @@ def compress_analysis_results(analysis_data, options=None):
                         text_item['confidence'] = round(confidence, 2)
 
                     text_hierarchy.append(text_item)
+                else:
+                    excluded_blocks += 1
+
+            logger.info(f"✅ 圧縮後のテキストブロック数: {len(filtered_blocks)} (除外: {excluded_blocks})")
 
         compressed['text'] = {
             'content': text_data.get('text', ''),
             'hierarchy': text_hierarchy
         }
 
-    # レイアウト情報の圧縮とグリッドパターン推定
-    if 'layout' in analysis_data:
+    # レイアウト情報の処理（第2層圧縮）
+    if 'layout' in analysis_data and include_layout:
         layout_data = analysis_data['layout']
         layout_type = layout_data.get('layoutType', 'unknown')
 
-        # レイアウト詳細情報
-        if 'layoutDetails' in layout_data:
-            layout_details = layout_data['layoutDetails']
-            dimensions = layout_details.get('dimensions', {})
-            width = dimensions.get('width', 0)
-            height = dimensions.get('height', 0)
+        logger.info(f"🖼️ 検出されたレイアウトタイプ: {layout_type}")
 
-            # アスペクト比を計算
-            aspect_ratio = "unknown"
-            if width and height:
-                ratio = width / height
-                if abs(ratio - 16/9) < 0.2:
-                    aspect_ratio = "16:9"
-                elif abs(ratio - 4/3) < 0.2:
-                    aspect_ratio = "4:3"
-                elif abs(ratio - 1) < 0.2:
-                    aspect_ratio = "1:1"
-                else:
-                    aspect_ratio = f"{round(ratio, 1)}:1"
+        layout_details = layout_data.get('layoutDetails', {})
+        dimensions = layout_details.get('dimensions', {})
+        width = dimensions.get('width', 0)
+        height = dimensions.get('height', 0)
 
-            # グリッドパターンを検出
-            grid_pattern = detect_grid_pattern(layout_details)
+        # アスペクト比を計算
+        aspect_ratio = "unknown"
+        if width and height:
+            ratio = width / height
+            if abs(ratio - 16/9) < 0.2:
+                aspect_ratio = "16:9"
+            elif abs(ratio - 4/3) < 0.2:
+                aspect_ratio = "4:3"
+            elif abs(ratio - 1) < 0.2:
+                aspect_ratio = "1:1"
+            else:
+                aspect_ratio = f"{round(ratio, 1)}:1"
 
-            compressed['layout'] = {
-                'type': layout_type,
-                'aspectRatio': aspect_ratio,
-                'width': width,
-                'height': height,
-                'gridPattern': grid_pattern.get('type', 'unknown')
-            }
+        # グリッドパターンを検出
+        grid_pattern = detect_grid_pattern(layout_details)
 
-    # レイアウト構造の分析（テキストブロックと画像セクションを使用）
-    try:
-        # 画像セクションを特定
-        image_sections = []
-        if 'sections' in analysis_data:
-            sections_data = analysis_data['sections']
-            section_list = sections_data.get('sections', [])
+        logger.info(f"📏 画像サイズ: {width}x{height}px (アスペクト比: {aspect_ratio})")
+        logger.info(f"📐 グリッドパターン: {grid_pattern.get('type', 'unknown')}")
 
-            for section in section_list:
-                section_type = section.get('section_type', '')
-                if section_type == 'image' or 'image' in section_type.lower():
-                    image_sections.append(section)
+        compressed['layout'] = {
+            'type': layout_type,
+            'aspectRatio': aspect_ratio,
+            'width': width,
+            'height': height,
+            'gridPattern': grid_pattern.get('type', 'unknown')
+        }
 
-        # レイアウト構造を分析
-        layout_structure = analyze_layout_structure(filtered_blocks, image_sections)
+    # セクション情報の処理
+    if 'sections' in analysis_data and include_sections:
+        sections_data = analysis_data['sections']
+        section_list = sections_data.get('sections', [])
 
-        # レイアウトのテンプレート名を決定
-        template_name = "unknown"
-        if layout_structure.get('layoutType') == 'single-column':
-            template_name = "single-column"
-        elif layout_structure.get('layoutType') == 'two-column':
-            img_pos = layout_structure.get('imagePosition')
-            if img_pos == 'left':
-                template_name = "two-column-image-left"
-            elif img_pos == 'right':
-                template_name = "two-column-image-right"
-            elif img_pos == 'top':
-                template_name = "image-top-content-bottom"
-        elif layout_structure.get('layoutType') == 'card-grid':
-            template_name = "card-grid"
+        logger.info(f"🧩 元のセクション数: {len(section_list)}")
 
-        # 階層の明確さを評価
-        hierarchy_clarity = "clear"
-        if len(text_hierarchy) <= 1:
-            hierarchy_clarity = "minimal"
-        elif not any(item.get('level', 0) == 1 for item in text_hierarchy):
-            hierarchy_clarity = "unclear"
+        # セクションの種類を分類
+        classified_sections = []
+        section_types = {}
 
-        # 結果をマージ
-        if 'layout' not in compressed:
-            compressed['layout'] = {}
+        for section in section_list:
+            section_type = classify_section_type(section, section_list, filtered_blocks)
+            section['section_type'] = section_type
+            classified_sections.append(section)
 
-        compressed['layout'].update({
-            'template': template_name,
-            'imagePosition': layout_structure.get('imagePosition'),
-            'textPosition': layout_structure.get('textPosition'),
-            'sectionCount': layout_structure.get('sectionCount', 1),
-            'hierarchy': hierarchy_clarity
-        })
+            # セクションタイプをカウント
+            if section_type not in section_types:
+                section_types[section_type] = 0
+            section_types[section_type] += 1
 
-    except Exception as e:
-        logger.error(f"レイアウト構造分析エラー: {str(e)}")
-        traceback.print_exc()
-        if 'layout' not in compressed:
-            compressed['layout'] = {}
+        logger.info(f"🧩 セクションタイプ内訳: {section_types}")
+        compressed['sections'] = classified_sections
 
-        compressed['layout'].update({
-            'template': 'unknown',
-            'error': str(e)
-        })
+    # 色情報の処理（第3層圧縮）
+    if 'colors' in analysis_data and include_colors:
+        colors = []
+        if isinstance(analysis_data['colors'], list):
+            colors = analysis_data['colors']
+
+        logger.info(f"🎨 元の色数: {len(colors)}")
+
+        # 類似色の統合
+        merged_colors = merge_similar_colors(colors, max_colors)
+
+        # 色の役割を推定
+        colors_with_roles = estimate_color_roles(merged_colors, analysis_data)
+
+        # 色情報を簡略化
+        final_colors = []
+        for color in colors_with_roles[:max_colors]:
+            role = color.get('role', '')
+            final_colors.append({
+                'hex': color.get('hex', ''),
+                'role': role,
+                'ratio': round(color.get('ratio', 0), 2) if color.get('ratio', 0) > 0.05 else None
+            })
+
+        compressed['colors'] = final_colors
+        logger.info(f"🎨 圧縮後の色数: {len(final_colors)}")
 
     # タイムスタンプの保持
     if 'timestamp' in analysis_data:
         compressed['timestamp'] = analysis_data['timestamp']
 
-    # フォーマットタイプに応じた出力形式の変換
-    if format_type == 'semantic':
-        return convert_to_semantic_format(compressed)
-    elif format_type == 'template':
-        return convert_to_template_format(compressed)
-    else:
-        return compressed  # 構造化JSONをそのまま返す
+    # 最終的な圧縮結果のサイズを計算
+    import json
+    compressed_json = json.dumps(compressed)
+    compressed_size = len(compressed_json)
+    logger.info(f"📦 圧縮後のデータサイズ: {compressed_size}バイト")
+    logger.info("✅ 圧縮処理完了（compress_analysis_results）")
 
+    return compressed
 
 def convert_to_semantic_format(compressed_data):
     """
@@ -1722,70 +1716,108 @@ def merge_similar_colors(colors, max_colors=5):
     return merged_colors
 
 
-def estimate_color_roles(colors, analysis_data):
-    """色の役割を推定する"""
-    if not colors:
+def estimate_color_roles(colors, analysis_data=None):
+    """
+    色に対して想定される役割（背景、前景、アクセント等）を推定します。
+
+    Args:
+        colors: 色情報のリスト
+        analysis_data: 全体の解析データ（オプション）
+
+    Returns:
+        list: 役割が追加された色のリスト
+    """
+    logger.info("🎭 色の役割推定処理を開始（estimate_color_roles）")
+
+    # 色が空の場合は空のリストを返す
+    if not colors or len(colors) == 0:
+        logger.info("⚠️ 色情報がありません")
         return []
 
-    # 色に役割を付与
-    result_colors = colors.copy()
+    # 色情報を比率でソート
+    sorted_colors = sorted(colors, key=lambda x: x.get('ratio', 0), reverse=True)
 
-    # 要素と位置から色の役割を推定
-    elements = analysis_data.get('elements', {}).get('elements', [])
-    layout = analysis_data.get('layout', {})
+    # 役割が追加された色リスト
+    colors_with_roles = []
 
-    # 面積比率が最も大きい色は背景色の可能性が高い
-    if result_colors:
-        result_colors[0]['role'] = 'background'
+    # 使用済みの役割を追跡
+    used_roles = set()
 
-    # 要素タイプ別に色の役割を推定
-    for element in elements:
-        element_type = element.get('type', '')
-        element_color = element.get('color', {}).get('hex', '')
+    # 各色に役割を割り当て
+    for idx, color in enumerate(sorted_colors):
+        hex_color = color.get('hex', '')
+        ratio = color.get('ratio', 0)
 
-        if not element_color:
-            continue
+        # RGB値の取得（存在する場合）
+        rgb_values = None
+        if 'rgb' in color:
+            rgb_str = color['rgb']
+            # rgb(r,g,b)形式から数値を抽出
+            import re
+            rgb_match = re.match(r'rgb\((\d+),(\d+),(\d+)\)', rgb_str)
+            if rgb_match:
+                r, g, b = map(int, rgb_match.groups())
+                rgb_values = (r, g, b)
 
-        # 色のマッチング
-        for color in result_colors:
-            if color.get('hex', '').lower() == element_color.lower():
-                # 要素タイプに基づいて役割を割り当て
-                if element_type == 'button':
-                    color['role'] = 'accent'
-                elif element_type in ['text_input', 'header']:
-                    color['role'] = 'primary'
-                elif element_type == 'text' and 'role' not in color:
-                    color['role'] = 'text'
+        # 明度の計算（RGB値がある場合）
+        brightness = 0
+        if rgb_values:
+            r, g, b = rgb_values
+            brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
 
-    # まだ役割が割り当てられていない場合、比率に基づいて割り当て
-    roles_assigned = set(color.get('role', '') for color in result_colors)
+        # 役割の初期化
+        role = "unknown"
 
-    if 'accent' not in roles_assigned and len(result_colors) >= 3:
-        # 通常3番目に多い色がアクセント色に
-        for color in result_colors[2:4]:
-            if 'role' not in color:
-                color['role'] = 'accent'
-                break
+        # 最も多い色は通常背景色
+        if idx == 0 and ratio > 0.3:
+            role = "background"
+        # 2番目に多い色で明度が低い場合はテキスト色
+        elif idx == 1 and brightness < 0.5 and ratio > 0.05:
+            role = "text"
+        # 2番目に多い色で明度が高い場合は前景色
+        elif idx == 1 and brightness >= 0.5 and ratio > 0.05:
+            role = "foreground"
+        # 使用率が低く、彩度が高い色はアクセント色
+        elif ratio < 0.1 and idx > 1 and is_saturated(rgb_values) and "accent" not in used_roles:
+            role = "accent"
+        # 3番目以降の使用率が中程度の色は補助色
+        elif idx >= 2 and ratio > 0.05 and ratio < 0.3:
+            role = "secondary"
+        # 使用率が非常に低い色は装飾色
+        elif ratio < 0.05:
+            role = "decorative"
 
-    if 'text' not in roles_assigned and len(result_colors) >= 2:
-        # テキスト色の推定（多くの場合2番目か3番目に多い色）
-        for color in result_colors[1:3]:
-            if 'role' not in color:
-                color['role'] = 'text'
-                break
+        # 文脈に基づく役割の調整
+        # 例：画像が写真の場合は異なる解釈をする
+        if analysis_data and 'imageType' in analysis_data:
+            image_type = analysis_data.get('imageType', '')
+            if image_type == 'photo':
+                # 写真の場合の役割調整
+                if idx == 0:
+                    role = "dominant"
+                elif idx == 1:
+                    role = "secondary"
+                elif is_saturated(rgb_values) and ratio > 0.05:
+                    role = "accent"
+            elif image_type == 'screenshot':
+                # スクリーンショットの場合の役割調整
+                if idx == 0 and brightness > 0.8:
+                    role = "background"
+                elif idx == 1 and brightness < 0.2:
+                    role = "text"
 
-    # 残りの役割を付与
-    for i, color in enumerate(result_colors):
-        if 'role' not in color:
-            if i == 1:
-                color['role'] = 'primary'
-            elif i == 2:
-                color['role'] = 'secondary'
-            else:
-                color['role'] = 'accent'
+        # 使用済み役割に追加
+        used_roles.add(role)
 
-    return result_colors
+        # 役割を色情報に追加
+        color_with_role = color.copy()
+        color_with_role['role'] = role
+        colors_with_roles.append(color_with_role)
 
+        logger.info(f"🎨 色 {idx+1}: HEX={hex_color}, 比率={ratio:.2f}({ratio*100:.1f}%), 役割={role}")
+
+    logger.info(f"✅ 色の役割推定処理が完了しました（全{len(colors_with_roles)}色）")
+    return colors_with_roles
 
 def estimate_text_role(text_block, all_blocks):
     """テキストブロックの役割（見出し、本文など）を推定する"""
@@ -2302,3 +2334,46 @@ def analyze_layout_structure(text_blocks, image_sections=None):
     logger.info(f"レイアウト構造解析結果: {result}")
     logger.info("========== レイアウト構造解析終了 ==========")
     return result
+
+def format_analysis_for_ai(analysis_data, format_type="markdown"):
+    """
+    AI向けに解析データをフォーマットします。
+
+    Args:
+        analysis_data: 画像解析データ
+        format_type: 出力形式 (markdown, json, text)
+
+    Returns:
+        string: フォーマットされた解析データ
+    """
+    logger.info(f"📊 AI向けデータフォーマット処理開始（format_analysis_for_ai）- 形式: {format_type}")
+
+    if not analysis_data:
+        logger.warning("⚠️ 解析データが空です")
+        return ""
+
+    # 解析データの基本情報をログに出力
+    input_data_size = len(str(analysis_data))
+    has_text = 'text' in analysis_data and len(analysis_data['text'].get('blocks', [])) > 0
+    has_colors = 'colors' in analysis_data and len(analysis_data['colors'].get('colors', [])) > 0
+    has_elements = 'elements' in analysis_data and len(analysis_data['elements'].get('elements', [])) > 0
+    has_layout = 'layout' in analysis_data and bool(analysis_data['layout'])
+
+    logger.info(f"📥 入力データ情報: サイズ={input_data_size}文字, テキスト={has_text}, 色情報={has_colors}, 要素={has_elements}, レイアウト={has_layout}")
+
+    output = ""
+    # フォーマットタイプに基づいて出力を生成
+    if format_type == "markdown" or format_type == "text":
+        # 一時的に全てJSONフォーマットとして出力
+        import json
+        output = json.dumps(analysis_data, ensure_ascii=False, indent=2)
+        logger.info(f"⚠️ {format_type}形式は未実装のため、JSONフォーマットで出力します")
+    else:  # json
+        import json
+        output = json.dumps(analysis_data, ensure_ascii=False, indent=2)
+
+    output_size = len(output)
+    logger.info(f"📤 AI向けフォーマット完了: 出力サイズ={output_size}文字 ({output_size/1024:.1f}KB)")
+    logger.info(f"✅ AI向けデータフォーマット処理完了")
+
+    return output

@@ -417,6 +417,11 @@ def handle_analyze_all(request_id: str, params: Dict[str, Any]):
             # 圧縮処理を実行
             compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
 
+            # デバッグ: 圧縮データの全容をログに出力
+            logger.info("===== 圧縮・構造化データの全容 (analyze_all) =====")
+            logger.info(json.dumps(compressed_data, ensure_ascii=False, default=str))
+            logger.info("===== 圧縮・構造化データの出力終了 =====")
+
             # 圧縮形式オプションに基づいてフォーマット変換
             format_type = options.get('format_type', 'structured')
             if format_type == 'semantic':
@@ -471,6 +476,11 @@ def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
 
         # 圧縮処理を実行
         compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
+
+        # デバッグ: 圧縮データの全容をログに出力
+        logger.info("===== 圧縮・構造化データの全容 (compress_analysis) =====")
+        logger.info(json.dumps(compressed_data, ensure_ascii=False, default=str))
+        logger.info("===== 圧縮・構造化データの出力終了 =====")
 
         # タイムスタンプを追加
         if 'timestamp' not in compressed_data:

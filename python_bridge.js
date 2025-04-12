@@ -652,10 +652,17 @@ class PythonBridge {
    */
   async analyzeImage(imageData, options = {}) {
     try {
-      return await this.sendCommand('analyze_all', {
+      const result = await this.sendCommand('analyze_all', {
         image_data: imageData,
         options
       });
+
+      // デバッグ: 完全なレスポンスデータをコンソールに出力
+      console.log('===== 画像解析結果の完全なレスポンスデータ =====');
+      console.log(JSON.stringify(result, null, 2));
+      console.log('===== 画像解析結果の出力終了 =====');
+
+      return result;
     } catch (error) {
       console.error('画像分析エラー:', error);
       return {

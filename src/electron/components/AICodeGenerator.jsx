@@ -3200,6 +3200,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         console.log('Electron APIを使用して画像分析を実行します');
         const result = await window.api.analyzeImage({ image_data: imageToAnalyze });
 
+        // デバッグ: 完全な解析結果をコンソールに出力
+        console.log('===== フロントエンド側: 画像解析結果の完全なデータ =====');
+        console.log(JSON.stringify(result, null, 2));
+        console.log('===== フロントエンド側: 画像解析結果の出力終了 =====');
+
         if (result.success) {
           console.log('画像分析結果:', result);
           setImageAnalysisResult({
