@@ -158,9 +158,20 @@ const analyzeImage = async (imageBase64, imageType) => {
         .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] })) :
       Promise.resolve({ elements: [] });
 
+    // 圧縮解析結果を取得（新機能）
+    const compressedAnalysisPromise = window.api.analyzeImage ?
+      window.api.analyzeImage({
+        image: imageBase64,
+        type: 'compress',
+        options: { format_type: 'structured' } // structured, semantic, template
+      })
+        .then(result => result.success ? result.data : null)
+        .catch(error => handleAnalysisError(`${imageType}画像の圧縮解析`, error, null)) :
+      Promise.resolve(null);
+
     // すべてのPromiseを同時に解決
-    const [colors, text, sections, elements] = await Promise.all([
-      colorPromise, textPromise, sectionsPromise, elementsPromise
+    const [colors, text, sections, elements, compressedAnalysis] = await Promise.all([
+      colorPromise, textPromise, sectionsPromise, elementsPromise, compressedAnalysisPromise
     ]);
 
     // 結果のログと形式確認
@@ -169,17 +180,19 @@ const analyzeImage = async (imageBase64, imageType) => {
     console.log(`${imageType}画像のセクション分析が完了しました:`, sections?.length || 0, "セクション");
     console.log(`${imageType}画像の要素検出が完了しました:`,
       elements && elements.elements ? elements.elements.length : 0, "要素");
+    console.log(`${imageType}画像の圧縮解析が完了しました:`, compressedAnalysis ? "成功" : "失敗");
 
     // 結果の形式を正規化して返す
     return {
       colors: Array.isArray(colors) ? colors : [],
       text: typeof text === 'string' ? text : '',
       sections: Array.isArray(sections) ? sections : [],
-      elements: elements || { elements: [] }
+      elements: elements || { elements: [] },
+      compressedAnalysis: compressedAnalysis || null
     };
   } catch (error) {
     console.error(`${imageType}画像の解析でエラーが発生しました:`, error);
-    return { colors: [], text: '', sections: [], elements: { elements: [] } };
+    return { colors: [], text: '', sections: [], elements: { elements: [] }, compressedAnalysis: null };
   }
 };
 
@@ -200,9 +213,109 @@ const buildAnalysisSection = (pcAnalysis, spAnalysis) => {
 ## Image Analysis Results
 `;
 
-  // テキスト情報
-  if (pcAnalysis.text || spAnalysis.text) {
+  // 圧縮解析データが利用可能な場合は、それを優先的に使用する
+  if (pcAnalysis.compressedAnalysis || spAnalysis.compressedAnalysis) {
     section += `
+### Structured Analysis:
+`;
+
+    // PC画像の圧縮解析データ
+    if (pcAnalysis.compressedAnalysis) {
+      const pcData = pcAnalysis.compressedAnalysis;
+
+      // レイアウト情報
+      if (pcData.layout) {
+        section += `
+#### PC Layout:
+- Template: ${pcData.layout.template || 'unknown'}
+- Aspect Ratio: ${pcData.layout.aspectRatio || 'unknown'}
+- Image Position: ${pcData.layout.imagePosition || 'N/A'}
+- Text Position: ${pcData.layout.textPosition || 'N/A'}
+`;
+      }
+
+      // テキスト階層
+      if (pcData.text && pcData.text.hierarchy && pcData.text.hierarchy.length > 0) {
+        section += `
+#### PC Text Hierarchy:
+`;
+        pcData.text.hierarchy.forEach(item => {
+          const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
+          section += `- ${levelName}: ${item.text}\n`;
+        });
+      }
+
+      // 色情報
+      if (pcData.colors && pcData.colors.length > 0) {
+        section += `
+#### PC Colors:
+`;
+        pcData.colors.forEach(color => {
+          section += `- ${color.role || 'Color'}: ${color.hex} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+        });
+      }
+    }
+
+    // SP画像の圧縮解析データ
+    if (spAnalysis.compressedAnalysis) {
+      const spData = spAnalysis.compressedAnalysis;
+
+      // レイアウト情報
+      if (spData.layout) {
+        section += `
+#### SP Layout:
+- Template: ${spData.layout.template || 'unknown'}
+- Aspect Ratio: ${spData.layout.aspectRatio || 'unknown'}
+- Image Position: ${spData.layout.imagePosition || 'N/A'}
+- Text Position: ${spData.layout.textPosition || 'N/A'}
+`;
+      }
+
+      // テキスト階層
+      if (spData.text && spData.text.hierarchy && spData.text.hierarchy.length > 0) {
+        section += `
+#### SP Text Hierarchy:
+`;
+        spData.text.hierarchy.forEach(item => {
+          const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
+          section += `- ${levelName}: ${item.text}\n`;
+        });
+      }
+
+      // 色情報
+      if (spData.colors && spData.colors.length > 0) {
+        section += `
+#### SP Colors:
+`;
+        spData.colors.forEach(color => {
+          section += `- ${color.role || 'Color'}: ${color.hex} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
+        });
+      }
+    }
+
+    // セマンティックタグ表現（高度なAIプロンプト生成用）
+    if (pcAnalysis.compressedAnalysis) {
+      section += `
+### Semantic Tags (PC):
+\`\`\`
+${generateSemanticTags(pcAnalysis.compressedAnalysis)}
+\`\`\`
+`;
+    }
+
+    if (spAnalysis.compressedAnalysis) {
+      section += `
+### Semantic Tags (SP):
+\`\`\`
+${generateSemanticTags(spAnalysis.compressedAnalysis)}
+\`\`\`
+`;
+    }
+  } else {
+    // 従来の方式で情報を表示（圧縮データがない場合のフォールバック）
+    // テキスト情報
+    if (pcAnalysis.text || spAnalysis.text) {
+      section += `
 ### Detected Text:
 ${pcAnalysis.text ? `#### PC Image Text:
 \`\`\`
@@ -214,51 +327,158 @@ ${spAnalysis.text}
 \`\`\`` : ""}
 
 `;
-  }
+    }
 
-  // 色情報
-  if ((pcAnalysis.colors && pcAnalysis.colors.length > 0) || (spAnalysis.colors && spAnalysis.colors.length > 0)) {
-    section += `
+    // 色情報
+    if ((pcAnalysis.colors && pcAnalysis.colors.length > 0) || (spAnalysis.colors && spAnalysis.colors.length > 0)) {
+      section += `
 ### Detected Colors:
 ${pcAnalysis.colors && pcAnalysis.colors.length > 0 ? `- PC Image Main Colors: ${pcAnalysis.colors.join(", ")}` : ""}
 ${spAnalysis.colors && spAnalysis.colors.length > 0 ? `- SP Image Main Colors: ${spAnalysis.colors.join(", ")}` : ""}
 
 `;
-  }
+    }
 
-  // セクション情報 - null/undefinedチェックを追加
-  const pcSections = pcAnalysis.sections || [];
-  const spSections = spAnalysis.sections || [];
+    // セクション情報 - null/undefinedチェックを追加
+    const pcSections = pcAnalysis.sections || [];
+    const spSections = spAnalysis.sections || [];
 
-  if (pcSections.length > 0 || spSections.length > 0) {
-    section += `
+    if (pcSections.length > 0 || spSections.length > 0) {
+      section += `
 ### Detected Section Structure:
 ${pcSections.length > 0 ? `- PC Image: ${JSON.stringify(pcSections.map(section => ({
-      position: `section ${section.section} from top`,
-      dominantColor: section.dominantColor
-    })))}` : ""}
+        position: `section ${section.section} from top`,
+        dominantColor: section.dominantColor
+      })))}` : ""}
 ${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section => ({
-      position: `section ${section.section} from top`,
-      dominantColor: section.dominantColor
-    })))}` : ""}
+        position: `section ${section.section} from top`,
+        dominantColor: section.dominantColor
+      })))}` : ""}
 
 `;
-  }
+    }
 
-  // 要素情報 - null/undefinedのチェックを強化
-  const pcElements = pcAnalysis.elements?.elements || [];
-  const spElements = spAnalysis.elements?.elements || [];
-
-  if (pcElements.length > 0 || spElements.length > 0) {
-    section += `
-### Detected Main Elements:
-${pcElements.length > 0 ? `- PC Image: ${JSON.stringify(pcElements)}` : ""}
-${spElements.length > 0 ? `- SP Image: ${JSON.stringify(spElements)}` : ""}
-
-`;
+    // 要素情報 - null/undefinedのチェックを強化
+    const pcElements = pcAnalysis.elements?.elements || [];
+    const spElements = spAnalysis.elements?.elements || [];
   }
 
   return section;
+};
+
+// 圧縮データからセマンティックタグを生成する補助関数
+const generateSemanticTags = (compressedData) => {
+  if (!compressedData) return '';
+
+  // イメージの場合は直接Python生成のセマンティックタグを使用
+  if (compressedData.semanticTags) {
+    return compressedData.semanticTags;
+  }
+
+  // 手動でセマンティックタグを生成
+  const tags = [];
+
+  // レイアウト
+  if (compressedData.layout && compressedData.layout.template) {
+    tags.push(`[layout:${compressedData.layout.template}]`);
+  }
+
+  if (compressedData.layout && compressedData.layout.imagePosition) {
+    tags.push(`[image-position:${compressedData.layout.imagePosition}]`);
+  }
+
+  if (compressedData.layout && compressedData.layout.textPosition) {
+    tags.push(`[text-position:${compressedData.layout.textPosition}]`);
+  }
+
+  // テキスト
+  if (compressedData.text && compressedData.text.hierarchy) {
+    compressedData.text.hierarchy.forEach(item => {
+      if (item.level === 1) {
+        tags.push(`[heading] ${item.text}`);
+      } else if (item.level === 2) {
+        tags.push(`[subheading] ${item.text}`);
+      } else {
+        tags.push(`[text] ${item.text}`);
+      }
+    });
+  }
+
+  // 色
+  if (compressedData.colors && compressedData.colors.length > 0) {
+    const colorParts = compressedData.colors
+      .filter(color => color.role && color.hex)
+      .map(color => `${color.role}=${color.hex}`);
+
+    if (colorParts.length > 0) {
+      tags.push(`[colors:${colorParts.join(',')}]`);
+    }
+  }
+
+  return tags.join('\n');
+};
+
+// テンプレート形式のタグを生成する補助関数
+const generateTemplateFormat = (compressedData) => {
+  if (!compressedData) return '';
+
+  // イメージの場合は直接Python生成のテンプレートを使用
+  if (compressedData.templateFormat) {
+    return compressedData.templateFormat;
+  }
+
+  // 手動でテンプレート形式を生成
+  const templates = [];
+
+  // レイアウトテンプレート
+  if (compressedData.layout && compressedData.layout.template) {
+    templates.push(`{{layout:${compressedData.layout.template}}}`);
+  }
+
+  // 見出し・小見出し・本文
+  if (compressedData.text && compressedData.text.hierarchy) {
+    const headings = [];
+    const subheadings = [];
+    const bodyTexts = [];
+
+    compressedData.text.hierarchy.forEach(item => {
+      if (item.level === 1) {
+        headings.push(item.text);
+      } else if (item.level === 2) {
+        subheadings.push(item.text);
+      } else {
+        bodyTexts.push(item.text);
+      }
+    });
+
+    if (headings.length > 0) {
+      templates.push(`{{heading:${headings[0]}}}`);
+    }
+
+    if (subheadings.length > 0) {
+      templates.push(`{{subheading:${subheadings.join(' / ')}}}`);
+    }
+
+    if (bodyTexts.length > 0) {
+      templates.push(`{{body:${bodyTexts.join(' / ')}}}`);
+    }
+  }
+
+  // 色情報
+  if (compressedData.colors && compressedData.colors.length > 0) {
+    const colorParts = compressedData.colors
+      .filter(color => color.role && color.hex)
+      .map(color => {
+        const shortRole = color.role.substring(0, 2);
+        return `${shortRole}=${color.hex}`;
+      });
+
+    if (colorParts.length > 0) {
+      templates.push(`{{colors:${colorParts.join(',')}}}`);
+    }
+  }
+
+  return templates.join('\n');
 };
 
 // 設定セクションを構築する関数

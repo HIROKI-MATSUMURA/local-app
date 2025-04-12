@@ -1361,7 +1361,7 @@ def detect_feature_elements(image, **options):
 # 新しい関数を追加
 def compress_analysis_results(analysis_data, options=None):
     """
-    画像解析結果を圧縮し、重要な情報だけを抽出
+    画像解析結果を圧縮し、重要な情報だけを抽出してAI向けに最適化
 
     Args:
         analysis_data: 元の解析結果
@@ -1372,19 +1372,32 @@ def compress_analysis_results(analysis_data, options=None):
     """
     options = options or {}
     min_text_confidence = options.get('min_text_confidence', 0.3)
-    max_colors = options.get('max_colors', 5)
+    max_colors = options.get('max_colors', 3)
+    format_type = options.get('format_type', 'structured')  # structured/semantic/template
 
     compressed = {}
 
     # 色情報の圧縮と役割推定
+    colors_data = []
     if 'colors' in analysis_data:
         colors = merge_similar_colors(analysis_data['colors'], max_colors)
         # 色の役割を推定
         colors = estimate_color_roles(colors, analysis_data)
-        compressed['colors'] = colors
 
-    # テキスト情報の圧縮と階層推定
+        # 色情報を簡略化
+        for color in colors[:max_colors]:  # 上位3色のみ
+            role = color.get('role', '')
+            colors_data.append({
+                'hex': color.get('hex', ''),
+                'role': role,
+                'ratio': round(color.get('ratio', 0), 2) if color.get('ratio', 0) > 0.05 else None
+            })
+
+        compressed['colors'] = colors_data
+
+    # テキスト情報を階層構造に整理
     filtered_blocks = []
+    text_hierarchy = []
     if 'text' in analysis_data:
         text_data = analysis_data['text']
 
@@ -1395,133 +1408,253 @@ def compress_analysis_results(analysis_data, options=None):
             blocks.sort(key=lambda x: x.get('confidence', 0), reverse=True)
 
             for block in blocks:
-                if block.get('confidence', 0) >= min_text_confidence:
-                    # テキスト階層を推定
-                    block['role'] = estimate_text_role(block, blocks)
+                confidence = block.get('confidence', 0)
+                if confidence >= min_text_confidence:
+                    # テキスト階層と役割を推定
+                    role = estimate_text_role(block, blocks)
+                    block['role'] = role
                     filtered_blocks.append(block)
 
+                    # 階層構造にマッピング
+                    level = 3  # デフォルトはレベル3（本文）
+                    if role == 'heading':
+                        level = 1
+                    elif role == 'subheading':
+                        level = 2
+
+                    # 高信頼度のブロックは信頼度情報を省略可能
+                    text_item = {
+                        'level': level,
+                        'text': block.get('text', '')
+                    }
+
+                    # 信頼度が低い場合のみ信頼度を含める
+                    if confidence < 0.9:
+                        text_item['confidence'] = round(confidence, 2)
+
+                    text_hierarchy.append(text_item)
+
         compressed['text'] = {
-            'text': text_data.get('text', ''),
-            'textBlocks': filtered_blocks
+            'content': text_data.get('text', ''),
+            'hierarchy': text_hierarchy
         }
 
     # レイアウト情報の圧縮とグリッドパターン推定
     if 'layout' in analysis_data:
         layout_data = analysis_data['layout']
-        compressed['layout'] = {
-            'layoutType': layout_data.get('layoutType', 'unknown'),
-            'confidence': layout_data.get('confidence', 0)
-        }
+        layout_type = layout_data.get('layoutType', 'unknown')
 
         # レイアウト詳細情報
         if 'layoutDetails' in layout_data:
             layout_details = layout_data['layoutDetails']
-            sections = layout_details.get('sections', [])
+            dimensions = layout_details.get('dimensions', {})
+            width = dimensions.get('width', 0)
+            height = dimensions.get('height', 0)
+
+            # アスペクト比を計算
+            aspect_ratio = "unknown"
+            if width and height:
+                ratio = width / height
+                if abs(ratio - 16/9) < 0.2:
+                    aspect_ratio = "16:9"
+                elif abs(ratio - 4/3) < 0.2:
+                    aspect_ratio = "4:3"
+                elif abs(ratio - 1) < 0.2:
+                    aspect_ratio = "1:1"
+                else:
+                    aspect_ratio = f"{round(ratio, 1)}:1"
 
             # グリッドパターンを検出
             grid_pattern = detect_grid_pattern(layout_details)
 
-            # セクション情報のサマリー（セマンティックタイプを含む）
-            section_summaries = summarize_sections(sections)
-
-            compressed['layout']['summary'] = {
-                'width': layout_details.get('dimensions', {}).get('width', 0),
-                'height': layout_details.get('dimensions', {}).get('height', 0),
-                'sectionCount': len(sections),
-                'gridPattern': grid_pattern,
-                'sectionSummaries': section_summaries
+            compressed['layout'] = {
+                'type': layout_type,
+                'aspectRatio': aspect_ratio,
+                'width': width,
+                'height': height,
+                'gridPattern': grid_pattern.get('type', 'unknown')
             }
-
-    # 要素情報の圧縮と要素タイプの分類
-    if 'elements' in analysis_data:
-        element_types = {}
-        element_list = []
-
-        # 要素タイプのカウントとサマリーを生成
-        for element in analysis_data.get('elements', {}).get('elements', []):
-            element_type = element.get('type', 'unknown')
-            if element_type not in element_types:
-                element_types[element_type] = 0
-            element_types[element_type] += 1
-
-            # 重要な要素は詳細情報も保持
-            if element_type in ['button', 'text_input', 'card', 'header', 'footer']:
-                element_list.append({
-                    'type': element_type,
-                    'position': element.get('position', {}),
-                    'color': element.get('color', {})
-                })
-
-        compressed['elements'] = {
-            'summary': element_types,
-            'count': sum(element_types.values()),
-            'mainElements': element_list[:10]  # 最大10個まで保持
-        }
-
-    # セクション情報の圧縮（セマンティックタイプを含む）
-    image_sections = []
-    if 'sections' in analysis_data:
-        sections_data = analysis_data['sections']
-        section_list = sections_data.get('sections', [])
-
-        # セクションのセマンティックタイプを使用
-        semantic_sections = []
-        for section in section_list:
-            # セクションタイプを取得（存在しない場合は分類する）
-            section_type = section.get('section_type', '')
-            if not section_type:
-                section_type = 'content'  # デフォルト値
-
-            semantic_section = {
-                'id': section.get('id', section.get('section', f'section_{len(semantic_sections)+1}')),
-                'type': section_type,
-                'position': section.get('position', {}),
-                'color': section.get('color', {}).get('dominant', {})
-            }
-
-            semantic_sections.append(semantic_section)
-
-            # 画像を含むセクションを収集
-            if section_type == 'image' or 'image' in section_type.lower():
-                image_sections.append(section)
-
-        compressed['sections'] = {
-            'count': len(semantic_sections),
-            'items': semantic_sections
-        }
 
     # レイアウト構造の分析（テキストブロックと画像セクションを使用）
     try:
-        # ここでテキストブロックと画像セクションからレイアウト構造を分析
-        layout_structure = analyze_layout_structure(filtered_blocks, image_sections)
-        compressed['layoutStructure'] = layout_structure
+        # 画像セクションを特定
+        image_sections = []
+        if 'sections' in analysis_data:
+            sections_data = analysis_data['sections']
+            section_list = sections_data.get('sections', [])
 
-        # 詳細なログを出力
-        logger.info("========== レイアウト構造分析結果 ==========")
-        logger.info(f"レイアウトタイプ: {layout_structure.get('layoutType', 'unknown')}")
-        logger.info(f"画像あり: {layout_structure.get('hasImage', False)}")
-        logger.info(f"画像位置: {layout_structure.get('imagePosition', 'なし')}")
-        logger.info(f"テキスト位置: {layout_structure.get('textPosition', 'なし')}")
-        logger.info(f"セクション数: {layout_structure.get('sectionCount', 0)}")
-        logger.info("========== レイアウト構造分析終了 ==========")
+            for section in section_list:
+                section_type = section.get('section_type', '')
+                if section_type == 'image' or 'image' in section_type.lower():
+                    image_sections.append(section)
+
+        # レイアウト構造を分析
+        layout_structure = analyze_layout_structure(filtered_blocks, image_sections)
+
+        # レイアウトのテンプレート名を決定
+        template_name = "unknown"
+        if layout_structure.get('layoutType') == 'single-column':
+            template_name = "single-column"
+        elif layout_structure.get('layoutType') == 'two-column':
+            img_pos = layout_structure.get('imagePosition')
+            if img_pos == 'left':
+                template_name = "two-column-image-left"
+            elif img_pos == 'right':
+                template_name = "two-column-image-right"
+            elif img_pos == 'top':
+                template_name = "image-top-content-bottom"
+        elif layout_structure.get('layoutType') == 'card-grid':
+            template_name = "card-grid"
+
+        # 階層の明確さを評価
+        hierarchy_clarity = "clear"
+        if len(text_hierarchy) <= 1:
+            hierarchy_clarity = "minimal"
+        elif not any(item.get('level', 0) == 1 for item in text_hierarchy):
+            hierarchy_clarity = "unclear"
+
+        # 結果をマージ
+        if 'layout' not in compressed:
+            compressed['layout'] = {}
+
+        compressed['layout'].update({
+            'template': template_name,
+            'imagePosition': layout_structure.get('imagePosition'),
+            'textPosition': layout_structure.get('textPosition'),
+            'sectionCount': layout_structure.get('sectionCount', 1),
+            'hierarchy': hierarchy_clarity
+        })
+
     except Exception as e:
         logger.error(f"レイアウト構造分析エラー: {str(e)}")
         traceback.print_exc()
-        compressed['layoutStructure'] = {
-            'layoutType': 'unknown',
-            'hasImage': False,
-            'imagePosition': None,
-            'textPosition': None,
-            'sectionCount': 0,
+        if 'layout' not in compressed:
+            compressed['layout'] = {}
+
+        compressed['layout'].update({
+            'template': 'unknown',
             'error': str(e)
-        }
+        })
 
     # タイムスタンプの保持
     if 'timestamp' in analysis_data:
         compressed['timestamp'] = analysis_data['timestamp']
 
-    return compressed
+    # フォーマットタイプに応じた出力形式の変換
+    if format_type == 'semantic':
+        return convert_to_semantic_format(compressed)
+    elif format_type == 'template':
+        return convert_to_template_format(compressed)
+    else:
+        return compressed  # 構造化JSONをそのまま返す
 
+
+def convert_to_semantic_format(compressed_data):
+    """
+    圧縮データをセマンティックタグ形式に変換
+
+    Args:
+        compressed_data: 圧縮済みデータ
+
+    Returns:
+        str: セマンティックタグ形式の文字列
+    """
+    result = []
+
+    # レイアウト情報
+    layout = compressed_data.get('layout', {})
+    result.append(f"[layout:{layout.get('template', 'unknown')}]")
+
+    if layout.get('imagePosition'):
+        result.append(f"[image-position:{layout.get('imagePosition')}]")
+
+    if layout.get('textPosition'):
+        result.append(f"[text-position:{layout.get('textPosition')}]")
+
+    # テキスト階層
+    text_data = compressed_data.get('text', {})
+    for item in text_data.get('hierarchy', []):
+        level = item.get('level', 3)
+        text = item.get('text', '')
+
+        if level == 1:
+            result.append(f"[heading] {text}")
+        elif level == 2:
+            result.append(f"[subheading] {text}")
+        else:
+            result.append(f"[text] {text}")
+
+    # 色情報
+    colors = compressed_data.get('colors', [])
+    color_parts = []
+    for color in colors:
+        role = color.get('role', '')
+        hex_code = color.get('hex', '')
+        if role and hex_code:
+            color_parts.append(f"{role}={hex_code}")
+
+    if color_parts:
+        result.append(f"[colors:{','.join(color_parts)}]")
+
+    return "\n".join(result)
+
+
+def convert_to_template_format(compressed_data):
+    """
+    圧縮データをテンプレート形式に変換
+
+    Args:
+        compressed_data: 圧縮済みデータ
+
+    Returns:
+        str: テンプレート形式の文字列
+    """
+    result = []
+
+    # レイアウトテンプレート
+    layout = compressed_data.get('layout', {})
+    result.append(f"{{{{layout:{layout.get('template', 'unknown')}}}}}")
+
+    # 見出し
+    headings = []
+    subheadings = []
+    body_texts = []
+
+    text_data = compressed_data.get('text', {})
+    for item in text_data.get('hierarchy', []):
+        level = item.get('level', 3)
+        text = item.get('text', '')
+
+        if level == 1:
+            headings.append(text)
+        elif level == 2:
+            subheadings.append(text)
+        else:
+            body_texts.append(text)
+
+    if headings:
+        result.append(f"{{{{heading:{headings[0]}}}}}")
+
+    if subheadings:
+        result.append(f"{{{{subheading:{' / '.join(subheadings)}}}}}")
+
+    if body_texts:
+        result.append(f"{{{{body:{' / '.join(body_texts)}}}}}")
+
+    # 色情報
+    colors = compressed_data.get('colors', [])
+    color_parts = []
+    for color in colors:
+        role = color.get('role', '')
+        hex_code = color.get('hex', '')
+        if role and hex_code:
+            short_role = role[0:2] if role in ['background', 'primary', 'secondary'] else role
+            color_parts.append(f"{short_role}={hex_code}")
+
+    if color_parts:
+        result.append(f"{{{{colors:{','.join(color_parts)}}}}}")
+
+    return "\n".join(result)
 
 def merge_similar_colors(colors, max_colors=5):
     """類似する色をマージして代表的な色に集約する"""

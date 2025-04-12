@@ -379,22 +379,60 @@ def handle_detect_elements(request_id: str, params: Dict[str, Any]):
         send_response(request_id, None, f"特徴的要素検出エラー: {str(e)}")
 
 def handle_analyze_all(request_id: str, params: Dict[str, Any]):
-    """画像の総合分析を行う"""
+    """画像の総合的な解析を行う"""
     try:
         if not image_analyzer:
             raise ValueError("画像解析モジュールが初期化されていません")
 
         # パラメータを取得
-        image_data_base64 = params.get('image_data', '')
+        image_data = params.get('image', '')
+        analysis_type = params.get('type', 'all')  # all/basic/features/compress
         options = params.get('options', {})
 
-        if not image_data_base64:
+        if not image_data:
             raise ValueError("画像データが提供されていません")
 
         # Base64データを画像に変換
-        image, _ = base64_to_image_data(image_data_base64)
+        image, _ = base64_to_image_data(image_data)
 
-        # 各分析を実行
+        # compressタイプの場合は、まず通常の解析を行い、その結果を圧縮する
+        if analysis_type == 'compress':
+            # 通常の解析を実行
+            colors = image_analyzer.extract_colors_from_image(image, **options)
+            text = image_analyzer.extract_text_from_image(image, **options)
+            sections = image_analyzer.analyze_image_sections(image, **options)
+            layout = image_analyzer.analyze_layout_pattern(image, **options)
+            elements = image_analyzer.detect_feature_elements(image, **options)
+
+            # 結果を集約
+            analysis_data = {
+                "colors": colors,
+                "text": text,
+                "sections": sections,
+                "layout": layout,
+                "elements": elements,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # 圧縮処理を実行
+            compressed_data = image_analyzer.compress_analysis_results(analysis_data, options)
+
+            # 圧縮形式オプションに基づいてフォーマット変換
+            format_type = options.get('format_type', 'structured')
+            if format_type == 'semantic':
+                compressed_data['semanticTags'] = image_analyzer.convert_to_semantic_format(compressed_data)
+            elif format_type == 'template':
+                compressed_data['templateFormat'] = image_analyzer.convert_to_template_format(compressed_data)
+
+            # タイムスタンプを追加
+            if 'timestamp' not in compressed_data:
+                compressed_data['timestamp'] = datetime.now().isoformat()
+
+            send_response(request_id, compressed_data)
+            return
+
+        # 通常の解析プロセス
+        # 各解析処理を実行
         colors = image_analyzer.extract_colors_from_image(image, **options)
         text = image_analyzer.extract_text_from_image(image, **options)
         sections = image_analyzer.analyze_image_sections(image, **options)
