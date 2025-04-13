@@ -27,6 +27,7 @@ const appName = app.getName() || 'electron-app';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
+const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
 
 // Pythonブリッジをロード
 let pythonBridge;
@@ -216,7 +217,7 @@ function createMainWindow() {
     show: false,
     title: 'CreAIte Code',
     webPreferences: {
-      nodeIntegration: true,  // trueに変更
+      nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
       sandbox: false,  // falseに変更
@@ -1243,7 +1244,7 @@ $mediaquerys: (
       console.log('Claude APIキーの取得をリクエストされました');
 
       // API keyファイルパスの作成
-      const secretApiKeyPath = path.join(__dirname, 'secret', 'api_key.json');
+      const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
       console.log(`APIキーファイルパス: ${secretApiKeyPath}`);
       console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
 
@@ -1276,6 +1277,22 @@ $mediaquerys: (
     try {
       console.log('AIコード生成リクエストを受信しました');
 
+      // Python環境のチェック
+      if (pythonBridge && !NO_PYTHON_MODE) {
+        // Python環境が利用可能な場合はPython側で処理
+        console.log('Python環境でコード生成を実行します');
+        try {
+          return await pythonBridge.generateCode(params);
+        } catch (pythonError) {
+          console.error('Python環境でのコード生成に失敗しました:', pythonError);
+          console.log('JavaScript環境にフォールバックします');
+          // 失敗したらJavaScript側の処理にフォールバック
+        }
+      }
+
+      // JavaScript側の処理（Python環境がない場合やPython処理が失敗した場合）
+      console.log('JavaScript環境でコード生成を実行します');
+
       // APIキーを取得
       const selectedProvider = DEFAULT_PROVIDER;
       let apiKey;
@@ -1284,7 +1301,7 @@ $mediaquerys: (
       if (selectedProvider === 'claude') {
         try {
           console.log('ファイルからClaude APIキーを読み込みます');
-          const secretApiKeyPath = path.join(__dirname, 'secret', 'api_key.json');
+          const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
 
           if (fs.existsSync(secretApiKeyPath)) {
             const fileContent = fs.readFileSync(secretApiKeyPath, 'utf8');
@@ -2141,32 +2158,30 @@ $mediaquerys: (
   // Python画像処理ハンドラー
   ipcMain.handle('extract-text-from-image', async (event, imageData) => {
     try {
-      console.log('画像からテキスト抽出リクエストを受信 - データサイズ:',
-        imageData ? (typeof imageData === 'string' ? imageData.length : 'データ型:' + typeof imageData) : 'データなし');
+      console.log('画像からテキスト抽出リクエストを受信');
+      // デバッグ情報を追加
+      console.log('受信した画像データの形式:', typeof imageData);
+      console.log('画像データサイズ:', typeof imageData === 'string' ? imageData.length : 'unknown');
 
-      // pythonブリッジの状態確認
       if (!pythonBridge) {
         console.error('Pythonブリッジが初期化されていません');
         return { success: false, error: 'Pythonブリッジが初期化されていません' };
       }
 
-      console.log('Pythonブリッジにリクエスト送信を開始...');
+      // データ形式を確認して適切に処理する
+      // Pythonサーバーが期待するパラメータ名に変換
+      const params = {
+        image_data: imageData,  // imageDataを正しいキー名に割り当て
+        options: {}
+      };
 
-      // 画像データの形式をログ出力
-      if (imageData && typeof imageData === 'string') {
-        const isProbablyBase64 = imageData.startsWith('data:') || /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$/.test(imageData);
-        console.log('画像データ形式: ' + (isProbablyBase64 ? 'Base64エンコード' : 'その他のテキスト'));
-        console.log('画像データプレビュー:', imageData.substring(0, 50) + '...');
-      }
+      console.log('Pythonブリッジにテキスト抽出リクエストを送信します', {
+        paramsKeys: Object.keys(params),
+        hasImageData: Boolean(params.image_data)
+      });
 
-      // pythonブリッジを通じて画像からテキストを抽出
-      const result = await pythonBridge.extractTextFromImage(imageData);
-      console.log('Python処理完了:', result ? '成功' : '失敗');
-
-      if (result) {
-        console.log('処理結果:', JSON.stringify(result).substring(0, 100) + '...');
-      }
-
+      // ここでparamsを使用するように修正
+      const result = await pythonBridge.extractTextFromImage(params.image_data, params.options);
       console.log('画像からテキスト抽出が完了しました');
       return result;
     } catch (error) {
@@ -2179,14 +2194,34 @@ $mediaquerys: (
   ipcMain.handle('extract-colors-from-image', async (event, imageData) => {
     try {
       console.log('画像から色抽出リクエストを受信');
+      // デバッグ情報を追加
+      console.log('受信した画像データの形式:', typeof imageData);
+      console.log('画像データサイズ:', typeof imageData === 'string' ? imageData.length : 'unknown');
+
       // pythonブリッジを通じて画像から色を抽出
       if (!pythonBridge) {
         console.error('Pythonブリッジが初期化されていません');
         return { success: false, error: 'Pythonブリッジが初期化されていません' };
       }
 
-      const result = await pythonBridge.extractColorsFromImage(imageData);
-      console.log('画像から色抽出が完了しました');
+      // データ形式を確認して適切に処理する
+      // Pythonサーバーが期待するパラメータ名に変換
+      const params = {
+        image_data: imageData,  // imageDataを正しいキー名に割り当て
+        options: {}
+      };
+
+      console.log('Pythonブリッジに色抽出リクエストを送信します', {
+        paramsKeys: Object.keys(params),
+        hasImageData: Boolean(params.image_data)
+      });
+
+      // ここでparamsを使用するように修正
+      const result = await pythonBridge.extractColorsFromImage(params.image_data, params.options);
+      console.log('画像から色抽出が完了しました', {
+        resultType: typeof result,
+        hasColors: result && result.colors ? `${result.colors.length}色` : 'なし'
+      });
       return result;
     } catch (error) {
       console.error('画像から色抽出エラー:', error);
@@ -2194,68 +2229,7 @@ $mediaquerys: (
     }
   });
 
-  // 総合的な画像解析ハンドラ
-  ipcMain.handle('analyze-image', async (event, data) => {
-    try {
-      console.log('総合的な画像解析リクエストを受信 - データキー:',
-        data ? Object.keys(data).join(', ') : 'データなし');
 
-      // 画像データの詳細確認
-      if (data && data.image) {
-        console.log('画像データ形式:', typeof data.image);
-        if (typeof data.image === 'string') {
-          console.log('画像データサイズ:', data.image.length);
-          console.log('画像データプレビュー:', data.image.substring(0, 50) + '...');
-        }
-      }
-
-      // pythonブリッジの状態確認
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      // image_dataが存在するか確認
-      const imageData = data.image_data || data.image;
-      if (!imageData) {
-        console.error('画像データが提供されていません_main.js_1');
-        return { success: false, error: '画像データが提供されていません_main.js_2' };
-      }
-
-      console.log('Pythonブリッジに解析リクエスト送信...');
-
-      // analyze_all関数にリクエストタイプcompressを追加
-      const options = { ...data };
-      options.image = imageData; // 名前を統一
-      options.type = 'compress'; // リクエストタイプを明示的に設定
-
-      console.log('Pythonブリッジに送信するオプション:', {
-        ...options,
-        image: options.image ? '(画像データあり)' : '(なし)'
-      });
-
-      // pythonブリッジを通じて総合的な画像解析を実行
-      const result = await pythonBridge.analyzeImage(options);
-
-      // 結果の詳細な確認
-      if (result) {
-        console.log('画像解析結果の構造:', Object.keys(result).join(', '));
-        if (result.error) {
-          console.error('画像解析エラー（Pythonブリッジ）:', result.error);
-        } else if (result.colors) {
-          console.log('色情報:', result.colors.length, '色検出');
-        }
-      } else {
-        console.log('画像解析結果がnullまたはundefinedです');
-      }
-
-      return result;
-    } catch (error) {
-      console.error('画像解析エラー:', error);
-      console.error('エラースタック:', error.stack);
-      return { success: false, error: error.message || String(error) };
-    }
-  });
 
   // 画像セクション解析ハンドラ
   ipcMain.handle('analyze-image-sections', async (event, imageData) => {
@@ -2433,6 +2407,57 @@ $mediaquerys: (
       return `プロンプト生成エラー: ${error.message}`;
     }
   });
+
+  // 総合的な画像解析ハンドラ
+  ipcMain.handle('analyze-image', async (event, data) => {
+    try {
+      console.log('[analyze-image] リクエスト受信 - キー:', data ? Object.keys(data).join(', ') : 'データなし');
+
+      const image = data.image || data.image_data || data;
+      const type = data.type || 'compress';
+      const options = data.options || {};
+
+      if (!image) {
+        console.error('[analyze-image] 画像データが存在しません');
+        return { success: false, error: '画像データが存在しません' };
+      }
+
+      console.log('[analyze-image] 解析タイプ:', type);
+      console.log('[analyze-image] 画像データ形式:', typeof image);
+      if (typeof image === 'string') {
+        console.log('[analyze-image] データサイズ:', image.length);
+      }
+
+      const requestPayload = {
+        image,
+        type,
+        ...options // 他のオプションをマージ
+      };
+
+      console.log('[analyze-image] Pythonへ送信するpayload:', {
+        type: requestPayload.type,
+        image: '(base64省略)',
+        ...('options' in data ? { options } : {})
+      });
+      console.log("✅ analyzeImage を呼び出します", requestPayload);
+      const result = await pythonBridge.analyzeImage(requestPayload);
+      console.log("✅ analyzeImage の結果:", result);
+
+      if (result) {
+        console.log('[analyze-image] 解析完了:', Object.keys(result).join(', '));
+        if (result.error) console.error('エラー:', result.error);
+      } else {
+        console.warn('[analyze-image] 解析結果が null/undefined');
+      }
+
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[analyze-image] エラー:', error.message);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+
+
 }
 
 // プロジェクトデータの保存

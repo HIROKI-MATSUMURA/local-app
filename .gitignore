@@ -18,3 +18,4 @@ __pycache__/
 *$py.class
 .env
 secret/api_key.json
+secret/api-keys.json

@@ -1,3 +1,8 @@
+// 🔥 ここ！
+console.log("🔥 preload.js 実行確認: window.api セット前");
+
+
+
 // シンプルなpreload.jsの実装 - パフォーマンスとセキュリティのバランスを最適化
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');

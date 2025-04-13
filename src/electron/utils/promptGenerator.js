@@ -159,10 +159,43 @@ const analyzeImage = async (imageBase64, imageType) => {
     const colorPromise = window.api.extractColorsFromImage ?
       window.api.extractColorsFromImage(imageBase64)
         .then(result => {
-          if (!result.success) {
-            console.warn(`${imageType}画像の色抽出に失敗:`, result.error || '未知のエラー');
+          console.log(`${imageType}色抽出の結果データ:`, result);
+
+          // 結果の形式をチェック
+          if (result && typeof result === 'object') {
+            // 成功/データ形式のレスポンス
+            if (result.success === false || result.error) {
+              console.warn(`${imageType}画像の色抽出に失敗:`, result.error || '未知のエラー');
+              return [];
+            }
+
+            // 直接colorsプロパティを持っている場合
+            if (result.colors && Array.isArray(result.colors)) {
+              console.log(`${imageType}直接colorsプロパティを持つ結果を返します:`, result.colors.length);
+              return result.colors;
+            }
+
+            // dataプロパティにcolorsがある場合
+            if (result.data) {
+              if (Array.isArray(result.data)) {
+                console.log(`${imageType}result.dataは配列です:`, result.data.length);
+                return result.data;
+              }
+              if (result.data.colors && Array.isArray(result.data.colors)) {
+                console.log(`${imageType}result.data.colorsを返します:`, result.data.colors.length);
+                return result.data.colors;
+              }
+            }
+
+            // 配列自体が直接返された場合
+            if (Array.isArray(result)) {
+              console.log(`${imageType}結果自体が配列です:`, result.length);
+              return result;
+            }
           }
-          return result.success ? result.data : [];
+
+          console.warn(`${imageType}画像の色抽出結果が予期しない形式です:`, result);
+          return [];
         })
         .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, [])) :
       Promise.resolve([]);
@@ -170,13 +203,52 @@ const analyzeImage = async (imageBase64, imageType) => {
     const textPromise = window.api.extractTextFromImage ?
       window.api.extractTextFromImage(imageBase64)
         .then(result => {
-          if (!result.success) {
-            console.warn(`${imageType}画像のテキスト抽出に失敗:`, result.error || '未知のエラー');
+          console.log(`${imageType}テキスト抽出の結果データ:`, result);
+
+          // 結果の形式をチェック
+          if (result && typeof result === 'object') {
+            // 成功/データ形式のレスポンス
+            if (result.success === false || result.error) {
+              console.warn(`${imageType}画像のテキスト抽出に失敗:`, result.error || '未知のエラー');
+              return { text: '', textBlocks: [] };
+            }
+
+            // textとtextBlocksプロパティを持っている場合
+            if ('text' in result || 'textBlocks' in result) {
+              console.log(`${imageType}直接text/textBlocksプロパティを持つ結果を使用`);
+              return {
+                text: result.text || '',
+                textBlocks: result.textBlocks || []
+              };
+            }
+
+            // dataプロパティにテキスト情報がある場合
+            if (result.data) {
+              if (typeof result.data === 'string') {
+                console.log(`${imageType}result.dataは文字列です`);
+                return { text: result.data, textBlocks: [] };
+              }
+              if (typeof result.data === 'object' && ('text' in result.data || 'textBlocks' in result.data)) {
+                console.log(`${imageType}result.data.text/textBlocksを使用`);
+                return {
+                  text: result.data.text || '',
+                  textBlocks: result.data.textBlocks || []
+                };
+              }
+            }
           }
-          return result.success ? result.data : '';
+
+          // 文字列が直接返された場合
+          if (typeof result === 'string') {
+            console.log(`${imageType}結果自体が文字列です`);
+            return { text: result, textBlocks: [] };
+          }
+
+          console.warn(`${imageType}画像のテキスト抽出結果が予期しない形式です:`, result);
+          return { text: '', textBlocks: [] };
         })
-        .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, '')) :
-      Promise.resolve('');
+        .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, { text: '', textBlocks: [] })) :
+      Promise.resolve({ text: '', textBlocks: [] });
 
     const sectionsPromise = window.api.analyzeImageSections ?
       window.api.analyzeImageSections(imageBase64)
@@ -189,6 +261,7 @@ const analyzeImage = async (imageBase64, imageType) => {
         .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, [])) :
       Promise.resolve([]);
 
+    console.log("🔥 analyzeImage 呼び出し前 - 要素検出", imageBase64.slice(0, 100));
     const elementsPromise = window.api.analyzeImage ?
       window.api.analyzeImage({ image: imageBase64, type: 'features' })
         .then(result => {
@@ -201,6 +274,7 @@ const analyzeImage = async (imageBase64, imageType) => {
       Promise.resolve({ elements: [] });
 
     // 圧縮解析結果を取得（新機能）
+    console.log("🔥 analyzeImage 呼び出し前 - 圧縮解析", imageBase64.slice(0, 100));
     const compressedAnalysisPromise = window.api.analyzeImage ?
       window.api.analyzeImage({
         image: imageBase64,
@@ -227,7 +301,10 @@ const analyzeImage = async (imageBase64, imageType) => {
 
     // 結果のログと形式確認
     console.log(`${imageType}画像から色を抽出しました:`, colors?.length || 0, "色");
-    console.log(`${imageType}画像からテキストを抽出しました: ${text ? '成功' : '空のテキスト'}`);
+    console.log(`${imageType}画像からテキストを抽出しました:`,
+      text && typeof text === 'object' ?
+        `成功 (text: ${Boolean(text.text)}, textBlocks: ${text.textBlocks?.length || 0})` :
+        `${text ? '成功' : '空のテキスト'}`);
     console.log(`${imageType}画像のセクション分析が完了しました:`, sections?.length || 0, "セクション");
     console.log(`${imageType}画像の要素検出が完了しました:`,
       elements && elements.elements ? elements.elements.length : 0, "要素");
@@ -243,10 +320,24 @@ const analyzeImage = async (imageBase64, imageType) => {
       }
     }
 
+    // テキスト情報の形式を正規化
+    let normalizedText = '';
+    let normalizedTextBlocks = [];
+
+    if (text) {
+      if (typeof text === 'string') {
+        normalizedText = text;
+      } else if (typeof text === 'object') {
+        normalizedText = text.text || '';
+        normalizedTextBlocks = Array.isArray(text.textBlocks) ? text.textBlocks : [];
+      }
+    }
+
     // 結果の形式を正規化して返す
     return {
       colors: Array.isArray(colors) ? colors : [],
-      text: typeof text === 'string' ? text : '',
+      text: normalizedText,
+      textBlocks: normalizedTextBlocks,
       sections: Array.isArray(sections) ? sections : [],
       elements: elements && typeof elements === 'object' ? elements : { elements: [] },
       compressedAnalysis: compressedAnalysis || null
@@ -1221,274 +1312,187 @@ After going through this checklist, ensure your HTML and SCSS accurately reprodu
  */
 function normalizeAnalysisData(rawData) {
   console.log("normalizeAnalysisDataのrawData:", rawData);
+
+  // データの詳細な構造を出力
+  try {
+    console.log("=== rawDataの完全な構造 ===");
+    console.log(JSON.stringify(rawData, null, 2));
+    console.log("=== rawDataの構造出力終了 ===");
+  } catch (err) {
+    console.log("rawDataのJSON化に失敗:", err);
+  }
+
+  // デバッグ情報の追加：データの詳細な解析
+  console.log("=== データ受信状態の詳細確認 ===");
+  console.log("rawDataは存在する:", Boolean(rawData));
+  console.log("rawDataの型:", typeof rawData);
+
+  if (rawData) {
+    // colorsの確認
+    if (rawData.colors) {
+      console.log("colors配列が存在:", true);
+      console.log("colors配列の型:", typeof rawData.colors);
+      console.log("colors配列の長さ:", Array.isArray(rawData.colors) ? rawData.colors.length : "配列ではない");
+      if (Array.isArray(rawData.colors) && rawData.colors.length > 0) {
+        console.log("colors配列の最初の要素:", rawData.colors[0]);
+      }
+    } else {
+      console.log("colors配列が存在:", false);
+    }
+
+    // textの確認（オブジェクトまたは文字列）
+    if (rawData.text) {
+      console.log("textが存在:", true);
+      console.log("textの型:", typeof rawData.text);
+      if (typeof rawData.text === 'string') {
+        console.log("textの長さ:", rawData.text.length);
+        console.log("textのプレビュー:", rawData.text.substring(0, 50) + (rawData.text.length > 50 ? "..." : ""));
+      } else if (typeof rawData.text === 'object') {
+        console.log("textのプロパティ:", Object.keys(rawData.text).join(', '));
+      }
+    } else {
+      console.log("textが存在:", false);
+    }
+
+    // textBlocksの確認
+    if (rawData.textBlocks) {
+      console.log("textBlocksが存在:", true);
+      console.log("textBlocksの型:", typeof rawData.textBlocks);
+      console.log("textBlocksの長さ:", Array.isArray(rawData.textBlocks) ? rawData.textBlocks.length : "配列ではない");
+      if (Array.isArray(rawData.textBlocks) && rawData.textBlocks.length > 0) {
+        console.log("textBlocksの最初の要素:", rawData.textBlocks[0]);
+      }
+    } else {
+      console.log("textBlocksが存在:", false);
+    }
+  }
+  console.log("=== データ受信状態の確認終了 ===");
+
   try {
     console.log("データ正規化開始:", typeof rawData === 'object' ?
       (Array.isArray(rawData) ? `配列 (${rawData.length}項目)` : Object.keys(rawData).join(', ')) : typeof rawData);
 
-    // データがすでに適切な形式の場合はそのまま返す
-    if (rawData && typeof rawData === 'object' &&
-      rawData.colors &&
-      rawData.text &&
-      rawData.layout &&
-      rawData.elements) {
-      console.log("データはすでに正規化された形式です");
-      return rawData;
-    }
-
-    // 新しいデータ構造を初期化
-    const normalized = {
-      layout: {
-        type: 'unknown',
-        template: 'standard',
-        width: 1200, // デフォルト値
-        height: 800, // デフォルト値
-        sectionCount: 1,
-        gridPattern: {
-          columns: 12,
-          rows: 'auto',
-          gap: '20px'
-        },
-        aspectRatio: '3:2',
-        imagePosition: 'center',
-        textPosition: 'center'
-      },
-      colors: [],
-      text: {
-        content: '',
-        blocks: [],
-        hierarchy: []
-      },
-      elements: {
-        elements: [],
-        summary: {
-          counts: {
-            total: 0,
-            button: 0,
-            image: 0,
-            card: 0,
-            navigation: 0,
-            form: 0,
-            list: 0,
-            text: 0
+    // データがすでに必要なプロパティを持っている場合は、それを優先的に使用
+    // Python側から直接返されるオブジェクト構造（colors, text.text, textBlocks）にも対応
+    if (rawData && typeof rawData === 'object') {
+      // 必要な構造を最初から正しく初期化
+      const normalized = {
+        layout: {
+          type: 'unknown',
+          template: 'standard',
+          width: 1200, // デフォルト値
+          height: 800, // デフォルト値
+          sectionCount: 1,
+          gridPattern: {
+            columns: 12,
+            rows: 'auto',
+            gap: '20px'
           },
-          hasForms: false,
-          hasNavigation: false,
-          hasButtons: false,
-          hasCards: false,
-          hasImages: false,
-          hasLists: false
-        }
-      },
-      sections: []
-    };
-
-    // データが存在しない場合は初期値を返す
-    if (!rawData) {
-      console.warn("正規化対象データがありません。初期値を返します");
-      return normalized;
-    }
-
-    // 色情報の処理
-    if (Array.isArray(rawData)) {
-      // 色データが配列として直接渡された場合
-      console.log("色データ配列として処理");
-      normalized.colors = rawData.map(color => ({
-        ...color,
-        role: color.role || 'general',
-        hex: color.hex || '#000000',
-        rgb: color.rgb || 'rgb(0,0,0)',
-        ratio: color.ratio || 0
-      }));
-    } else if (rawData && typeof rawData === 'object') {
-      // オブジェクト形式の場合
-      console.log("オブジェクト形式として処理");
-
-      // 色情報の処理
-      if (rawData.colors) {
-        if (Array.isArray(rawData.colors)) {
-          console.log(`cawData.colors: ${rawData.colors}`);
-          console.log(`colors配列を処理: ${rawData.colors.length}項目`);
-          normalized.colors = rawData.colors.map(color => ({
-            ...color,
-            role: color.role || 'general',
-            hex: color.hex || '#000000',
-            rgb: color.rgb || 'rgb(0,0,0)',
-            ratio: color.ratio || 0
-          }));
-        } else if (typeof rawData.colors === 'object') {
-          console.log("colorsオブジェクトを処理");
-          // オブジェクト形式のcolorsを処理
-          const colorArray = [];
-          for (const role in rawData.colors) {
-            if (typeof rawData.colors[role] === 'string') {
-              colorArray.push({
-                hex: rawData.colors[role],
-                rgb: rawData.colors[role],
-                role: role,
-                ratio: 0
-              });
+          aspectRatio: '3:2'
+        },
+        colors: [],
+        text: {
+          content: '',
+          blocks: [],
+          hierarchy: []
+        },
+        elements: {
+          elements: [],
+          summary: {
+            counts: {
+              total: 0,
+              button: 0,
+              image: 0,
+              card: 0,
+              navigation: 0,
+              form: 0,
+              list: 0,
+              text: 0
             }
           }
-          normalized.colors = colorArray;
-        }
-      }
-
-      // テキスト情報の処理（複数の形式に対応）
-      if (rawData.text) {
-        if (typeof rawData.text === 'string') {
-          // 文字列の場合
-          console.log("テキストは文字列形式");
-          normalized.text.content = rawData.text;
-
-          // 基本的な階層を作成（最初の行を見出しとして）
-          const lines = rawData.text.split('\n').filter(line => line.trim());
-          if (lines.length > 0) {
-            normalized.text.hierarchy.push({
-              level: 1,
-              text: lines[0]
-            });
-
-            if (lines.length > 1) {
-              normalized.text.hierarchy.push({
-                level: 3,
-                text: lines.slice(1).join('\n')
-              });
-            }
-          }
-        } else if (typeof rawData.text === 'object') {
-          // オブジェクト形式の場合
-          console.log("テキストはオブジェクト形式: ", Object.keys(rawData.text).join(', '));
-
-          // contentの処理
-          if (typeof rawData.text.content === 'string') {
-            normalized.text.content = rawData.text.content;
-          }
-
-          // blocksの処理
-          if (Array.isArray(rawData.text.blocks)) {
-            normalized.text.blocks = rawData.text.blocks;
-          }
-
-          // hierarchyの処理
-          if (Array.isArray(rawData.text.hierarchy)) {
-            normalized.text.hierarchy = rawData.text.hierarchy;
-          }
-        }
-      }
-
-      // textBlocksがある場合はblocksに変換し、階層も構築
-      if (Array.isArray(rawData.textBlocks)) {
-        console.log(`textBlocks配列を処理: ${rawData.textBlocks.length}項目`);
-        normalized.text.blocks = rawData.textBlocks;
-
-        // 階層がまだない場合は、ブロックから階層を構築
-        if (normalized.text.hierarchy.length === 0) {
-          rawData.textBlocks.forEach(block => {
-            if (!block || typeof block !== 'object') return;
-
-            // 重要度またはフォントサイズに基づいてレベルを決定
-            let level = 3; // デフォルトはテキスト
-            if (block.importance > 0.8 || block.fontSize > 24) {
-              level = 1; // 見出し
-            } else if (block.importance > 0.5 || block.fontSize > 18) {
-              level = 2; // 小見出し
-            }
-
-            normalized.text.hierarchy.push({
-              level,
-              text: block.text || '',
-              position: block.position || {}
-            });
-          });
-        }
-      }
+        },
+        sections: []
+      };
 
       // レイアウト情報の処理
       if (rawData.layout && typeof rawData.layout === 'object') {
         console.log("レイアウト情報を処理: ", Object.keys(rawData.layout).join(', '));
+        Object.assign(normalized.layout, rawData.layout);
+      }
 
-        // 既存のプロパティをコピー
-        for (const key in rawData.layout) {
-          if (rawData.layout.hasOwnProperty(key)) {
-            normalized.layout[key] = rawData.layout[key];
-          }
+      // 色情報の処理（配列形式）
+      if (Array.isArray(rawData.colors)) {
+        console.log("色情報の処理開始: 配列 (" + rawData.colors.length + "項目)");
+        normalized.colors = rawData.colors.map(color => ({
+          ...color,
+          role: color.role || 'general',
+          hex: color.hex || '#000000',
+          rgb: color.rgb || 'rgb(0,0,0)',
+          ratio: color.ratio || 0
+        }));
+      }
+
+      // レイアウト情報の処理
+      console.log("レイアウト情報の処理開始:",
+        rawData.layout ? Object.keys(rawData.layout).join(', ') : 'なし');
+      if (rawData.layout) {
+        Object.assign(normalized.layout, rawData.layout);
+      }
+
+      // テキスト情報の処理
+      console.log("テキスト情報の処理開始:", rawData.text);
+      if (typeof rawData.text === 'string') {
+        // 文字列の場合
+        normalized.text.content = rawData.text;
+      } else if (typeof rawData.text === 'object' && rawData.text) {
+        // オブジェクトの場合
+        if (typeof rawData.text.text === 'string') {
+          normalized.text.content = rawData.text.text;
+        } else if (typeof rawData.text === 'string') {
+          normalized.text.content = rawData.text;
         }
 
-        // typeとtemplateの相互補完
-        if (rawData.layout.type && !rawData.layout.template) {
-          normalized.layout.template = rawData.layout.type;
-        } else if (!rawData.layout.type && rawData.layout.template) {
-          normalized.layout.type = rawData.layout.template;
+        // textBlocksプロパティがtext内に存在する場合
+        if (Array.isArray(rawData.text.textBlocks)) {
+          normalized.text.blocks = rawData.text.textBlocks;
         }
       }
 
-      // 要素情報の処理
+      // textBlocksが直接存在する場合（Python側から直接返される形式）
+      console.log("UI要素情報の処理開始:", rawData.elements ?
+        (typeof rawData.elements === 'object' ? 'オブジェクト' : 'その他') : 'なし');
+      if (Array.isArray(rawData.textBlocks)) {
+        normalized.text.blocks = rawData.textBlocks;
+        // テキスト内容が未設定の場合、最初のブロックから抽出
+        if (!normalized.text.content && rawData.textBlocks.length > 0) {
+          const textContents = rawData.textBlocks
+            .filter(block => block && block.text)
+            .map(block => block.text);
+          normalized.text.content = textContents.join(' ');
+        }
+      }
+
+      // UI要素情報の処理
       if (rawData.elements) {
-        console.log("要素情報を処理");
         if (Array.isArray(rawData.elements)) {
-          // 配列の場合はelementsに設定
           normalized.elements.elements = rawData.elements;
           normalized.elements.summary.counts.total = rawData.elements.length;
         } else if (typeof rawData.elements === 'object') {
           // オブジェクト形式の場合
-          if (Array.isArray(rawData.elements.elements)) {
+          if (rawData.elements.elements && Array.isArray(rawData.elements.elements)) {
             normalized.elements.elements = rawData.elements.elements;
             normalized.elements.summary.counts.total = rawData.elements.elements.length;
+          } else {
+            // elementsプロパティがない場合は、オブジェクト自体を使用
+            normalized.elements.elements = [rawData.elements];
+            normalized.elements.summary.counts.total = 1;
           }
 
-          // summaryが存在する場合はコピー
-          if (rawData.elements.summary && typeof rawData.elements.summary === 'object') {
+          // summaryがある場合はコピー
+          if (rawData.elements.summary) {
             normalized.elements.summary = {
               ...normalized.elements.summary,
               ...rawData.elements.summary
-            };
-          } else {
-            // summaryがない場合は、elementsから構築
-            const elements = normalized.elements.elements || [];
-            const counts = { total: elements.length };
-            const features = {
-              hasForms: false,
-              hasNavigation: false,
-              hasButtons: false,
-              hasCards: false,
-              hasImages: false,
-              hasLists: false
-            };
-
-            elements.forEach(el => {
-              if (!el || typeof el !== 'object') return;
-
-              const type = (el.type || '').toLowerCase();
-
-              if (type.includes('button')) {
-                counts.button = (counts.button || 0) + 1;
-                features.hasButtons = true;
-              } else if (type.includes('image') || type.includes('img')) {
-                counts.image = (counts.image || 0) + 1;
-                features.hasImages = true;
-              } else if (type.includes('card')) {
-                counts.card = (counts.card || 0) + 1;
-                features.hasCards = true;
-              } else if (type.includes('nav')) {
-                counts.navigation = (counts.navigation || 0) + 1;
-                features.hasNavigation = true;
-              } else if (type.includes('form') || type.includes('input')) {
-                counts.form = (counts.form || 0) + 1;
-                features.hasForms = true;
-              } else if (type.includes('list') || type.includes('ul') || type.includes('ol')) {
-                counts.list = (counts.list || 0) + 1;
-                features.hasLists = true;
-              }
-            });
-
-            normalized.elements.summary.counts = {
-              ...normalized.elements.summary.counts,
-              ...counts
-            };
-
-            normalized.elements.summary = {
-              ...normalized.elements.summary,
-              ...features
             };
           }
         }
@@ -1496,14 +1500,22 @@ function normalizeAnalysisData(rawData) {
 
       // セクション情報の処理
       if (Array.isArray(rawData.sections)) {
-        console.log(`セクション情報を処理: ${rawData.sections.length}項目`);
         normalized.sections = rawData.sections;
         normalized.layout.sectionCount = rawData.sections.length;
       }
+
+      console.log("データ正規化完了: ", Object.keys(normalized).join(', '));
+      return normalized;
     }
 
-    console.log("データ正規化完了: ", Object.keys(normalized).join(', '));
-    return normalized;
+    console.warn("rawDataは有効なオブジェクトではありません");
+    return {
+      layout: { type: 'unknown', width: 1200, height: 800 },
+      colors: [],
+      text: { content: '', blocks: [], hierarchy: [] },
+      elements: { elements: [], summary: { counts: { total: 0 } } },
+      sections: []
+    };
   } catch (error) {
     console.error("データ正規化エラー:", error);
     console.error("エラーのスタックトレース:", error.stack);
@@ -2123,10 +2135,35 @@ const buildBetterPrompt = (rawData) => {
       return null;
     }
 
-    // データ検証
-    if (!compressedData.colors || !Array.isArray(compressedData.colors) || compressedData.colors.length === 0) {
+    // データのキーを詳細に確認
+    const hasColors = compressedData.colors && Array.isArray(compressedData.colors) && compressedData.colors.length > 0;
+    const hasText = (compressedData.text && typeof compressedData.text === 'object' &&
+      (compressedData.text.content ||
+        (compressedData.text.blocks && compressedData.text.blocks.length > 0)));
+    const hasLayout = compressedData.layout && typeof compressedData.layout === 'object';
+    const hasElements = compressedData.elements &&
+      ((Array.isArray(compressedData.elements) && compressedData.elements.length > 0) ||
+        (compressedData.elements.elements && Array.isArray(compressedData.elements.elements)));
+
+    console.log("データ検証結果: ", {
+      hasColors,
+      hasText,
+      hasLayout,
+      hasElements
+    });
+
+    // 分析がうまくいかなかった場合の警告
+    if (!hasColors) {
       console.warn("buildBetterPrompt: 色情報が不足しています");
-      // 色情報が無くても処理を続行する
+    }
+    if (!hasText) {
+      console.warn("buildBetterPrompt: テキスト情報が不足しています");
+    }
+    if (!hasLayout) {
+      console.warn("buildBetterPrompt: レイアウト情報が不足しています");
+    }
+    if (!hasElements) {
+      console.warn("buildBetterPrompt: UI要素情報が不足しています");
     }
 
     // セマンティックなタグの生成
@@ -2138,12 +2175,23 @@ const buildBetterPrompt = (rawData) => {
     // デザインの意図の推論
     const designIntent = inferEnhancedDesignIntent(compressedData);
 
-    // 各セクションの生成
+    // 各セクションの生成（データがない場合はデフォルトのガイドラインを使用）
     const overviewSection = generateEnhancedOverviewSection(compressedData);
-    const colorSection = generateEnhancedColorSection(compressedData.colors || []);
-    const layoutSection = generateEnhancedLayoutSection(compressedData.layout || {});
-    const textSection = generateEnhancedTextSection(compressedData.text || {});
-    const elementsSection = generateEnhancedElementsSection(compressedData.elements || {});
+    const colorSection = hasColors ?
+      generateEnhancedColorSection(compressedData.colors) :
+      "Use a simple color palette with primary and accent colors that suit the website's purpose.";
+
+    const layoutSection = hasLayout ?
+      generateEnhancedLayoutSection(compressedData.layout) :
+      "Create a clean, responsive layout with a clear visual hierarchy.";
+
+    const textSection = hasText ?
+      generateEnhancedTextSection(compressedData.text) :
+      "Use clear typography with appropriate heading hierarchy and readable body text.";
+
+    const elementsSection = hasElements ?
+      generateEnhancedElementsSection(compressedData.elements) :
+      "Include essential UI elements like navigation, buttons, and content containers.";
 
     const prompt = `# Website Design Implementation Task
 
@@ -2341,6 +2389,22 @@ const suggestDesignSystem = (data) => {
   }
 };
 
+// analyze_all を送信する関数（タイムアウト付き）
+const analyzeAll = async (params) => {
+  try {
+    const result = await Promise.race([
+      window.api.invoke('analyze_all', params),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 30000)),
+    ]);
+    console.log('✅ Pythonのレスポンス:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ タイムアウト or Python解析エラー:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+
 // メイン関数を修正して新機能を統合
 export const generatePrompt = async (options) => {
   console.log('プロンプト生成処理を開始');
@@ -2349,12 +2413,20 @@ export const generatePrompt = async (options) => {
     responsiveMode = "pc",
     aiBreakpoints = []
   } = options;
+    console.log("🔥 generatePrompt 開始");
+
+    console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
+    console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
+
+  // ↓以下既存の処理
 
   try {
     // 画像解析を実行
-    console.log('画像解析を実行中...pcImage: ' + pcImage + 'spImage: ' + spImage);
-    const pcAnalysis = pcImage ? await analyzeImage(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
-    const spAnalysis = spImage ? await analyzeImage(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+    // const pcAnalysis = pcImage ? await analyzeImage(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+    // const spAnalysis = spImage ? await analyzeImage(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+
+    // 新：置き換え
+    const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
 
     // 解析結果の検証
     if (!pcImage && !spImage) {

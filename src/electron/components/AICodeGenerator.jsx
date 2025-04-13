@@ -1641,8 +1641,8 @@ ${editingCSS}
           prompt = await generatePrompt({
             responsiveMode,
             aiBreakpoints,
-            pcImageBase64,
-            spImageBase64,
+            pcImage: pcImageBase64, // ✅ ここ！！
+            spImage: spImageBase64, // ✅ ここ！！
           });
           console.log("プロンプト生成成功");
           setLoadingProgress(30);

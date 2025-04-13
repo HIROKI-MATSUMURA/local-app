@@ -8,3 +8,4 @@ pytesseract>=0.3.8
 easyocr>=1.6.0
 torch>=1.7.0
 scikit-learn>=0.24.0
+requests>=2.25.0

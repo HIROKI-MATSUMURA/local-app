@@ -4,6 +4,7 @@
  */
 // Node.js環境かブラウザ環境かを判定
 const isNode = typeof window === 'undefined' || typeof process !== 'undefined' && process.versions && process.versions.node;
+const { v4: uuidv4 } = require('uuid');
 
 // ブラウザ環境でエラーが出ないように条件付きでrequire
 let spawn, path, fs, os, crypto;
@@ -308,13 +309,24 @@ class PythonBridge {
   _processResponse(response) {
     const { id, result, error } = response;
     console.log(`Pythonブリッジ: レスポンス受信 (ID: ${id ? id.substring(0, 8) : 'unknown'}...)`);
+    console.log(`Pythonブリッジ: 詳細レスポンスデータ:`, JSON.stringify(response).substring(0, 500) + "...");
+
+    // コマンド情報を取得
+    const commandInfo = this.requestMap.has(id) ? this.requestMap.get(id) : { command: 'unknown' };
+    const { command } = commandInfo;
+
+    // コマンド別の完全なレスポンスデータをダンプ
+    if (command === 'extract_text' || command === 'extract_colors') {
+      console.log(`Pythonブリッジ: [${command}] 完全なレスポンスデータ:`, JSON.stringify(response, null, 2));
+      console.log(`Pythonブリッジ: [${command}] 完全な結果データ構造:`, JSON.stringify(result, null, 2));
+    }
 
     if (!this.requestMap.has(id)) {
       console.warn(`Pythonブリッジ: リクエストID '${id}' に対応するハンドラーが見つかりません`);
       return;
     }
 
-    const { resolve, reject, timeoutId, command } = this.requestMap.get(id);
+    const { resolve, reject, timeoutId } = this.requestMap.get(id);
 
     // タイムアウトをクリア
     if (timeoutId) {
@@ -329,25 +341,34 @@ class PythonBridge {
 
       // データ構造の詳細ログ
       console.log(`Pythonブリッジ: 結果データタイプ: ${typeof result}`);
+      console.log(`Pythonブリッジ: 結果データの生の内容:`, result);
 
       if (result) {
+        // 詳細なデータ解析と表示（強化）
+        console.log("=== Pythonレスポンスの詳細分析 ===");
+
         // 結果が配列かどうかをチェック
         if (Array.isArray(result)) {
           console.log(`Pythonブリッジ: 結果は配列です (${result.length}項目)`);
+
           // 配列の最初の項目の詳細を表示
           if (result.length > 0) {
             console.log(`Pythonブリッジ: 配列の最初の項目のキー: ${Object.keys(result[0])}`);
             // hex, rgbなどの色情報の有無をチェック
             if (result[0].hex || result[0].rgb) {
-              console.log(`Pythonブリッジ: 配列は色情報のようです (hex: ${result[0].hex}, rgb: ${result[0].rgb})`);
+              console.log(`Pythonブリッジ: 配列は色情報のようです [HEX: ${result[0].hex}, RGB: ${result[0].rgb}]`);
+              // 色情報のJSON文字列（全体）を表示
+              console.log(`Pythonブリッジ: 色情報全体: ${JSON.stringify(result).substring(0, 300)}...`);
+
               // ⚠️ 警告: colors配列を直接返すのではなく、{colors:[...]}の形式で返すべき
               console.log(`Pythonブリッジ: ⚠️警告: JSは色情報を{colors:[...]}の形式で期待していますが、配列が直接返されています`);
 
               // 修正した形式に変換（オリジナルの動作には影響させない）
               console.log(`Pythonブリッジ: 色情報のみの場合、自動的に{colors:[...]}形式に変換します`);
               if (command === 'extract_colors') {
-                console.log(`Pythonブリッジ: extract_colorsコマンドの結果を修正形式に変換`);
+                console.log(`Pythonブリッジ: extract_colorsコマンドの結果を修正形式に変換する前:`, JSON.stringify(result).substring(0, 100));
                 result = { colors: result };
+                console.log(`Pythonブリッジ: 変換後:`, JSON.stringify(result).substring(0, 100));
               }
             }
           }
@@ -361,6 +382,7 @@ class PythonBridge {
             console.log(`Pythonブリッジ: colorsキーがあります (${Array.isArray(result.colors) ? `配列: ${result.colors.length}項目` : typeof result.colors})`);
             if (Array.isArray(result.colors) && result.colors.length > 0) {
               console.log(`Pythonブリッジ: colors[0]のサンプル: ${JSON.stringify(result.colors[0])}`);
+              console.log(`Pythonブリッジ: colors配列全体: ${JSON.stringify(result.colors).substring(0, 300)}...`);
             }
           } else {
             console.log(`Pythonブリッジ: colorsキーがありません`);
@@ -369,6 +391,19 @@ class PythonBridge {
           // textキーの有無をチェック
           if ('text' in result) {
             console.log(`Pythonブリッジ: textキーがあります (${typeof result.text === 'object' ? `キー: ${Object.keys(result.text).join(', ')}` : typeof result.text})`);
+            if (typeof result.text === 'string') {
+              console.log(`Pythonブリッジ: textの内容: ${result.text.substring(0, 100)}...`);
+            } else if (typeof result.text === 'object') {
+              console.log(`Pythonブリッジ: textオブジェクト: ${JSON.stringify(result.text).substring(0, 200)}...`);
+            }
+          }
+
+          // textBlocksキーの有無をチェック
+          if ('textBlocks' in result) {
+            console.log(`Pythonブリッジ: textBlocksキーがあります (${Array.isArray(result.textBlocks) ? `配列: ${result.textBlocks.length}項目` : typeof result.textBlocks})`);
+            if (Array.isArray(result.textBlocks) && result.textBlocks.length > 0) {
+              console.log(`Pythonブリッジ: textBlocks[0]のサンプル: ${JSON.stringify(result.textBlocks[0]).substring(0, 200)}...`);
+            }
           }
 
           // layoutキーの有無をチェック
@@ -376,6 +411,8 @@ class PythonBridge {
             console.log(`Pythonブリッジ: layoutキーがあります (${typeof result.layout === 'object' ? `キー: ${Object.keys(result.layout).join(', ')}` : typeof result.layout})`);
           }
         }
+
+        console.log("=== Pythonレスポンスの詳細分析終了 ===");
       } else {
         console.log(`Pythonブリッジ: 結果はnullまたはundefinedです`);
       }
@@ -497,67 +534,77 @@ class PythonBridge {
   }
 
   /**
-   * 画像から色を抽出する
-   * @param {string} imageData - Base64形式の画像データ
+   * 画像から色情報を抽出する
+   * @param {string} imageBase64 - Base64エンコードされた画像データ
    * @param {object} options - オプション
-   * @returns {Promise<Array>} 抽出された色の配列
+   * @returns {Promise<object>} 抽出された色情報
    */
-  async extractColorsFromImage(imageData, options = {}) {
+  async extractColorsFromImage(imageBase64, options = {}) {
+    console.log('Pythonブリッジ: 色抽出リクエスト送信');
+
     try {
-      return await this.sendCommand('extract_colors', {
-        image_data: imageData,
+      // Pythonプロセスが実行中であることを確認
+      await this._ensureRunning();
+
+      const result = await this.sendCommand('extract_colors', {
+        image_data: imageBase64,  // Python側が期待するパラメータ名に修正
         options
       });
+      console.log('Pythonブリッジ: 色抽出完了');
+
+      // 戻り値の詳細なデバッグ
+      console.log('Pythonブリッジ: 色抽出結果の詳細:');
+      console.log('- 型:', typeof result);
+      console.log('- キー:', result ? Object.keys(result) : 'null');
+      console.log('- colors配列が存在:', result && result.colors ? 'はい' : 'いいえ');
+      console.log('- colors配列の長さ:', result && result.colors ? result.colors.length : '無し');
+      if (result && result.colors && result.colors.length > 0) {
+        console.log('- colors配列の内容サンプル:', JSON.stringify(result.colors[0]));
+      }
+      console.log('- 完全な結果データ:', JSON.stringify(result, null, 2));
+
+      return result;
     } catch (error) {
-      console.error('色抽出エラー:', error);
-      return [];
+      console.error('Pythonブリッジ: 色抽出エラー:', error);
+      throw new Error(`色抽出エラー: ${error.message}`);
     }
   }
 
   /**
    * 画像からテキストを抽出する
-   * @param {string} imageData - Base64形式の画像データ
+   * @param {string} imageBase64 - Base64エンコードされた画像データ
    * @param {object} options - オプション
-   * @returns {Promise<object>} 抽出されたテキスト
+   * @returns {Promise<object>} 抽出されたテキスト情報
    */
-  async extractTextFromImage(imageData, options = {}) {
+  async extractTextFromImage(imageBase64, options = {}) {
+    console.log('Pythonブリッジ: テキスト抽出リクエスト送信');
+
     try {
-      console.log('Pythonブリッジ: テキスト抽出開始...');
-      console.log('画像データサイズ:', imageData ? (typeof imageData === 'string' ? imageData.length : 'データ型:' + typeof imageData) : 'データなし');
+      // Pythonプロセスが実行中であることを確認
+      await this._ensureRunning();
 
-      // データ形式をチェック
-      if (imageData && typeof imageData === 'string') {
-        const isProbablyBase64 = imageData.startsWith('data:') || /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$/.test(imageData);
-        console.log('Pythonブリッジ: 画像データ形式: ' + (isProbablyBase64 ? 'Base64エンコード' : 'その他のテキスト'));
-
-        // 大きすぎるデータを処理する場合は警告
-        if (imageData.length > 10000000) { // 10MB以上
-          console.warn('Pythonブリッジ: 大きな画像データ（' + Math.round(imageData.length / 1024 / 1024) + 'MB）を処理します。メモリ不足に注意してください。');
-        }
-      }
-
-      // 実行前にプロセスが動いているか確認
-      if (!this.pythonProcess) {
-        console.warn('Pythonブリッジ: プロセスが起動していません。起動を試みます...');
-        await this.start();
-      }
-
-      console.log('Pythonブリッジ: sendCommandを呼び出します...');
       const result = await this.sendCommand('extract_text', {
-        image_data: imageData,
+        image_data: imageBase64,  // Python側が期待するパラメータ名に修正
         options
       });
+      console.log('Pythonブリッジ: テキスト抽出完了');
 
-      console.log('Pythonブリッジ: 処理完了', result ? '成功' : '失敗');
+      // 戻り値の詳細なデバッグ
+      console.log('Pythonブリッジ: テキスト抽出結果の詳細:');
+      console.log('- 型:', typeof result);
+      console.log('- キー:', result ? Object.keys(result) : 'null');
+      console.log('- text:', result && result.text ? result.text.substring(0, 100) + '...' : '無し');
+      console.log('- textBlocks配列が存在:', result && result.textBlocks ? 'はい' : 'いいえ');
+      console.log('- textBlocks配列の長さ:', result && result.textBlocks ? result.textBlocks.length : '無し');
+      if (result && result.textBlocks && result.textBlocks.length > 0) {
+        console.log('- textBlocks配列の内容サンプル:', JSON.stringify(result.textBlocks[0]));
+      }
+      console.log('- 完全な結果データ:', JSON.stringify(result, null, 2));
+
       return result;
     } catch (error) {
       console.error('Pythonブリッジ: テキスト抽出エラー:', error);
-      console.error('Pythonブリッジ: エラースタック:', error.stack);
-      return {
-        text: '',
-        error: error.message,
-        textBlocks: []
-      };
+      throw new Error(`テキスト抽出エラー: ${error.message}`);
     }
   }
 
@@ -699,6 +746,30 @@ class PythonBridge {
   }
 
   /**
+   * Pythonプロセスが実行中であることを確認する
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _ensureRunning() {
+    if (!this.pythonProcess && !this.isStarting) {
+      console.log('Pythonブリッジ: プロセスが実行されていないため、開始します');
+      await this.start();
+      console.log('Pythonブリッジ: プロセスが正常に開始されました');
+    } else if (this.isStarting) {
+      console.log('Pythonブリッジ: プロセスの起動を待機しています');
+      // 起動が完了するまで待機
+      let attempts = 0;
+      while (this.isStarting && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        attempts++;
+      }
+      if (this.isStarting) {
+        throw new Error('Pythonプロセスの起動がタイムアウトしました');
+      }
+    }
+  }
+
+  /**
    * 画像の総合分析を行う
    * @param {string} imageData - Base64形式の画像データ
    * @param {object} options - オプション
@@ -706,6 +777,9 @@ class PythonBridge {
    */
   async analyzeImage(imageData, options = {}) {
     try {
+      // Pythonプロセスが実行中であることを確認
+      await this._ensureRunning();
+
       // フルオブジェクトが第一引数として渡される場合の対応
       let imageContent;
       let requestOptions = {};
@@ -716,7 +790,8 @@ class PythonBridge {
       if (typeof imageData === 'object' && imageData !== null) {
         // オブジェクトとして渡された場合（main.jsからの呼び出し方法に対応）
         const dataObj = imageData;
-        imageContent = dataObj.image;
+        // imageContent = dataObj.image;
+        imageContent = dataObj.image || dataObj.image_data; // ← これ追加
 
         // type='compress'は必ず設定
         requestOptions = {
@@ -746,10 +821,10 @@ class PythonBridge {
         };
       }
 
-      // リクエストパラメータを構成（シンプルに）
       const params = {
-        image: imageContent,
-        type: 'compress' // 常に圧縮モード
+        image_data: imageContent,
+        id: uuidv4(),
+        options: requestOptions
       };
 
       // オプションが存在する場合は追加
@@ -759,11 +834,20 @@ class PythonBridge {
 
       console.log('sendCommandに送信するパラメータ:', {
         ...params,
-        image: params.image ? '(画像データあり)' : '(なし)'
+        image_data: params.image_data ? '(画像データあり)' : '(なし)'
       });
 
       // コマンドを常にanalyze_allに統一
       const command = 'analyze_all';
+      console.log("🔥🔥🔥 analyze_all を Python に送信直前！", {
+        command,
+        keys: Object.keys(params),
+        imageDataIncluded: !!params.image_data,
+      });
+
+
+      // デバッグログを追加
+      console.log('Pythonブリッジ: analyze_all送信 - パラメータキー =', Object.keys(params));
 
       const result = await this.sendCommand(command, params);
 
@@ -828,7 +912,8 @@ class PythonBridge {
 
         // 画像データの有無を確認（内容は表示しない）
         if (params && (params.image_data || params.image || params.imageData)) {
-          const imageKey = params.image_data ? 'image_data' : params.image ? 'image' : 'imageData';
+          // image_dataを最優先で確認
+          const imageKey = params.image_data ? 'image_data' : (params.image ? 'image' : 'imageData');
           const imageDataLength = params[imageKey] ? params[imageKey].length : 0;
           console.log(`Pythonブリッジ: 画像データ (${imageKey}): ${imageDataLength}バイト`);
         } else {
@@ -855,6 +940,27 @@ class PythonBridge {
     } catch (error) {
       console.error(`Pythonブリッジ: リクエスト送信エラー (ID: ${requestId.substring(0, 8)}...):`, error);
       return Promise.reject(error);
+    }
+  }
+
+  /**
+   * AIモデルを使用してコードを生成する
+   * @param {object} params - パラメータ（prompt, uploadedImage）
+   * @param {object} options - オプション
+   * @returns {Promise<object>} 生成されたコード
+   */
+  async generateCode(params, options = {}) {
+    console.log('Pythonブリッジ: コード生成リクエスト送信');
+
+    const timeout = options.timeout || 120000; // 2分のタイムアウト（デフォルト）
+
+    try {
+      const result = await this.sendCommand('generate_code', params, timeout);
+      console.log('Pythonブリッジ: コード生成完了');
+      return result;
+    } catch (error) {
+      console.error('Pythonブリッジ: コード生成エラー:', error);
+      throw new Error(`コード生成エラー: ${error.message}`);
     }
   }
 }

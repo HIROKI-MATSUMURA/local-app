@@ -1065,7 +1065,6 @@ def main():
             layout = analyze_layout(img)
             elements = detect_elements(img)
             text = extract_text(img)
-
             result = {
                 'layout': layout,
                 'elements': elements['elements'],
@@ -1382,7 +1381,7 @@ def compress_analysis_results(analysis_data, options=None):
         colors = analysis_data.get('colors', [])
         sections = analysis_data.get('sections', [])
         elements = analysis_data.get('elements', {})
-        text_blocks = analysis_data.get('text_blocks', [])
+        text_blocks = analysis_data.get('textBlocks', [])
         text_content = analysis_data.get('text', '')
 
         # レイアウト情報を整理
@@ -2499,6 +2498,14 @@ def compress_analysis_results(analysis_data, options=None):
     """複数の解析結果を統合した圧縮データを生成する"""
     logger.info("compress_analysis_results: 処理開始")
 
+    logger.info(f"[compress] 圧縮処理開始: 入力データキー={list(analysis_data.keys())}")
+    if 'text' in analysis_data:
+        logger.info(f"[compress] 入力text内容: '{analysis_data['text'][:50]}...'")
+    if 'textBlocks' in analysis_data:
+        logger.info(f"[compress] 入力textBlocks数: {len(analysis_data['textBlocks'])}")
+    if 'colors' in analysis_data:
+        logger.info(f"[compress] 入力colors数: {len(analysis_data['colors'])}")
+
     if not options:
         options = {}
 
@@ -2574,8 +2581,12 @@ def compress_analysis_results(analysis_data, options=None):
         colors = analysis_data.get('colors', [])
         sections = analysis_data.get('sections', [])
         elements = analysis_data.get('elements', {})
-        text_blocks = analysis_data.get('text_blocks', [])
+        text_blocks = analysis_data.get('textBlocks', [])
         text_content = analysis_data.get('text', '')
+
+        # 詳細なログ出力
+        logger.info(f"[compress] 実際に取得したtext_content型: {type(text_content).__name__}")
+        logger.info(f"[compress] 実際に取得したtext_blocks長さ: {len(text_blocks)}")
 
         # テキストデータの構造調整
         if isinstance(text_content, dict) and 'text' in text_content:
@@ -2770,6 +2781,19 @@ def compress_analysis_results(analysis_data, options=None):
         elif format_type == 'template':
             result = convert_to_template_format(compressed_data)
             compressed_data['templateFormat'] = result
+
+        # 関数の最後の return の前に追加
+        logger.info(f"[compress] 圧縮処理完了: 出力データキー={list(compressed_data.keys())}")
+        if 'text' in compressed_data:
+            if isinstance(compressed_data['text'], dict):
+                logger.info(f"[compress] 出力text.content: '{compressed_data['text'].get('content', '')[:50]}...'")
+                logger.info(f"[compress] 出力text.blocks数: {len(compressed_data['text'].get('blocks', []))}")
+            else:
+                logger.info(f"[compress] 出力text: '{compressed_data['text'][:50]}...'")
+        if 'textBlocks' in compressed_data:
+            logger.info(f"[compress] 出力textBlocks数: {len(compressed_data['textBlocks'])}")
+        if 'colors' in compressed_data:
+            logger.info(f"[compress] 出力colors数: {len(compressed_data['colors'])}")
 
         return compressed_data
 
