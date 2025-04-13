@@ -341,6 +341,8 @@ def handle_extract_colors(request_id: str, params: Dict[str, Any]):
 
         options = params.get('options', {})
 
+
+
         if not image_data:
             raise ValueError("画像データが提供されていません")
 
@@ -896,6 +898,9 @@ def main():
             # リクエストの処理
             request_id = request.get('id', str(uuid.uuid4()))
             command = request.get('command')
+
+
+
 
             if not command:
                 logger.error(f"コマンドが指定されていません: {request}")

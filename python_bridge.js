@@ -58,6 +58,7 @@ class PythonBridge {
     this.responseBuffer = '';
   }
 
+
   /**
    * Pythonプロセスを起動する
    * @returns {Promise<void>}
@@ -570,6 +571,7 @@ class PythonBridge {
     }
   }
 
+
   /**
    * 画像からテキストを抽出する
    * @param {string} imageBase64 - Base64エンコードされた画像データ
@@ -775,7 +777,9 @@ class PythonBridge {
    * @param {object} options - オプション
    * @returns {Promise<object>} 総合分析結果
    */
-  async analyzeImage(imageData, options = {}) {
+
+
+  async analyzeAll(imageData, options = {}) {
     try {
       // Pythonプロセスが実行中であることを確認
       await this._ensureRunning();
@@ -784,7 +788,7 @@ class PythonBridge {
       let imageContent;
       let requestOptions = {};
 
-      console.log('analyzeImage呼び出し - 引数の型:',
+      console.log('analyzeAll呼び出し - 引数の型:',
         typeof imageData, 'オプション:', options ? '指定あり' : 'なし');
 
       if (typeof imageData === 'object' && imageData !== null) {

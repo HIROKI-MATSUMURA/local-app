@@ -2393,7 +2393,7 @@ const suggestDesignSystem = (data) => {
 const analyzeAll = async (params) => {
   try {
     const result = await Promise.race([
-      window.api.invoke('analyze_all', params),
+      window.api.invoke('analyze_all', params), // ← await を外す！
       new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 30000)),
     ]);
     console.log('✅ Pythonのレスポンス:', result);
@@ -2405,6 +2405,7 @@ const analyzeAll = async (params) => {
 };
 
 
+
 // メイン関数を修正して新機能を統合
 export const generatePrompt = async (options) => {
   console.log('プロンプト生成処理を開始');
@@ -2413,10 +2414,10 @@ export const generatePrompt = async (options) => {
     responsiveMode = "pc",
     aiBreakpoints = []
   } = options;
-    console.log("🔥 generatePrompt 開始");
+  console.log("🔥 generatePrompt 開始");
 
-    console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
-    console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
+  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
+  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
 
   // ↓以下既存の処理
 

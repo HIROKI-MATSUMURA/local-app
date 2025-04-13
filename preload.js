@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
+  invoke: (...args) => ipcRenderer.invoke(...args), 
+
   // IPC通信
   send: (channel, data) => {
     const validChannels = [
@@ -356,7 +358,11 @@ contextBridge.exposeInMainWorld('api', {
       console.error('generateCode failed:', err);
       return { success: false, error: err };
     }
-  }
+  },
+  // 画像の総合分析
+  analyzeAll: async (imageData, options = {}) => {
+    return await ipcRenderer.invoke('analyze_all', imageData, options);
+  },
 });
 
 // Electronオブジェクトも公開
@@ -432,10 +438,7 @@ contextBridge.exposeInMainWorld('imageAnalysis', {
     return await ipcRenderer.invoke('detect-elements', imageData, options);
   },
 
-  // 画像の総合分析
-  analyzeAll: async (imageData, options = {}) => {
-    return await ipcRenderer.invoke('analyze-all', imageData, options);
-  },
+
 
   // 画像解析結果を圧縮
   compressAnalysisResults: async (analysisData, options = {}) => {

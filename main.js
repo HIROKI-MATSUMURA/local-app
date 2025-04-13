@@ -2395,6 +2395,24 @@ $mediaquerys: (
     }
   });
 
+  ipcMain.handle('analyze_all', async (event, imageData, options = {}) => {
+    try {
+      console.log('🧠 [main.js] analyze_all リクエスト受信');
+      console.log('📦 画像データの形式:', typeof imageData);
+      console.log('⚙️ オプション:', options);
+
+      const result = await pythonBridge.analyzeAll(imageData, options);
+
+      console.log('✅ [main.js] analyze_all 結果:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ [main.js] analyze_all 失敗:', error);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+
+
+
   // 総合的な画像解析ハンドラ
   ipcMain.handle('analyze-image', async (event, data) => {
     try {
