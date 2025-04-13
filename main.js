@@ -1277,20 +1277,7 @@ $mediaquerys: (
     try {
       console.log('AIコード生成リクエストを受信しました');
 
-      // Python環境のチェック
-      if (pythonBridge && !NO_PYTHON_MODE) {
-        // Python環境が利用可能な場合はPython側で処理
-        console.log('Python環境でコード生成を実行します');
-        try {
-          return await pythonBridge.generateCode(params);
-        } catch (pythonError) {
-          console.error('Python環境でのコード生成に失敗しました:', pythonError);
-          console.log('JavaScript環境にフォールバックします');
-          // 失敗したらJavaScript側の処理にフォールバック
-        }
-      }
-
-      // JavaScript側の処理（Python環境がない場合やPython処理が失敗した場合）
+      // Pythonではgenerate_code処理をサポートしていないため、直接JavaScript処理を実行
       console.log('JavaScript環境でコード生成を実行します');
 
       // APIキーを取得

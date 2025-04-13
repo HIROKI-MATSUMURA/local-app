@@ -894,73 +894,44 @@ class PythonBridge {
    * @private
    */
   _sendRequest(requestId, command, params, timeout) {
-    const request = {
-      id: requestId,
-      command,
-      params: params || {}
-    };
+    // リクエストマップにエントリがあるならば、そこにあるプロミスを解決/拒否する
+    if (this.requestMap.has(requestId)) {
+      const { resolve, reject, timeoutId } = this.requestMap.get(requestId);
 
-    console.log(`Pythonブリッジ: リクエスト送信 (ID: ${requestId.substring(0, 8)}...): ${command}`);
-
-    const requestData = JSON.stringify(request) + '\n';
-    try {
-      this.pythonProcess.stdin.write(requestData);
-
-      // リクエストごとに詳細なデバッグログを記録
-      if (command === 'extract_colors' || command === 'analyze_all' || command === 'extract_text') {
-        console.log(`Pythonブリッジ: ${command} リクエスト詳細: パラメータキー = ${Object.keys(params || {}).join(', ')}`);
-
-        // 画像データの有無を確認（内容は表示しない）
-        if (params && (params.image_data || params.image || params.imageData)) {
-          // image_dataを最優先で確認
-          const imageKey = params.image_data ? 'image_data' : (params.image ? 'image' : 'imageData');
-          const imageDataLength = params[imageKey] ? params[imageKey].length : 0;
-          console.log(`Pythonブリッジ: 画像データ (${imageKey}): ${imageDataLength}バイト`);
-        } else {
-          console.warn(`Pythonブリッジ: ${command} リクエストに画像データが含まれていません`);
-        }
+      // タイムアウトIDがあれば、クリアする
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
 
-      // タイムアウト処理
-      let timeoutId = null;
-      if (timeout > 0) {
-        timeoutId = setTimeout(() => {
-          console.error(`Pythonブリッジ: リクエストタイムアウト (ID: ${requestId.substring(0, 8)}..., コマンド: ${command})`);
-          if (this.requestMap.has(requestId)) {
-            const { reject } = this.requestMap.get(requestId);
-            reject(new Error(`リクエストがタイムアウトしました (${timeout}ms)`));
-            this.requestMap.delete(requestId);
-          }
-        }, timeout);
-      }
+      // マップからリクエストエントリを削除
+      this.requestMap.delete(requestId);
 
-      return new Promise((resolve, reject) => {
-        this.requestMap.set(requestId, { resolve, reject, timeoutId, command });
-      });
-    } catch (error) {
-      console.error(`Pythonブリッジ: リクエスト送信エラー (ID: ${requestId.substring(0, 8)}...):`, error);
-      return Promise.reject(error);
+      if (command === 'sendCommand' || !this.pythonProcess) {
+        // コマンド送信またはプロセスがない場合は拒否
+        reject(new Error('Pythonプロセスが起動していません'));
+      } else {
+        // 実際のリクエストを送信
+        this.sendCommand(command, params, timeout).then(resolve).catch(reject);
+      }
     }
   }
 
   /**
-   * AIモデルを使用してコードを生成する
-   * @param {object} params - パラメータ（prompt, uploadedImage）
-   * @param {object} options - オプション
-   * @returns {Promise<object>} 生成されたコード
+   * @private
+   * キューに溜まったリクエストを処理する
    */
-  async generateCode(params, options = {}) {
-    console.log('Pythonブリッジ: コード生成リクエスト送信');
+  _processQueue() {
+    if (this.requestQueue.length > 0) {
+      console.log(`Pythonブリッジ: キューに${this.requestQueue.length}件のリクエストがあります`);
 
-    const timeout = options.timeout || 120000; // 2分のタイムアウト（デフォルト）
+      // キューをコピーしてからクリア
+      const queue = [...this.requestQueue];
+      this.requestQueue = [];
 
-    try {
-      const result = await this.sendCommand('generate_code', params, timeout);
-      console.log('Pythonブリッジ: コード生成完了');
-      return result;
-    } catch (error) {
-      console.error('Pythonブリッジ: コード生成エラー:', error);
-      throw new Error(`コード生成エラー: ${error.message}`);
+      // キューに入っているリクエストを処理
+      for (const { requestId, command, params } of queue) {
+        this._sendRequest(requestId, command, params, 30000); // デフォルトのタイムアウト
+      }
     }
   }
 }
