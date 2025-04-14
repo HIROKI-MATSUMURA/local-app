@@ -849,7 +849,7 @@ class PythonBridge {
 
       // Python側が参照する名前を 'image_data' に統一
       const result = await this.sendCommand('analyze_all', {
-        image_data: base64Image, ,  // Python側が期待する名前に合わせる
+        image_data: base64Image,  // Python側が期待する名前に合わせる
         options: requestOptions
       }, 90000);  // より長いタイムアウト
 
