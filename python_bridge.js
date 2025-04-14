@@ -56,6 +56,16 @@ class PythonBridge {
     this.restartCount = 0;
     this.maxRestarts = 5;
     this.responseBuffer = '';
+
+    // メモリ管理のための追加プロパティ
+    this.processCounter = 0;
+    this.MAX_PROCESSES_BEFORE_RESTART = 20;
+    this.memoryMonitorInterval = null;
+    this.memoryThreshold = 500 * 1024 * 1024; // 500MB
+    this.isIdle = true;
+
+    // バッファプール
+    this.bufferPool = new BufferPool();
   }
 
 
@@ -63,9 +73,13 @@ class PythonBridge {
    * Pythonプロセスを起動する
    * @returns {Promise<void>}
    */
-  async start() {
-    if (this.pythonProcess || this.isStarting) {
+  async start(forceRestart = false) {
+    if (this.pythonProcess && !forceRestart) {
       return;
+    }
+
+    if (this.pythonProcess) {
+      await this.stop(); // 強制再起動の場合
     }
 
     this.isStarting = true;
@@ -74,7 +88,21 @@ class PythonBridge {
       console.log('Pythonプロセスを起動中...');
       // Pythonサーバープロセスを起動
       const scriptPath = path.join(__dirname, 'python_server.py');
-      this.pythonProcess = spawn(PYTHON_CMD, [scriptPath]);
+
+      // カスタム環境変数を設定
+      const env = { ...process.env };
+
+      // Pythonのガベージコレクション設定を調整
+      env.PYTHONMALLOC = 'pymalloc';          // Pythonの標準メモリアロケーターを使用
+      env.PYTHONGC = 'enabled';               // GCを有効に
+      env.PYTHONUNBUFFERED = '1';             // 出力バッファリングを無効化
+
+      // メモリ使用量を抑えるための追加設定
+      if (process.platform === 'linux') {
+        env.MALLOC_TRIM_THRESHOLD_ = '65536'; // 64KB以上の未使用メモリを解放
+      }
+
+      this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
 
       // 標準出力からデータを読み取る設定
       this.pythonProcess.stdout.on('data', (data) => this._handleStdout(data));
@@ -86,6 +114,9 @@ class PythonBridge {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       console.log('Pythonプロセスが起動しました');
+
+      // メモリモニタリングを開始
+      this.startMemoryMonitoring();
 
       // キューに溜まったリクエストを処理
       this._processQueue();
@@ -102,6 +133,12 @@ class PythonBridge {
    * @returns {Promise<void>}
    */
   async stop() {
+    // メモリモニタリングを停止
+    if (this.memoryMonitorInterval) {
+      clearInterval(this.memoryMonitorInterval);
+      this.memoryMonitorInterval = null;
+    }
+
     if (this.pythonProcess) {
       console.log('Pythonプロセスを停止中...');
       // 終了コマンドを送信
@@ -127,6 +164,134 @@ class PythonBridge {
 
       this.pythonProcess = null;
       console.log('Pythonプロセスが停止しました');
+    }
+  }
+
+  /**
+   * メモリ監視を開始する
+   */
+  startMemoryMonitoring() {
+    // 既存のモニタリングを停止
+    if (this.memoryMonitorInterval) {
+      clearInterval(this.memoryMonitorInterval);
+    }
+
+    // 新しいモニタリングを開始
+    this.memoryMonitorInterval = setInterval(async () => {
+      await this.checkMemoryUsage();
+    }, 60000); // 1分ごと
+  }
+
+  /**
+   * メモリ使用量をチェックする
+   */
+  async checkMemoryUsage() {
+    try {
+      if (!this.pythonProcess) return;
+
+      // JSプロセスのメモリをログ
+      const jsMemoryUsage = process.memoryUsage();
+      const heapUsedMB = jsMemoryUsage.heapUsed / 1024 / 1024;
+      const rssMemoryMB = jsMemoryUsage.rss / 1024 / 1024;
+
+      console.log(`JS メモリ使用量: ${heapUsedMB.toFixed(2)} MB (ヒープ), ${rssMemoryMB.toFixed(2)} MB (RSS)`);
+
+      // メモリ警告しきい値
+      const WARNING_THRESHOLD = 300; // 300MB
+      const CRITICAL_THRESHOLD = 400; // 400MB
+
+      // JS側のメモリ使用量が高い場合は強制的にGCを促す
+      if (heapUsedMB > WARNING_THRESHOLD) {
+        console.warn(`JS メモリ使用量が警告しきい値を超えました (${heapUsedMB.toFixed(2)} MB)`);
+
+        // V8 のGCを明示的に呼び出すためのグローバルGCを試みる
+        // 注: Node.js に --expose-gc オプションが必要
+        if (global.gc) {
+          console.log('メモリ最適化: 明示的なGCを実行');
+          global.gc();
+        }
+
+        // メモリ使用量が非常に高い場合は再起動を検討
+        if (heapUsedMB > CRITICAL_THRESHOLD) {
+          console.error(`JS メモリ使用量が危険値を超えました (${heapUsedMB.toFixed(2)} MB)`);
+          // ここでアプリケーション固有の重いキャッシュなどをクリア
+        }
+      }
+
+      // Pythonのメモリ使用状況を問い合わせ
+      const memoryStatus = await this.sendCommand('check_memory', {}, 5000);
+
+      if (memoryStatus.restart_needed) {
+        console.warn('メモリ監視: Pythonプロセスの再起動が必要です');
+        await this.restart();
+      }
+    } catch (error) {
+      console.error('メモリ監視エラー:', error);
+    }
+  }
+
+  /**
+   * Pythonプロセスの健全性をチェックする
+   * @returns {Promise<boolean>} 健全性状態
+   */
+  async checkPythonHealth() {
+    try {
+      const result = await this.sendCommand('check_environment', {}, 5000);
+      return result.status === 'ok';
+    } catch (error) {
+      console.error('Pythonプロセス健全性チェックエラー:', error);
+      return false;
+    }
+  }
+
+  /**
+   * アイドル時にメンテナンスを実行する
+   * @returns {Promise<boolean>} メンテナンス結果
+   */
+  async performIdleMaintenanceIfNeeded() {
+    if (this.isIdle && !await this.checkPythonHealth()) {
+      console.log('アイドル時のメンテナンス: Pythonプロセスを再起動します');
+      return this.restart();
+    }
+    return true;
+  }
+
+  /**
+   * 画像前処理を行う
+   * @param {string} imageData - Base64形式の画像データ
+   * @returns {Promise<string>} 最適化された画像データ
+   */
+  async preprocessImage(imageData) {
+    // ブラウザ環境でのみ実行可能
+    if (isNode) {
+      return imageData;
+    }
+
+    const MAX_IMAGE_SIZE = 1024 * 768; // 約78万ピクセル
+
+    try {
+      // 画像のサイズを取得
+      const image = new Image();
+      image.src = imageData;
+      await new Promise(resolve => { image.onload = resolve; });
+
+      // 大きすぎる場合はリサイズ
+      if (image.width * image.height > MAX_IMAGE_SIZE) {
+        const canvas = document.createElement('canvas');
+        const ratio = Math.sqrt(MAX_IMAGE_SIZE / (image.width * image.height));
+        canvas.width = Math.floor(image.width * ratio);
+        canvas.height = Math.floor(image.height * ratio);
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        return canvas.toDataURL('image/jpeg', 0.85);
+      }
+
+      return imageData;
+    } catch (e) {
+      console.error('画像前処理エラー:', e);
+      return imageData;
     }
   }
 
@@ -284,163 +449,71 @@ class PythonBridge {
    */
   _handleStderr(data) {
     const stderr = data.toString();
-    console.error('Pythonブリッジ: stderr 受信:', stderr);
+    console.error(`Pythonプロセスからのエラー: ${stderr}`);
 
-    // エラーメッセージの分析
-    if (stderr.includes('Traceback')) {
-      console.error('Pythonブリッジ: Pythonスタックトレースを検出しました。');
-    }
-
-    if (stderr.includes('MemoryError')) {
-      console.error('Pythonブリッジ: Pythonのメモリエラーを検出しました。リソース不足の可能性があります。');
-    }
-
-    // クリティカルなエラーが発生した場合、プロセスを再起動
-    if (stderr.includes('Fatal error') || stderr.includes('Segmentation fault')) {
-      console.error('Pythonブリッジ: 深刻なエラーを検出したため、プロセスを再起動します');
-      this.restart().catch(err => {
-        console.error('Pythonブリッジ: エラー後の再起動に失敗:', err);
-      });
+    // メモリ関連のエラーを検出
+    if (
+      stderr.includes('MemoryError') ||
+      stderr.includes('Cannot allocate memory') ||
+      stderr.includes('OutOfMemoryError') ||
+      stderr.includes('MemoryLimit') ||
+      stderr.includes('ResourceExhaustedError')
+    ) {
+      console.error('メモリエラー検出: プロセスを再起動します');
+      this.restart();
     }
   }
 
   /**
-   * レスポンスを処理する
-   * @param {object} response - JSONレスポンス
+   * JSONレスポンスを処理する
+   * @param {Object} response - 受信したJSONレスポンス
    * @private
    */
   _processResponse(response) {
-    const { id, result, error } = response;
-    // IDがないかnullの場合はログだけ出して処理終了
-    if (!id) {
-      console.warn('Pythonブリッジ: レスポンスにIDがありません');
-      return;
-    }
-    console.log(`Pythonブリッジ: レスポンス受信 (ID: ${id ? id.substring(0, 8) : 'unknown'}...)`);
-    const exists = this.requestMap.has(id);
-    console.log(`Pythonブリッジ: リクエストマップに存在?: ${exists}`);
-    if (!exists) {
-      // 既にタイムアウトした可能性があるため、警告だけを表示
-      console.warn(`Pythonブリッジ: リクエストID '${id}' に対応するハンドラーが見つかりません (おそらくタイムアウト済み)`);
-      return;
-    }
+    try {
+      // リクエストIDの取得
+      const requestId = response.id;
 
-    // コマンド情報を取得
-    const commandInfo = this.requestMap.has(id) ? this.requestMap.get(id) : { command: 'unknown' };
-    const { command } = commandInfo;
-
-    // コマンド別の完全なレスポンスデータをダンプ
-    if (command === 'extract_text' || command === 'extract_colors') {
-      console.log(`Pythonブリッジ: [${command}] 完全なレスポンスデータ:`, JSON.stringify(response, null, 2));
-      console.log(`Pythonブリッジ: [${command}] 完全な結果データ構造:`, JSON.stringify(result, null, 2));
-    }
-
-    if (!this.requestMap.has(id)) {
-      console.warn(`Pythonブリッジ: リクエストID '${id}' に対応するハンドラーが見つかりません`);
-      return;
-    }
-
-    const { resolve, reject, timeoutId } = this.requestMap.get(id);
-
-    // タイムアウトをクリア
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-
-    if (error) {
-      console.error(`Pythonブリッジ: エラーレスポンス受信 (ID: ${id.substring(0, 8)}...):`, error);
-      reject(new Error(error));
-    } else {
-      console.log(`Pythonブリッジ: 成功レスポンス受信 (ID: ${id.substring(0, 8)}...), コマンド: ${command}`);
-
-      // データ構造の詳細ログ
-      console.log(`Pythonブリッジ: 結果データタイプ: ${typeof result}`);
-      console.log(`Pythonブリッジ: 結果データの生の内容:`, result);
-
-      if (result) {
-        // 詳細なデータ解析と表示（強化）
-        console.log("=== Pythonレスポンスの詳細分析 ===");
-
-        // 結果が配列かどうかをチェック
-        if (Array.isArray(result)) {
-          console.log(`Pythonブリッジ: 結果は配列です (${result.length}項目)`);
-
-          // 配列の最初の項目の詳細を表示
-          if (result.length > 0) {
-            console.log(`Pythonブリッジ: 配列の最初の項目のキー: ${Object.keys(result[0])}`);
-            // hex, rgbなどの色情報の有無をチェック
-            if (result[0].hex || result[0].rgb) {
-              console.log(`Pythonブリッジ: 配列は色情報のようです [HEX: ${result[0].hex}, RGB: ${result[0].rgb}]`);
-              // 色情報のJSON文字列（全体）を表示
-              console.log(`Pythonブリッジ: 色情報全体: ${JSON.stringify(result).substring(0, 300)}...`);
-
-              // ⚠️ 警告: colors配列を直接返すのではなく、{colors:[...]}の形式で返すべき
-              console.log(`Pythonブリッジ: ⚠️警告: JSは色情報を{colors:[...]}の形式で期待していますが、配列が直接返されています`);
-
-              // 修正した形式に変換（オリジナルの動作には影響させない）
-              console.log(`Pythonブリッジ: 色情報のみの場合、自動的に{colors:[...]}形式に変換します`);
-              if (command === 'extract_colors') {
-                console.log(`Pythonブリッジ: extract_colorsコマンドの結果を修正形式に変換する前:`, JSON.stringify(result).substring(0, 100));
-                result = { colors: result };
-                console.log(`Pythonブリッジ: 変換後:`, JSON.stringify(result).substring(0, 100));
-              }
-            }
-          }
-        }
-        // 結果がオブジェクトかどうかをチェック
-        else if (typeof result === 'object') {
-          console.log(`Pythonブリッジ: 結果はオブジェクトです (キー: ${Object.keys(result).join(', ')})`);
-
-          // colorsキーの有無と構造をチェック
-          if ('colors' in result) {
-            console.log(`Pythonブリッジ: colorsキーがあります (${Array.isArray(result.colors) ? `配列: ${result.colors.length}項目` : typeof result.colors})`);
-            if (Array.isArray(result.colors) && result.colors.length > 0) {
-              console.log(`Pythonブリッジ: colors[0]のサンプル: ${JSON.stringify(result.colors[0])}`);
-              console.log(`Pythonブリッジ: colors配列全体: ${JSON.stringify(result.colors).substring(0, 300)}...`);
-            }
-          } else {
-            console.log(`Pythonブリッジ: colorsキーがありません`);
-          }
-
-          // textキーの有無をチェック
-          if ('text' in result) {
-            console.log(`Pythonブリッジ: textキーがあります (${typeof result.text === 'object' ? `キー: ${Object.keys(result.text).join(', ')}` : typeof result.text})`);
-            if (typeof result.text === 'string') {
-              console.log(`Pythonブリッジ: textの内容: ${result.text.substring(0, 100)}...`);
-            } else if (typeof result.text === 'object') {
-              console.log(`Pythonブリッジ: textオブジェクト: ${JSON.stringify(result.text).substring(0, 200)}...`);
-            }
-          }
-
-          // textBlocksキーの有無をチェック
-          if ('textBlocks' in result) {
-            console.log(`Pythonブリッジ: textBlocksキーがあります (${Array.isArray(result.textBlocks) ? `配列: ${result.textBlocks.length}項目` : typeof result.textBlocks})`);
-            if (Array.isArray(result.textBlocks) && result.textBlocks.length > 0) {
-              console.log(`Pythonブリッジ: textBlocks[0]のサンプル: ${JSON.stringify(result.textBlocks[0]).substring(0, 200)}...`);
-            }
-          }
-
-          // layoutキーの有無をチェック
-          if ('layout' in result) {
-            console.log(`Pythonブリッジ: layoutキーがあります (${typeof result.layout === 'object' ? `キー: ${Object.keys(result.layout).join(', ')}` : typeof result.layout})`);
-          }
-        }
-
-        console.log("=== Pythonレスポンスの詳細分析終了 ===");
-      } else {
-        console.log(`Pythonブリッジ: 結果はnullまたはundefinedです`);
+      if (!requestId) {
+        console.error('Pythonブリッジ: レスポンスにIDがありません:', response);
+        return;
       }
 
-      // レスポンスのプレビュー（大きなデータの場合は一部だけ表示）
-      const resultStr = JSON.stringify(result);
-      const previewLength = Math.min(100, resultStr.length);
-      console.log(`Pythonブリッジ: レスポンスデータサイズ: ${Math.round(resultStr.length / 1024)}KB, プレビュー: ${resultStr.substring(0, previewLength)}${resultStr.length > previewLength ? '...' : ''}`);
+      // リクエストマップからリクエスト情報を取得
+      const requestInfo = this.requestMap.get(requestId);
 
-      resolve(result);
+      if (!requestInfo) {
+        console.error(`Pythonブリッジ: 未知のレスポンスID: ${requestId}`);
+        return;
+      }
+
+      // タイムアウトをクリア
+      if (requestInfo.timeoutId) {
+        clearTimeout(requestInfo.timeoutId);
+      }
+
+      // リクエストマップから削除
+      this.requestMap.delete(requestId);
+
+      // エラーまたは結果をリゾルブ
+      if (response.error) {
+        console.error(`Pythonブリッジ: エラーレスポンス: ${response.error}`);
+        requestInfo.reject(new Error(response.error));
+      } else {
+        requestInfo.resolve(response.result);
+      }
+
+      // 大きなレスポンスデータの参照を解放
+      if (response && response.result) {
+        // 大きなデータオブジェクトの明示的な解放
+        if (response.result.colors || response.result.textBlocks || response.result.elements) {
+          // 参照を解放して次のGCでクリーンアップされるようにする
+          response.result = null;
+        }
+      }
+    } catch (error) {
+      console.error('Pythonブリッジ: レスポンス処理エラー:', error);
     }
-
-    this.requestMap.delete(id);
-    console.log(`Pythonブリッジ: リクエスト完了 (ID: ${id.substring(0, 8)}...)`);
   }
 
   /**
@@ -696,180 +769,34 @@ class PythonBridge {
    * @param {object} options - オプション
    * @returns {Promise<object>} 総合分析結果
    */
-
-
   async analyzeAll(imageData, options = {}) {
+    // 処理回数をカウント
+    this.processCounter++;
+
+    // 一定回数の処理後にPythonプロセスを再起動
+    if (this.processCounter >= this.MAX_PROCESSES_BEFORE_RESTART) {
+      console.log('メモリ最適化のためにPythonプロセスを再起動します');
+      await this.stop();
+      await this.start();
+      this.processCounter = 0;
+    }
+
+    this.isIdle = false;
+
     try {
-      // Pythonプロセスが実行中であることを確認
+      // 画像の前処理
+      const optimizedImageData = await this.preprocessImage(imageData);
+
+      // 元の処理を実行
       await this._ensureRunning();
-
-      // フルオブジェクトが第一引数として渡される場合の対応
-      let imageContent;
-      let requestOptions = {};
-
-      console.log('analyzeAll呼び出し - 引数の型:',
-        typeof imageData, 'オプション:', options ? '指定あり' : 'なし');
-
-      if (typeof imageData === 'object' && imageData !== null) {
-        // オブジェクトとして渡された場合（main.jsからの呼び出し方法に対応）
-        const dataObj = imageData;
-        // imageContent = dataObj.image;
-        imageContent = dataObj.image || dataObj.image_data; // ← これ追加
-
-        // type='compress'は必ず設定
-        requestOptions = {
-          ...dataObj,
-          type: 'compress'
-        };
-
-        // イメージデータの確認
-        if (!imageContent) {
-          console.error('画像データがオブジェクト内に見つかりません:',
-            Object.keys(dataObj).join(', '));
-          return {
-            success: false,
-            error: '画像データが提供されていません_python_bridge.js_1',
-            layout: { layoutType: "unknown" },
-            elements: [],
-            text: { text: "" },
-            colors: []
-          };
-        }
-      } else {
-        // 直接画像データが渡された場合（古いコードとの互換性）
-        imageContent = imageData;
-        requestOptions = {
-          ...options,
-          type: 'compress'
-        };
-      }
-      // リクエストIDの生成を一貫して行う
-      const requestId = crypto.randomUUID();
-      const params = {
-        image_data: imageContent,
-        options: requestOptions
-      };
-
-      // オプションが存在する場合は追加
-      if (Object.keys(requestOptions).length > 0) {
-        params.options = requestOptions;
-      }
-
-      console.log('sendCommandに送信するパラメータ:', {
-        ...params,
-        image_data: params.image_data ? '(画像データあり)' : '(なし)'
-      });
-
-      // コマンドを常にanalyze_allに統一
-      const command = 'analyze_all';
-      console.log("🔥🔥🔥 analyze_all を Python に送信直前！", {
-        command,
-        keys: Object.keys(params),
-        imageDataIncluded: !!params.image_data,
-      });
-
-
-      // デバッグログを追加
-      console.log('Pythonブリッジ: analyze_all送信 - パラメータキー =', Object.keys(params));
-      // デフォルト値を設定
-      const DEFAULT_TIMEOUT = 120000;
-
-      // オプションからタイムアウト時間を取得（カスタマイズ可能）
-      const timeout = options.timeout || DEFAULT_TIMEOUT;
-      const result = await this.sendCommand(command, params, DEFAULT_TIMEOUT, requestId);
-
-      // 🔽 ここに挿入！
-      if (!result || Object.keys(result).length === 0) {
-        console.warn('⚠️ Pythonから空のレスポンスが返却されました');
-      } else if (result.success === false) {
-        console.warn('⚠️ Python処理結果: success = false');
-        console.warn('⚠️ エラー内容:', result.error || '(不明)');
-      }
-
-
-      // 結果の詳細ログを追加
-      console.log("🔍🔍🔍 pythonBridge.analyzeAll - 受信した結果データ:");
-      console.log(`🔍🔍🔍 結果型: ${typeof result}`);
-
-      if (result && Object.keys(result).length === 0) {
-        console.warn('⚠️ Pythonから空のレスポンスが返却されました');
-        console.log(`🔍🔍🔍 結果構造: ${Object.keys(result).join(', ')}`);
-
-        if (result && result.success === false) {
-          console.warn('⚠️ Python処理結果: success = false');
-          console.warn('⚠️ エラー内容:', result.error || '(不明)');
-        }
-
-        // テキスト情報の確認
-        if (result.text !== undefined) {
-          console.log(`🔍🔍🔍 text型: ${typeof result.text}`);
-          console.log(`🔍🔍🔍 text内容: "${result.text.substring(0, 100)}${result.text.length > 100 ? '...' : ''}"`);
-        } else {
-          console.log(`🔍🔍🔍 text: undefined`);
-        }
-
-        // テキストブロックの確認
-        if (result.textBlocks !== undefined) {
-          console.log(`🔍🔍🔍 textBlocks型: ${typeof result.textBlocks}, 配列か: ${Array.isArray(result.textBlocks)}`);
-          console.log(`🔍🔍🔍 textBlocks長さ: ${Array.isArray(result.textBlocks) ? result.textBlocks.length : 'not an array'}`);
-          if (Array.isArray(result.textBlocks) && result.textBlocks.length > 0) {
-            console.log(`🔍🔍🔍 最初のtextBlock: ${JSON.stringify(result.textBlocks[0])}`);
-          }
-        } else {
-          console.log(`🔍🔍🔍 textBlocks: undefined`);
-        }
-
-        // 色情報の確認
-        if (result.colors !== undefined) {
-          console.log(`🔍🔍🔍 colors型: ${typeof result.colors}, 配列か: ${Array.isArray(result.colors)}`);
-          console.log(`🔍🔍🔍 colors長さ: ${Array.isArray(result.colors) ? result.colors.length : 'not an array'}`);
-          if (Array.isArray(result.colors) && result.colors.length > 0) {
-            console.log(`🔍🔍🔍 最初のcolor: ${JSON.stringify(result.colors[0])}`);
-          }
-        } else {
-          console.log(`🔍🔍🔍 colors: undefined`);
-        }
-
-        // 結果データの完全なJSONを出力
-        try {
-          const jsonStr = JSON.stringify(result, null, 2);
-          console.log(`🔍🔍🔍 結果データ全体 (先頭1000文字):\n${jsonStr.substring(0, 1000)}${jsonStr.length > 1000 ? '...' : ''}`);
-        } catch (e) {
-          console.error(`🔍🔍🔍 JSONシリアライズエラー: ${e.message}`);
-        }
-      } else {
-        console.log("🔍🔍🔍 結果データはnullまたはundefinedです");
-      }
-
-      // 結果の確認
-      if (result) {
-        console.log('Python処理結果の構造:', Object.keys(result).join(', '));
-
-        // エラーチェック
-        if (result.error) {
-          console.error('Python処理エラー:', result.error);
-        }
-
-        // 色情報の確認
-        if (result.colors) {
-          console.log('色情報あり:', Array.isArray(result.colors) ? result.colors.length : 'non-array');
-        } else {
-          console.warn('色情報がありません');
-        }
-      }
+      const result = await this.sendCommand('analyze_all', {
+        image: optimizedImageData,
+        options: options
+      }, 90000);  // より長いタイムアウト
 
       return result;
-    } catch (error) {
-      console.error('画像分析エラー:', error);
-      return {
-        success: false,
-        error: `画像分析エラー: ${error.message || '(不明)'}`,
-        layout: { layoutType: "unknown", confidence: 0.5 },
-        elements: [],
-        text: "",
-        colors: [],
-        context: 'fallback_from_analyzeAll'
-      };
+    } finally {
+      this.isIdle = true;
     }
   }
 
@@ -903,24 +830,32 @@ class PythonBridge {
       }
     }
   }
+}
 
-  /**
-   * @private
-   * キューに溜まったリクエストを処理する
-   */
-  _processQueue() {
-    if (this.requestQueue.length > 0) {
-      console.log(`Pythonブリッジ: キューに${this.requestQueue.length}件のリクエストがあります`);
+/**
+ * バッファプールクラス - 大きなバッファを再利用して不要なメモリ割り当てを減らす
+ */
+class BufferPool {
+  constructor(maxBuffers = 3, bufferSize = 5 * 1024 * 1024) { // 5MB
+    this.pool = [];
+    this.maxBuffers = maxBuffers;
+    this.bufferSize = bufferSize;
+  }
 
-      // キューをコピーしてからクリア
-      const queue = [...this.requestQueue];
-      this.requestQueue = [];
-
-      // キューに入っているリクエストを処理
-      for (const { requestId, command, params } of queue) {
-        this._sendRequest(requestId, command, params, 30000); // デフォルトのタイムアウト
-      }
+  getBuffer() {
+    if (this.pool.length > 0) {
+      return this.pool.pop();
     }
+    return Buffer.allocUnsafe(this.bufferSize);
+  }
+
+  releaseBuffer(buffer) {
+    if (this.pool.length < this.maxBuffers) {
+      // バッファ内容をゼロにクリア
+      buffer.fill(0);
+      this.pool.push(buffer);
+    }
+    // プールが一杯ならバッファは破棄され、GCの対象になる
   }
 }
 
