@@ -341,8 +341,6 @@ def handle_extract_colors(request_id: str, params: Dict[str, Any]):
 
         options = params.get('options', {})
 
-
-
         if not image_data:
             raise ValueError("画像データが提供されていません")
 
@@ -841,12 +839,14 @@ def handle_compare_images(request_id: str, params: Dict[str, Any]):
 def handle_exit(request_id: str, params: Dict[str, Any]):
     """Pythonサーバーを終了する"""
     try:
-        # 終了のための応答を送信
-        send_response(request_id, {"status": "ok", "message": "Python server shutting down"})
+        logger.info("サーバー終了コマンドを受信しました")
+        send_response(request_id, {"status": "shutting_down"})
 
-        # 数秒後に強制終了するタイマーを設定（応答が送信される時間を確保）
+        # 非同期に終了するためのタイマー関数
         def delayed_exit():
-            time.sleep(1)
+            logger.info("終了処理を実行します...")
+            # 少し待ってから終了
+            time.sleep(0.5)
             sys.exit(0)
 
         exit_timer = threading.Timer(1, delayed_exit)
@@ -859,6 +859,58 @@ def handle_exit(request_id: str, params: Dict[str, Any]):
         # エラーが発生しても1秒後に終了
         time.sleep(1)
         sys.exit(1)
+
+def handle_check_memory(request_id: str, params: Dict[str, Any]):
+    """Pythonプロセスのメモリ使用状況をチェックする"""
+    try:
+        import psutil
+        import gc
+
+        # 現在のプロセスのメモリ使用量を取得
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+
+        # メモリ使用量をMB単位で計算
+        rss_mb = memory_info.rss / (1024 * 1024)
+        vms_mb = memory_info.vms / (1024 * 1024)
+
+        # 明示的にガベージコレクションを実行
+        collected = gc.collect()
+
+        # メモリ使用量が高すぎる場合は再起動をリクエスト
+        restart_needed = rss_mb > 400  # 400MB以上でリスタート
+
+        result = {
+            "memory_usage_mb": round(rss_mb, 2),
+            "virtual_memory_mb": round(vms_mb, 2),
+            "gc_objects_collected": collected,
+            "restart_needed": restart_needed,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # メモリ使用量が警告レベルの場合はログに記録
+        if rss_mb > 200:
+            logger.warning(f"高メモリ使用量検出: {rss_mb:.2f}MB (RSS)")
+
+        logger.info(f"メモリ使用状況: {rss_mb:.2f}MB (RSS), 再起動必要: {restart_needed}")
+        send_response(request_id, result)
+
+    except ImportError:
+        # psutilがない場合はダミーデータを返す
+        logger.warning("psutilがインストールされていないため、正確なメモリ使用量を取得できません")
+        result = {
+            "memory_usage_mb": 0,
+            "virtual_memory_mb": 0,
+            "gc_objects_collected": 0,
+            "restart_needed": False,
+            "error": "psutilモジュールがインストールされていません",
+            "timestamp": datetime.now().isoformat()
+        }
+        send_response(request_id, result)
+    except Exception as e:
+        logger.error(f"メモリ使用状況チェック中にエラーが発生しました: {str(e)}")
+        logger.error(traceback.format_exc())
+        send_response(request_id, None, f"メモリチェックエラー: {str(e)}")
 
 # コマンドハンドラーのマッピング
 COMMAND_HANDLERS = {
@@ -874,12 +926,11 @@ COMMAND_HANDLERS = {
     "analyze_all": handle_analyze_all,
     "compress_analysis": handle_compress_analysis,
     "compare_images": handle_compare_images,
+    "check_memory": handle_check_memory,
     "exit": handle_exit
 }
 
 def main():
-
-
     """メインの実行ループ"""
     logger.info("Pythonサーバーを起動しています...")
 
@@ -919,15 +970,6 @@ def main():
             logger.error(f"🔥🔥🔥 Pythonサーバーで受け取ったコマンド: {command}")
             logger.error(f"🔥🔥🔥 リクエストID: {request_id}")
             logger.error(f"🔥🔥🔥 パラメータのキー: {list(request.keys()) if request else 'None'}")
-
-
-
-            # リクエストの処理
-            request_id = request.get('id', str(uuid.uuid4()))
-            command = request.get('command')
-
-
-
 
             if not command:
                 logger.error(f"コマンドが指定されていません: {request}")
