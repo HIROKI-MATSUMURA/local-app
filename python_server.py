@@ -228,7 +228,7 @@ def send_response(request_id: str, result: Any = None, error: str = None):
         # JSONをシリアライズして標準出力に送信
         json_response = json.dumps(response)
         logger.debug(f"JSONシリアライズ成功: {len(json_response)}バイト")
-        print(json_response, flush=True)
+        print(json_response + '\n', flush=True)
         logger.debug(f"標準出力への書き込み完了")
 
     except Exception as e:
@@ -614,9 +614,7 @@ def clean_options(options):
 
 def handle_analyze_all(request_id, params):
     try:
-        logger.error(f"!!!!! handle_analyze_all 呼び出し: request_id={request_id} !!!!!")
-        logger.error(f"!!!!! params内容: {list(params.keys() if params else [])} !!!!!")
-        logger.error(f"!!!!! type値: {params.get('type', 'not_found')} !!!!!")
+        logger.info(f"analyze_all処理開始: request_id={request_id}")
 
         if not image_analyzer:
             raise ValueError("画像解析モジュールが初期化されていません")
@@ -747,7 +745,7 @@ def handle_analyze_all(request_id, params):
         except Exception as json_err:
             logger.error(f"[debug] JSONシリアライズエラー: {str(json_err)}")
 
-        logger.error("✅ send_response を呼び出します（タイムアウト直前かも）")
+        logger.info(f"analyze_all処理完了: request_id={request_id}")
         send_response(request_id, result)
 
     except Exception as e:

@@ -156,9 +156,9 @@ class PythonBridge {
    * @param {number} timeout - タイムアウト時間（ミリ秒）
    * @returns {Promise<any>} コマンドの実行結果
    */
-  async sendCommand(command, params = {}, timeout = 30000) {
-    // リクエストIDを生成
-    const requestId = crypto.randomUUID();
+  async sendCommand(command, params = {}, timeout = 30000, existingRequestId = null) {
+    // リクエストIDを生成（既存のIDが渡された場合はそれを使用）
+    const requestId = existingRequestId || crypto.randomUUID();
     console.log(`Pythonブリッジ: コマンド[${command}]送信開始 (ID: ${requestId.substring(0, 8)}...)`);
 
     // プロセスが起動していなければ起動
@@ -199,10 +199,12 @@ class PythonBridge {
         }
       }, timeout);
 
-      
+
 
       // リクエストをマップに保存（タイムアウトIDも含む）
       this.requestMap.set(requestId, { resolve, reject, timeoutId });
+      console.log(`Pythonブリッジ: リクエストマップに追加 (ID: ${requestId.substring(0, 8)}...), 現在のマップサイズ: ${this.requestMap.size}`);
+      console.log(`Pythonブリッジ: 現在のリクエストIDs:`, Array.from(this.requestMap.keys()).map(id => id.substring(0, 8) + '...'));
 
       // コマンドをJSON形式で送信
       const requestData = {
@@ -225,15 +227,13 @@ class PythonBridge {
         this.pythonProcess.stdin.write(requestStr + '\n');
         console.log(`Pythonブリッジ: コマンド[${command}]送信完了 (ID: ${requestId.substring(0, 8)}...)`);
       } catch (error) {
-        console.error(`Pythonブリッジ: コマンド[${command}]送信エラー:`, error);
-        clearTimeout(timeoutId);
-        this.requestMap.delete(requestId);
-        reject(new Error(`コマンド送信エラー: ${error.message}`));
+        // マップからリクエストを削除（クリーンアップ）
+        if (requestId && this.requestMap.has(requestId)) {
+          this.requestMap.delete(requestId);
+        }
 
-        // 接続エラーの場合、プロセスを再起動
-        this.restart().catch(err => {
-          console.error('プロセス再起動エラー:', err);
-        });
+        console.error(`Pythonブリッジ: コマンド[${command}]送信エラー:`, error);
+        throw error;
       }
     });
   }
@@ -311,8 +311,19 @@ class PythonBridge {
    */
   _processResponse(response) {
     const { id, result, error } = response;
+    // IDがないかnullの場合はログだけ出して処理終了
+    if (!id) {
+      console.warn('Pythonブリッジ: レスポンスにIDがありません');
+      return;
+    }
     console.log(`Pythonブリッジ: レスポンス受信 (ID: ${id ? id.substring(0, 8) : 'unknown'}...)`);
-    console.log(`Pythonブリッジ: 詳細レスポンスデータ:`, JSON.stringify(response).substring(0, 500) + "...");
+    const exists = this.requestMap.has(id);
+    console.log(`Pythonブリッジ: リクエストマップに存在?: ${exists}`);
+    if (!exists) {
+      // 既にタイムアウトした可能性があるため、警告だけを表示
+      console.warn(`Pythonブリッジ: リクエストID '${id}' に対応するハンドラーが見つかりません (おそらくタイムアウト済み)`);
+      return;
+    }
 
     // コマンド情報を取得
     const commandInfo = this.requestMap.has(id) ? this.requestMap.get(id) : { command: 'unknown' };
@@ -732,10 +743,10 @@ class PythonBridge {
           type: 'compress'
         };
       }
-
+      // リクエストIDの生成を一貫して行う
+      const requestId = crypto.randomUUID();
       const params = {
         image_data: imageContent,
-        id: uuidv4(),
         options: requestOptions
       };
 
@@ -760,8 +771,12 @@ class PythonBridge {
 
       // デバッグログを追加
       console.log('Pythonブリッジ: analyze_all送信 - パラメータキー =', Object.keys(params));
+      // デフォルト値を設定
+      const DEFAULT_TIMEOUT = 120000;
 
-      const result = await this.sendCommand(command, params);
+      // オプションからタイムアウト時間を取得（カスタマイズ可能）
+      const timeout = options.timeout || DEFAULT_TIMEOUT;
+      const result = await this.sendCommand(command, params, DEFAULT_TIMEOUT, requestId);
 
       // 🔽 ここに挿入！
       if (!result || Object.keys(result).length === 0) {

@@ -242,7 +242,7 @@ const analyzeAll = async (params) => {
   try {
     const rawResponse = await Promise.race([
       window.api.invoke('analyze_all', params),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 60000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 120000)),
     ]);
 
     // ネストされている場合も吸収
