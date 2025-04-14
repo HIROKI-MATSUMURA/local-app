@@ -765,7 +765,7 @@ class PythonBridge {
 
   /**
    * 画像の総合分析を行う
-   * @param {string} imageData - Base64形式の画像データ
+   * @param {string|object} imageData - Base64形式の画像データ、またはオブジェクト
    * @param {object} options - オプション
    * @returns {Promise<object>} 総合分析結果
    */
@@ -784,19 +784,219 @@ class PythonBridge {
     this.isIdle = false;
 
     try {
+      // パラメータの型を確認し正規化
+      let imageContent;
+      let requestOptions = {};
+
+      if (typeof imageData === 'object' && imageData !== null) {
+        // オブジェクトとして渡された場合
+        const dataObj = imageData;
+
+        // 優先順位順にキーを確認
+        for (const key of ['image', 'image_data', 'imageData']) {
+          if (dataObj[key] && typeof dataObj[key] === 'string') {
+            imageContent = dataObj[key];
+            console.log(`オブジェクトから'${key}'キーの画像データを使用します`);
+            break;
+          }
+        }
+
+        // オプションをマージ
+        requestOptions = { ...dataObj.options, ...options };
+
+        if (!imageContent) {
+          console.error('画像データがオブジェクト内に見つかりません:', Object.keys(dataObj).join(', '));
+          return {
+            success: false,
+            error: '画像データが提供されていません',
+          };
+        }
+      } else if (typeof imageData === 'string') {
+        // 直接画像データが渡された場合
+        imageContent = imageData;
+        requestOptions = options;
+      } else {
+        console.error('不正な画像データ形式:', typeof imageData);
+        return {
+          success: false,
+          error: `不正な画像データ形式: ${typeof imageData}`
+        };
+      }
+
+      // base64チェック
+      if (typeof imageContent === 'string') {
+        if (!imageContent.startsWith('data:image') && !imageContent.match(/^[A-Za-z0-9+/=]+$/)) {
+          console.warn('画像データがbase64形式でない可能性があります');
+        }
+      } else {
+        console.error('画像データが文字列ではありません:', typeof imageContent);
+        return {
+          success: false,
+          error: '画像データが文字列ではありません'
+        };
+      }
+
       // 画像の前処理
-      const optimizedImageData = await this.preprocessImage(imageData);
+      const optimizedImageData = await this.preprocessImage(imageContent);
 
       // 元の処理を実行
       await this._ensureRunning();
+
+      // 画像の型を確認
+      const base64Image = typeof optimizedImageData === 'string'
+        ? optimizedImageData
+        : optimizedImageData?.image || optimizedImageData?.image_data || '';
+
+      // Python側が参照する名前を 'image_data' に統一
       const result = await this.sendCommand('analyze_all', {
-        image: optimizedImageData,
-        options: options
+        image_data: base64Image, ,  // Python側が期待する名前に合わせる
+        options: requestOptions
       }, 90000);  // より長いタイムアウト
 
       return result;
+    } catch (error) {
+      console.error('画像分析エラー:', error);
+      return {
+        success: false,
+        error: `画像分析エラー: ${error.message || '(不明)'}`,
+      };
     } finally {
       this.isIdle = true;
+    }
+  }
+
+  /**
+   * 画像から主要な色を抽出する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<Array>} 抽出された色のリスト
+   */
+  async extractColors(imageData, options = {}) {
+    try {
+      const result = await this.sendCommand('extract_colors', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+      return result.colors || [];
+    } catch (error) {
+      console.error('色抽出エラー:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 画像からテキストを抽出する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<object>} 抽出されたテキスト情報
+   */
+  async extractText(imageData, options = {}) {
+    try {
+      return await this.sendCommand('extract_text', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('テキスト抽出エラー:', error);
+      return { text: '', textBlocks: [] };
+    }
+  }
+
+  /**
+   * 画像のセクションを分析する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<object>} 分析結果
+   */
+  async analyzeSections(imageData, options = {}) {
+    try {
+      return await this.sendCommand('analyze_sections', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('セクション分析エラー:', error);
+      return { sections: [] };
+    }
+  }
+
+  /**
+   * 画像のレイアウトパターンを分析する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<object>} レイアウト分析結果
+   */
+  async analyzeLayout(imageData, options = {}) {
+    try {
+      return await this.sendCommand('analyze_layout', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('レイアウト分析エラー:', error);
+      return {
+        width: 1200,
+        height: 800,
+        type: "unknown"
+      };
+    }
+  }
+
+  /**
+   * 画像のメインセクションを検出する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<object>} 検出されたメインセクション
+   */
+  async detectMainSections(imageData, options = {}) {
+    try {
+      return await this.sendCommand('detect_main_sections', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('メインセクション検出エラー:', error);
+      return { sections: [] };
+    }
+  }
+
+  /**
+   * 画像からカード要素を検出する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<Array>} 検出されたカード要素
+   */
+  async detectCardElements(imageData, options = {}) {
+    try {
+      return await this.sendCommand('detect_card_elements', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('カード要素検出エラー:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 画像から特徴的な要素を検出する
+   * @param {string} imageData - Base64形式の画像データ
+   * @param {object} options - オプション
+   * @returns {Promise<object>} 検出された要素
+   */
+  async detectFeatureElements(imageData, options = {}) {
+    try {
+      return await this.sendCommand('detect_elements', {
+        image_data: imageData, // 'image_data'に統一
+        options
+      });
+    } catch (error) {
+      console.error('要素検出エラー:', error);
+      return {
+        layoutType: "unknown",
+        layoutConfidence: 0.5,
+        elements: []
+      };
     }
   }
 
