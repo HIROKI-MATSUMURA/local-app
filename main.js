@@ -1194,26 +1194,44 @@ $mediaquerys: (
   // APIキー取得関数
   const getApiKey = () => {
     try {
-      if (fs.existsSync(apiKeyPath)) {
-        const data = fs.readFileSync(apiKeyPath, 'utf8');
-        console.log(`APIキーファイルを読み込みました: ${apiKeyPath}`);
+      // src/config/api-keys.js からのみAPIキーを読み込む
+      const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+      console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
 
-        const apiData = JSON.parse(data);
-        console.log(`APIデータ解析結果: プロバイダ=${apiData.selectedProvider || 'openai'}, OpenAIキー=${apiData.apiKey ? '設定済み' : '未設定'}, Claudeキー=${apiData.claudeKey ? '設定済み' : '未設定'}`);
+      // ファイルが存在するか確認
+      if (fs.existsSync(apiConfigPath)) {
+        // 設定ファイルを読み込む
+        const apiConfig = require(apiConfigPath);
+        console.log('Anthropic APIキー設定を読み込みました');
 
-        return {
-          openaiKey: apiData.apiKey,
-          claudeKey: apiData.claudeKey,
-          selectedProvider: apiData.selectedProvider || 'openai' // デフォルトはOpenAI
-        };
+        // Anthropicキーが設定されていれば、それを使用
+        if (apiConfig.ANTHROPIC_API_KEY) {
+          console.log('Anthropic APIキーを発見しました');
+          return {
+            openaiKey: null,
+            claudeKey: apiConfig.ANTHROPIC_API_KEY,
+            selectedProvider: 'claude',
+            anthropicVersion: apiConfig.API_VERSION || '2023-06-01',
+            anthropicBaseUrl: apiConfig.API_BASE_URL || 'https://api.anthropic.com/v1',
+            success: true
+          };
+        } else {
+          console.error('Anthropic APIキーが設定されていません');
+        }
       } else {
-        console.log(`APIキーファイルが存在しません: ${apiKeyPath}`);
+        console.error(`APIキー設定ファイルが見つかりません: ${apiConfigPath}`);
       }
     } catch (error) {
       console.error('Error reading API key:', error);
     }
+
     console.log('デフォルトのAPI設定を返します');
-    return { openaiKey: null, claudeKey: null, selectedProvider: 'openai' };
+    return {
+      openaiKey: null,
+      claudeKey: null,
+      selectedProvider: 'claude',
+      success: false
+    };
   };
 
   // APIキー保存ハンドラ
@@ -1241,9 +1259,29 @@ $mediaquerys: (
     try {
       console.log('Claude APIキーの取得をリクエストされました');
 
-      // API keyファイルパスの作成
+      // 最初にsrc/config/api-keys.jsから取得を試みる
+      try {
+        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
+
+        if (fs.existsSync(apiConfigPath)) {
+          // 設定ファイルを読み込む
+          const apiConfig = require(apiConfigPath);
+          console.log('Anthropic APIキー設定を読み込みました');
+
+          // Anthropicキーが設定されていれば、それを使用
+          if (apiConfig.ANTHROPIC_API_KEY) {
+            console.log(`Claude APIキーの取得に成功: ${apiConfig.ANTHROPIC_API_KEY.substring(0, 10)}...`);
+            return { success: true, claudeKey: apiConfig.ANTHROPIC_API_KEY };
+          }
+        }
+      } catch (configError) {
+        console.error('Anthropic API設定の読み込みに失敗:', configError);
+      }
+
+      // 従来のパスから取得を試みる（フォールバック）
       const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
-      console.log(`APIキーファイルパス: ${secretApiKeyPath}`);
+      console.log(`従来のAPIキーファイルパス: ${secretApiKeyPath}`);
       console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
 
       if (fs.existsSync(secretApiKeyPath)) {
@@ -1275,34 +1313,32 @@ $mediaquerys: (
     try {
       console.log('AIコード生成リクエストを受信しました');
 
-      // Pythonではgenerate_code処理をサポートしていないため、直接JavaScript処理を実行
+      // JavaScript環境でコード生成を実行します
       console.log('JavaScript環境でコード生成を実行します');
 
-      // APIキーを取得
-      const selectedProvider = DEFAULT_PROVIDER;
+      // デフォルトプロバイダはclaudeに固定
+      const selectedProvider = 'claude';
       let apiKey;
 
-      // APIキーを明示的に取得
-      if (selectedProvider === 'claude') {
-        try {
-          console.log('ファイルからClaude APIキーを読み込みます');
-          const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
+      // APIキーを取得
+      try {
+        console.log('src/config/api-keys.jsからAPIキーを読み込みます');
+        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        console.log(`設定ファイルパス: ${apiConfigPath}`);
 
-          if (fs.existsSync(secretApiKeyPath)) {
-            const fileContent = fs.readFileSync(secretApiKeyPath, 'utf8');
-            const apiData = JSON.parse(fileContent);
-            apiKey = apiData.claudeKey;
-            console.log(`Claude APIキーを読み込みました: ${apiKey ? '成功' : '失敗'}`);
-          } else {
-            console.error(`APIキーファイルが見つかりません: ${secretApiKeyPath}`);
-            apiKey = CLAUDE_API_KEY; // フォールバック
-          }
-        } catch (keyError) {
-          console.error('APIキー読み込みエラー:', keyError);
-          apiKey = CLAUDE_API_KEY; // エラー時はハードコードされたキーを使用
+        if (fs.existsSync(apiConfigPath)) {
+          // JavaScriptモジュールとして読み込む
+          const apiConfig = require(apiConfigPath);
+          console.log(`APIキー設定を読み込みました`);
+
+          // Anthropicキーを使用
+          apiKey = apiConfig.ANTHROPIC_API_KEY;
+          console.log(`Claude APIキーを取得: ${apiKey ? '成功' : '失敗'}`);
+        } else {
+          console.error(`APIキーファイルが見つかりません: ${apiConfigPath}`);
         }
-      } else {
-        apiKey = OPENAI_API_KEY;
+      } catch (keyError) {
+        console.error('APIキー読み込みエラー:', keyError);
       }
 
       console.log(`選択されたAIプロバイダ: ${selectedProvider}, APIキー存在: ${apiKey ? 'はい' : 'いいえ'}`);
@@ -2380,8 +2416,152 @@ $mediaquerys: (
     return await ipcMain.handlers['analyze_all'](event, data);
   });
 
+  // AI関連のIPCハンドラーを追加
+  ipcMain.handle('send-ai-request', async (event, requestOptions) => {
+    try {
+      console.log('AI送信: リクエスト受信', {
+        promptLength: requestOptions.prompt.length,
+        provider: requestOptions.provider,
+        hasApiKey: !!requestOptions.apiKey
+      });
 
+      // APIキーの確認
+      if (!requestOptions.apiKey) {
+        // APIキーを取得
+        const apiKeyData = getApiKey();
+        console.log('AI送信: APIキー取得結果', {
+          success: apiKeyData.success,
+          provider: apiKeyData.selectedProvider,
+          hasClaudeKey: !!apiKeyData.claudeKey
+        });
 
+        if (!apiKeyData.success) {
+          throw new Error('APIキーが設定されていません');
+        }
+
+        // プロバイダに応じたAPIキーを設定
+        if (apiKeyData.selectedProvider === 'claude') {
+          requestOptions.apiKey = apiKeyData.claudeKey;
+          requestOptions.provider = 'claude';
+          requestOptions.version = apiKeyData.anthropicVersion;
+          requestOptions.baseUrl = apiKeyData.anthropicBaseUrl;
+        } else {
+          requestOptions.apiKey = apiKeyData.openaiKey;
+          requestOptions.provider = 'openai';
+        }
+      }
+
+      console.log('AI送信: 使用するAPI', {
+        provider: requestOptions.provider,
+        apiKeyExists: !!requestOptions.apiKey,
+        version: requestOptions.version
+      });
+
+      // プロバイダに応じたAPIリクエスト
+      if (requestOptions.provider === 'claude') {
+        // Claude APIリクエスト
+        console.log('AI送信: Claude APIにリクエスト送信...');
+
+        // メッセージ形式は単純なテキストにする
+        const messageContent = requestOptions.prompt;
+
+        const requestData = {
+          model: requestOptions.model || 'claude-3-5-haiku-20241022',
+          messages: [{
+            role: 'user',
+            content: messageContent
+          }],
+          max_tokens: requestOptions.maxTokens || 4096,
+          temperature: requestOptions.temperature || 0.7
+        };
+
+        console.log('AI送信: Claudeリクエストデータ', {
+          model: requestData.model,
+          messagesCount: requestData.messages.length,
+          messageLength: requestData.messages[0].content.length,
+          maxTokens: requestData.max_tokens,
+          temperature: requestData.temperature
+        });
+
+        const apiUrl = requestOptions.baseUrl || 'https://api.anthropic.com/v1';
+        console.log('AI送信: API URL', apiUrl + '/messages');
+
+        const response = await axios.post(apiUrl + '/messages', requestData, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': requestOptions.apiKey,
+            'anthropic-version': requestOptions.version || '2023-06-01'
+          },
+          timeout: 120000 // タイムアウトを120秒に設定
+        });
+
+        console.log('AI送信: Claude APIレスポンス', {
+          status: response.status,
+          contentLength: response.data.content?.[0]?.text?.length || 0
+        });
+
+        return {
+          success: true,
+          text: response.data.content[0].text,
+          provider: 'claude'
+        };
+      } else {
+        // OpenAI APIリクエスト
+        console.log('AI送信: OpenAI APIにリクエスト送信...');
+
+        const messages = [{ role: 'user', content: [{ type: 'text', text: requestOptions.prompt }] }];
+
+        const requestData = {
+          model: requestOptions.model || 'gpt-4o',
+          messages,
+          max_tokens: requestOptions.maxTokens || 4096,
+          temperature: requestOptions.temperature || 0.7
+        };
+
+        console.log('AI送信: OpenAIリクエストデータ', {
+          model: requestData.model,
+          messagesCount: requestData.messages.length,
+          contentLength: requestData.messages[0].content[0].text.length,
+          maxTokens: requestData.max_tokens,
+          temperature: requestData.temperature
+        });
+
+        const response = await axios.post('https://api.openai.com/v1/chat/completions', requestData, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${requestOptions.apiKey}`
+          }
+        });
+
+        console.log('AI送信: OpenAI APIレスポンス', {
+          status: response.status,
+          contentLength: response.data.choices[0].message.content.length
+        });
+
+        return {
+          success: true,
+          text: response.data.choices[0].message.content,
+          provider: 'openai'
+        };
+      }
+    } catch (error) {
+      // エラー情報を詳しく出力
+      console.error('AI送信: エラー発生', {
+        message: error.message,
+        code: error.code,
+        response: error.response ? {
+          status: error.response.status,
+          data: error.response.data
+        } : 'レスポンスなし'
+      });
+
+      return {
+        success: false,
+        error: error.message || String(error),
+        details: error.response?.data || null
+      };
+    }
+  });
 }
 
 // プロジェクトデータの保存

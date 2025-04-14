@@ -523,4 +523,95 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }
 });
 
+// AI API関連の機能をレンダラープロセスに公開
+contextBridge.exposeInMainWorld('aiApi', {
+  // APIキーを安全に取得
+  getConfig: async () => {
+    try {
+      console.log('aiApi: APIキーを取得中...');
+      // メインプロセスからAPIキーを取得
+      const result = await ipcRenderer.invoke('get-api-key');
+      console.log('aiApi: メインプロセスからの応答:', JSON.stringify({
+        success: result.success,
+        hasClaudeKey: !!result.claudeKey,
+        hasOpenAIKey: !!result.openaiKey,
+        provider: result.selectedProvider,
+        version: result.anthropicVersion
+      }));
+
+      if (result && (result.claudeKey || result.openaiKey)) {
+        console.log('aiApi: APIキー取得成功 - プロバイダ:', result.selectedProvider);
+        return {
+          apiKey: result.claudeKey || result.openaiKey,
+          provider: result.selectedProvider,
+          baseUrl: result.anthropicBaseUrl || 'https://api.anthropic.com/v1',
+          version: result.anthropicVersion || '2023-06-01',
+          success: true
+        };
+      } else {
+        console.error('aiApi: APIキー取得エラー: キーが見つかりません');
+        return {
+          apiKey: '',
+          provider: 'claude',
+          baseUrl: 'https://api.anthropic.com/v1',
+          version: '2023-06-01',
+          success: false
+        };
+      }
+    } catch (error) {
+      console.error('aiApi: APIキー設定エラー:', error.message);
+      // エラー時にはデフォルト値を返す
+      return {
+        apiKey: '',
+        provider: 'claude',
+        baseUrl: 'https://api.anthropic.com/v1',
+        version: '2023-06-01',
+        success: false
+      };
+    }
+  },
+
+  // AIリクエストを送信
+  sendRequest: async (prompt, options = {}) => {
+    try {
+      console.log('aiApi: AIリクエスト送信 - プロンプト:', prompt.substring(0, 50) + '...');
+      // APIキーを取得
+      const config = await window.aiApi.getConfig();
+      console.log('aiApi: 設定取得結果:', JSON.stringify({
+        success: config.success,
+        provider: config.provider,
+        version: config.version
+      }));
+
+      if (!config.success) {
+        console.error('aiApi: APIキーが見つかりません');
+        throw new Error('APIキーが見つかりません');
+      }
+
+      // リクエストオプションを設定
+      const requestOptions = {
+        ...options,
+        apiKey: config.apiKey,
+        provider: config.provider,
+        version: config.version,
+        prompt: prompt
+      };
+
+      console.log('aiApi: リクエスト送信中...');
+      // リクエストを送信
+      const response = await ipcRenderer.invoke('send-ai-request', requestOptions);
+      console.log('aiApi: レスポンス受信:', JSON.stringify({
+        success: response.success,
+        textLength: response.text ? response.text.length : 0,
+        provider: response.provider
+      }));
+
+      return response;
+    } catch (error) {
+      console.error('aiApi: リクエスト失敗:', error);
+      throw new Error(`AIリクエスト失敗: ${error.message}`);
+    }
+  }
+});
+
 console.log('Preload script loaded successfully');
