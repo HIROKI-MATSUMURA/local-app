@@ -206,6 +206,17 @@ contextBridge.exposeInMainWorld('api', {
   loadTagsSync: () => ipcRenderer.sendSync('load-tags-sync'),
   loadSelectedTagsSync: () => ipcRenderer.sendSync('load-selected-tags-sync'),
 
+  // 選択されたタグの保存
+  saveSelectedTags: async (tags) => {
+    try {
+      console.log('saveSelectedTags: 選択タグを保存します', tags);
+      return await ipcRenderer.invoke('saveSelectedTags', tags);
+    } catch (err) {
+      console.error('saveSelectedTags 失敗:', err);
+      return false;
+    }
+  },
+
   // アクティブプロジェクトIDの保存と読み込み
   saveActiveProjectId: (projectId) => ipcRenderer.invoke('save-active-project-id', projectId),
   loadActiveProjectId: () => ipcRenderer.invoke('load-active-project-id'),

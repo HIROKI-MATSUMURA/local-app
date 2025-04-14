@@ -1347,12 +1347,14 @@ const ProjectManager = ({ onProjectChange }) => {
                   setSelectedTags(newSelectedTags);
 
                   // 選択されたタグを保存
-                  try {
-                    window.api.saveSelectedTags(newSelectedTags);
-                    console.log('選択されたタグを保存しました:', newSelectedTags);
-                  } catch (error) {
-                    console.error('選択されたタグの保存に失敗:', error);
-                  }
+                  (async () => {
+                    try {
+                      const result = await window.api.saveSelectedTags(newSelectedTags);
+                      console.log('選択されたタグを保存しました:', newSelectedTags, result);
+                    } catch (error) {
+                      console.error('選択されたタグの保存に失敗:', error);
+                    }
+                  })();
                 }}
               >
                 {tag} <span className={styles['count']}>{countProjectsByTag(tag)}</span>
