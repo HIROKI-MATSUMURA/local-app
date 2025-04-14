@@ -21,6 +21,47 @@ const AICodeGenerator = ({ imageData, onCodeGenerated }) => {
       const analysisResults = await window.imageAnalysis.analyzeAll(imageData);
       console.log('画像分析が完了しました', analysisResults);
 
+      // 詳細なログを追加
+      console.log('🔎🔎🔎 analyzeAll詳細結果:');
+      console.log(`🔎🔎🔎 結果型: ${typeof analysisResults}`);
+
+      if (analysisResults) {
+        console.log(`🔎🔎🔎 結果構造: ${Object.keys(analysisResults).join(', ')}`);
+
+        // テキスト情報の確認
+        if (analysisResults.text !== undefined) {
+          console.log(`🔎🔎🔎 text型: ${typeof analysisResults.text}`);
+          console.log(`🔎🔎🔎 text長さ: ${analysisResults.text.length || 0}文字`);
+        } else {
+          console.log('🔎🔎🔎 text: undefined');
+        }
+
+        // テキストブロックの確認
+        if (analysisResults.textBlocks !== undefined) {
+          console.log(`🔎🔎🔎 textBlocks型: ${typeof analysisResults.textBlocks}, 配列か: ${Array.isArray(analysisResults.textBlocks)}`);
+          console.log(`🔎🔎🔎 textBlocks長さ: ${Array.isArray(analysisResults.textBlocks) ? analysisResults.textBlocks.length : 'not an array'}`);
+        } else {
+          console.log('🔎🔎🔎 textBlocks: undefined');
+        }
+
+        // 色情報の確認
+        if (analysisResults.colors !== undefined) {
+          console.log(`🔎🔎🔎 colors型: ${typeof analysisResults.colors}, 配列か: ${Array.isArray(analysisResults.colors)}`);
+          console.log(`🔎🔎🔎 colors長さ: ${Array.isArray(analysisResults.colors) ? analysisResults.colors.length : 'not an array'}`);
+        } else {
+          console.log('🔎🔎🔎 colors: undefined');
+        }
+
+        // 結果データの完全なJSONを出力
+        try {
+          console.log('🔎🔎🔎 分析結果全体:', JSON.stringify(analysisResults, null, 2));
+        } catch (e) {
+          console.error(`🔎🔎🔎 JSONシリアライズエラー: ${e.message}`);
+        }
+      } else {
+        console.log("🔎🔎🔎 分析結果はnullまたはundefinedです");
+      }
+
       // 分析結果の圧縮
       const compressedResults = await window.imageAnalysis.compressAnalysisResults(analysisResults);
       console.log('分析結果を圧縮しました', compressedResults);
@@ -164,4 +205,17 @@ const AICodeGenerator = ({ imageData, onCodeGenerated }) => {
       }
     } catch (error) {
       console.error('フィードバック処理中にエラーが発生しました:', error);
-      setError(`
+      setError(`フィードバック処理中にエラーが発生しました: ${error.message || '不明なエラー'}`);
+    } finally {
+      setFeedbackInProgress(false);
+    }
+  };
+
+  return (
+    <div>
+      {/* コンポーネントのUIコード */}
+    </div>
+  );
+};
+
+export default AICodeGenerator;

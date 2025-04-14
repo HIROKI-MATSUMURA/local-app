@@ -855,6 +855,69 @@ class PythonBridge {
 
       const result = await this.sendCommand(command, params);
 
+      // 🔽 ここに挿入！
+      if (!result || Object.keys(result).length === 0) {
+        console.warn('⚠️ Pythonから空のレスポンスが返却されました');
+      } else if (result.success === false) {
+        console.warn('⚠️ Python処理結果: success = false');
+        console.warn('⚠️ エラー内容:', result.error || '(不明)');
+      }
+
+
+      // 結果の詳細ログを追加
+      console.log("🔍🔍🔍 pythonBridge.analyzeAll - 受信した結果データ:");
+      console.log(`🔍🔍🔍 結果型: ${typeof result}`);
+
+      if (result && Object.keys(result).length === 0) {
+        console.warn('⚠️ Pythonから空のレスポンスが返却されました');
+        console.log(`🔍🔍🔍 結果構造: ${Object.keys(result).join(', ')}`);
+
+        if (result && result.success === false) {
+          console.warn('⚠️ Python処理結果: success = false');
+          console.warn('⚠️ エラー内容:', result.error || '(不明)');
+        }
+
+        // テキスト情報の確認
+        if (result.text !== undefined) {
+          console.log(`🔍🔍🔍 text型: ${typeof result.text}`);
+          console.log(`🔍🔍🔍 text内容: "${result.text.substring(0, 100)}${result.text.length > 100 ? '...' : ''}"`);
+        } else {
+          console.log(`🔍🔍🔍 text: undefined`);
+        }
+
+        // テキストブロックの確認
+        if (result.textBlocks !== undefined) {
+          console.log(`🔍🔍🔍 textBlocks型: ${typeof result.textBlocks}, 配列か: ${Array.isArray(result.textBlocks)}`);
+          console.log(`🔍🔍🔍 textBlocks長さ: ${Array.isArray(result.textBlocks) ? result.textBlocks.length : 'not an array'}`);
+          if (Array.isArray(result.textBlocks) && result.textBlocks.length > 0) {
+            console.log(`🔍🔍🔍 最初のtextBlock: ${JSON.stringify(result.textBlocks[0])}`);
+          }
+        } else {
+          console.log(`🔍🔍🔍 textBlocks: undefined`);
+        }
+
+        // 色情報の確認
+        if (result.colors !== undefined) {
+          console.log(`🔍🔍🔍 colors型: ${typeof result.colors}, 配列か: ${Array.isArray(result.colors)}`);
+          console.log(`🔍🔍🔍 colors長さ: ${Array.isArray(result.colors) ? result.colors.length : 'not an array'}`);
+          if (Array.isArray(result.colors) && result.colors.length > 0) {
+            console.log(`🔍🔍🔍 最初のcolor: ${JSON.stringify(result.colors[0])}`);
+          }
+        } else {
+          console.log(`🔍🔍🔍 colors: undefined`);
+        }
+
+        // 結果データの完全なJSONを出力
+        try {
+          const jsonStr = JSON.stringify(result, null, 2);
+          console.log(`🔍🔍🔍 結果データ全体 (先頭1000文字):\n${jsonStr.substring(0, 1000)}${jsonStr.length > 1000 ? '...' : ''}`);
+        } catch (e) {
+          console.error(`🔍🔍🔍 JSONシリアライズエラー: ${e.message}`);
+        }
+      } else {
+        console.log("🔍🔍🔍 結果データはnullまたはundefinedです");
+      }
+
       // 結果の確認
       if (result) {
         console.log('Python処理結果の構造:', Object.keys(result).join(', '));
@@ -877,14 +940,12 @@ class PythonBridge {
       console.error('画像分析エラー:', error);
       return {
         success: false,
-        error: error.message,
-        layout: {
-          layoutType: "unknown",
-          confidence: 0.5
-        },
+        error: `画像分析エラー: ${error.message || '(不明)'}`,
+        layout: { layoutType: "unknown", confidence: 0.5 },
         elements: [],
-        text: { text: "" },
-        colors: [] // 色情報を空配列として含める
+        text: "",
+        colors: [],
+        context: 'fallback_from_analyzeAll'
       };
     }
   }

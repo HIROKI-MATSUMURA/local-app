@@ -110,7 +110,7 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
-  invoke: (...args) => ipcRenderer.invoke(...args), 
+  invoke: (...args) => ipcRenderer.invoke(...args),
 
   // IPC通信
   send: (channel, data) => {
@@ -296,48 +296,62 @@ contextBridge.exposeInMainWorld('api', {
   installPythonPackages: () => ipcRenderer.invoke('install-python-packages'),
 
   // 画像分析API
-  analyzeImage: async (data) => {
+  // 画像の総合分析（旧 analyzeImage のロジックを統合）
+  analyzeAll: async (data, options = {}) => {
     try {
       // データの存在確認
       if (!data) {
-        console.error('画像分析データが提供されていません');
+        console.error('[preload] analyzeAll: 画像分析データが提供されていません');
         return { success: false, error: 'データが提供されていません' };
       }
 
-      // データ形式の確認と修正（より詳細に）
+      // データ形式の確認と修正
       if (data.image_data) {
-        console.log('画像データ形式を変換: image_data → image');
-        data.image = data.image_data; // 名前の統一
-        delete data.image_data; // 古い名前は削除
+        console.log('[preload] analyzeAll: image_data → image に変換');
+        data.image = data.image_data;
+        delete data.image_data;
       }
 
-      // 画像データの確認
-      if (!data.image) {
-        console.error('画像データが含まれていません');
-        return { success: false, error: '画像データが含まれていません' };
+      // 画像データの検証
+      const image = data.image || data;
+      if (!image || typeof image !== 'string') {
+        console.error('[preload] analyzeAll: 画像データが不正です');
+        return { success: false, error: '画像データが不正です' };
       }
 
-      // 画像データのサイズをログ
-      console.log('画像分析リクエスト: 画像データサイズ=',
-        typeof data.image === 'string' ? data.image.length : 'unknown');
+      console.log('[preload] analyzeAll: データサイズ =', image.length);
 
-      // IPC呼び出し
-      const result = await ipcRenderer.invoke('analyze-image', data);
+      // options をマージ
+      const mergedPayload = {
+        image_data: image,
+        options: {
+          ...(data.options || {}),
+          ...options,
+          type: data.type || 'compress'
+        }
+      };
 
-      // 結果の確認
+      console.log('[preload] analyzeAll: 送信するpayload:', {
+        image_data: '(省略)',
+        options: mergedPayload.options
+      });
+
+      // ipc 呼び出し
+      const result = await ipcRenderer.invoke('analyze_all', mergedPayload);
+
       if (result && result.success === false) {
-        console.error('画像分析エラー（サーバー）:', result.error);
+        console.error('[preload] analyzeAll: エラーあり:', result.error);
       } else {
-        console.log('画像分析成功: 結果には以下のキーが含まれています:',
-          result ? Object.keys(result).join(', ') : 'なし');
+        console.log('[preload] analyzeAll: 成功 - キー:', result ? Object.keys(result).join(', ') : 'なし');
       }
 
       return result;
     } catch (error) {
-      console.error('画像分析エラー:', error);
+      console.error('[preload] analyzeAll: 例外発生:', error);
       return { success: false, error: error.message || String(error) };
     }
   },
+
 
   // Python画像処理API
   extractColorsFromImage: (imageData) => ipcRenderer.invoke('extract-colors-from-image', imageData),
@@ -360,9 +374,11 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
   // 画像の総合分析
-  analyzeAll: async (imageData, options = {}) => {
-    return await ipcRenderer.invoke('analyze_all', imageData, options);
-  },
+  analyzeImage: async (data) => {
+    console.warn('[非推奨] analyzeImage は使用されました。analyzeAll をご利用ください。');
+    return await window.api.analyzeAll(data);
+  }
+
 });
 
 // Electronオブジェクトも公開

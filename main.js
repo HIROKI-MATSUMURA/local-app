@@ -2395,72 +2395,76 @@ $mediaquerys: (
     }
   });
 
-  ipcMain.handle('analyze_all', async (event, imageData, options = {}) => {
+  ipcMain.handle('analyze_all', async (event, data, options = {}) => {
     try {
-      console.log('🧠 [main.js] analyze_all リクエスト受信');
-      console.log('📦 画像データの形式:', typeof imageData);
-      console.log('⚙️ オプション:', options);
+      console.log('[analyze_all] リクエスト受信');
 
-      const result = await pythonBridge.analyzeAll(imageData, options);
+      // データが直接イメージデータか、オブジェクトかを確認
+      let image, type = 'compress', requestOptions = {};
 
-      console.log('✅ [main.js] analyze_all 結果:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ [main.js] analyze_all 失敗:', error);
-      return { success: false, error: error.message || String(error) };
-    }
-  });
+      if (typeof data === 'object' && data !== null) {
+        // オブジェクトとして渡された場合
+        image = data.image || data.image_data;
+        type = data.type || 'compress';
+        requestOptions = data.options || {};
 
-
-
-  // 総合的な画像解析ハンドラ
-  ipcMain.handle('analyze-image', async (event, data) => {
-    try {
-      console.log('[analyze-image] リクエスト受信 - キー:', data ? Object.keys(data).join(', ') : 'データなし');
-
-      const image = data.image || data.image_data || data;
-      const type = data.type || 'compress';
-      const options = data.options || {};
+        // オプションパラメータが別に渡された場合はマージ
+        if (Object.keys(options).length > 0) {
+          requestOptions = { ...requestOptions, ...options };
+        }
+      } else {
+        // 直接画像データが渡された場合
+        image = data;
+        requestOptions = options;
+      }
 
       if (!image) {
-        console.error('[analyze-image] 画像データが存在しません');
+        console.error('[analyze_all] 画像データが存在しません');
         return { success: false, error: '画像データが存在しません' };
       }
 
-      console.log('[analyze-image] 解析タイプ:', type);
-      console.log('[analyze-image] 画像データ形式:', typeof image);
+      console.log('[analyze_all] 解析タイプ:', type);
+      console.log('[analyze_all] 画像データ形式:', typeof image);
       if (typeof image === 'string') {
-        console.log('[analyze-image] データサイズ:', image.length);
+        console.log('[analyze_all] データサイズ:', image.length);
       }
 
       const requestPayload = {
         image,
         type,
-        ...options // 他のオプションをマージ
+        ...requestOptions
       };
 
-      console.log('[analyze-image] Pythonへ送信するpayload:', {
+      console.log('[analyze_all] Pythonへ送信するpayload:', {
         type: requestPayload.type,
         image: '(base64省略)',
-        ...('options' in data ? { options } : {})
+        options: requestOptions
       });
-      console.log("✅ analyzeImage を呼び出します", requestPayload);
-      const result = await pythonBridge.analyzeImage(requestPayload);
-      console.log("✅ analyzeImage の結果:", result);
+
+      console.log("✅ analyzeAll を呼び出します", requestPayload);
+      const result = await pythonBridge.analyzeAll(requestPayload);
+      console.log("✅ analyzeAll の結果:", result);
 
       if (result) {
-        console.log('[analyze-image] 解析完了:', Object.keys(result).join(', '));
+        console.log('[analyze_all] 解析完了:', Object.keys(result).join(', '));
         if (result.error) console.error('エラー:', result.error);
       } else {
-        console.warn('[analyze-image] 解析結果が null/undefined');
+        console.warn('[analyze_all] 解析結果が null/undefined');
       }
 
       return { success: true, data: result };
     } catch (error) {
-      console.error('[analyze-image] エラー:', error.message);
+      console.error('[analyze_all] エラー:', error.message);
       return { success: false, error: error.message || String(error) };
     }
   });
+
+  // 後方互換性のために残す場合はリダイレクト処理に
+  ipcMain.handle('analyze-image', async (event, data) => {
+    console.log('[analyze-image] ⚠️ 非推奨の API が呼び出されました - analyze_all へリダイレクトします');
+    return await ipcMain.handlers['analyze_all'](event, data);
+  });
+
 
 
 }

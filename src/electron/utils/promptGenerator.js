@@ -2394,7 +2394,7 @@ const analyzeAll = async (params) => {
   try {
     const result = await Promise.race([
       window.api.invoke('analyze_all', params), // ← await を外す！
-      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 30000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 60000)),
     ]);
     console.log('✅ Pythonのレスポンス:', result);
     return result;
@@ -2423,11 +2423,11 @@ export const generatePrompt = async (options) => {
 
   try {
     // 画像解析を実行
-    // const pcAnalysis = pcImage ? await analyzeImage(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
-    // const spAnalysis = spImage ? await analyzeImage(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+    const pcAnalysis = pcImage ? await analyzeAll(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
+    const spAnalysis = spImage ? await analyzeAll(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
 
     // 新：置き換え
-    const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
+    // const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
 
     // 解析結果の検証
     if (!pcImage && !spImage) {

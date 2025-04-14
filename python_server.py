@@ -713,6 +713,27 @@ def handle_analyze_all(request_id, params):
         result = analyze_all(image, options)
 
         try:
+            logger.error("✅✅✅ analyze_all結果の構造:")
+            logger.error(f"✅✅✅ 結果のキー: {list(result.keys() if result else [])}")
+            logger.error(f"✅✅✅ colors: {type(result.get('colors', []))} ({len(result.get('colors', []))}個)")
+            logger.error(f"✅✅✅ text: {type(result.get('text', ''))} ({len(result.get('text', ''))}文字)")
+            logger.error(f"✅✅✅ textBlocks: {type(result.get('textBlocks', []))} ({len(result.get('textBlocks', []))}個)")
+
+            # colorsの内容詳細
+            if result.get('colors'):
+                logger.error(f"✅✅✅ 最初の色: {result['colors'][0] if result['colors'] else 'なし'}")
+
+            # textBlocksの内容詳細
+            if result.get('textBlocks'):
+                logger.error(f"✅✅✅ 最初のテキストブロック: {result['textBlocks'][0] if result['textBlocks'] else 'なし'}")
+
+            json_dump = json.dumps(result, ensure_ascii=False, indent=2)
+            logger.error("✅✅✅ 結果JSON (一部):")
+            logger.error(json_dump[:1000] + ('...' if len(json_dump) > 1000 else ''))
+        except Exception as log_err:
+            logger.error(f"✅✅✅ 結果ログ出力エラー: {str(log_err)}")
+
+        try:
             json_dump = json.dumps(result, ensure_ascii=False, indent=2)
             logger.info("===== 最終送信データ (一部) =====")
             logger.info(json_dump[:1000] + ('...' if len(json_dump) > 1000 else ''))
@@ -736,6 +757,7 @@ def handle_analyze_all(request_id, params):
             "status": "error",
             "error": str(e)
         }, f"総合分析エラー: {str(e)}")
+
 def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
     """画像解析結果を圧縮して重要な情報だけを抽出する"""
     try:
