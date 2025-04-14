@@ -199,6 +199,8 @@ class PythonBridge {
         }
       }, timeout);
 
+      
+
       // リクエストをマップに保存（タイムアウトIDも含む）
       this.requestMap.set(requestId, { resolve, reject, timeoutId });
 

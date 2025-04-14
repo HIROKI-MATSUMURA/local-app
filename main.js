@@ -2356,10 +2356,21 @@ $mediaquerys: (
         console.warn('[analyze_all] 解析結果が null/undefined');
       }
 
-      return { success: true, data: result };
+      return result;
     } catch (error) {
-      console.error('[analyze_all] エラー:', error.message);
-      return { success: false, error: error.message || String(error) };
+      const isTimeout = error.message?.includes('タイムアウト');
+
+      if (isTimeout) {
+        console.error('[analyze_all] タイムアウトエラー:', error.message);
+      } else {
+        console.error('[analyze_all] エラー:', error.message);
+      }
+
+      return {
+        success: false,
+        error: error.message || String(error),
+        context: isTimeout ? 'timeout' : 'runtime_error'
+      };
     }
   });
 
