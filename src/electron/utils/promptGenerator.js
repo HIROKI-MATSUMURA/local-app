@@ -262,7 +262,7 @@ const analyzeImage = async (imageBase64, imageType) => {
       Promise.resolve([]);
 
     console.log("🔥 analyzeImage 呼び出し前 - 要素検出", imageBase64.slice(0, 100));
-    const elementsPromise = window.api.analyzeImage ?
+    const elementsPromise = window.api.analyzeAll ?
       window.api.analyzeImage({ image: imageBase64, type: 'features' })
         .then(result => {
           if (!result.success) {
@@ -275,7 +275,7 @@ const analyzeImage = async (imageBase64, imageType) => {
 
     // 圧縮解析結果を取得（新機能）
     console.log("🔥 analyzeImage 呼び出し前 - 圧縮解析", imageBase64.slice(0, 100));
-    const compressedAnalysisPromise = window.api.analyzeImage ?
+    const compressedAnalysisPromise = window.api.analyzeAll ?
       window.api.analyzeImage({
         image: imageBase64,
         type: 'compress',
