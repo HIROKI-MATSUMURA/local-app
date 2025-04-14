@@ -1476,67 +1476,7 @@ After going through this checklist, ensure your HTML and SCSS accurately reprodu
  * @returns {Object} 標準化された圧縮データ
  */
 function normalizeAnalysisData(rawData) {
-  console.log("normalizeAnalysisDataのrawData:", rawData);
-
-  // データの詳細な構造を出力
   try {
-    console.log("=== rawDataの完全な構造 ===");
-    console.log(JSON.stringify(rawData, null, 2));
-    console.log("=== rawDataの構造出力終了 ===");
-  } catch (err) {
-    console.log("rawDataのJSON化に失敗:", err);
-  }
-
-  // デバッグ情報の追加：データの詳細な解析
-  console.log("=== データ受信状態の詳細確認 ===");
-  console.log("rawDataは存在する:", Boolean(rawData));
-  console.log("rawDataの型:", typeof rawData);
-
-  if (rawData) {
-    // colorsの確認
-    if (rawData.colors) {
-      console.log("colors配列が存在:", true);
-      console.log("colors配列の型:", typeof rawData.colors);
-      console.log("colors配列の長さ:", Array.isArray(rawData.colors) ? rawData.colors.length : "配列ではない");
-      if (Array.isArray(rawData.colors) && rawData.colors.length > 0) {
-        console.log("colors配列の最初の要素:", rawData.colors[0]);
-      }
-    } else {
-      console.log("colors配列が存在:", false);
-    }
-
-    // textの確認（オブジェクトまたは文字列）
-    if (rawData.text) {
-      console.log("textが存在:", true);
-      console.log("textの型:", typeof rawData.text);
-      if (typeof rawData.text === 'string') {
-        console.log("textの長さ:", rawData.text.length);
-        console.log("textのプレビュー:", rawData.text.substring(0, 50) + (rawData.text.length > 50 ? "..." : ""));
-      } else if (typeof rawData.text === 'object') {
-        console.log("textのプロパティ:", Object.keys(rawData.text).join(', '));
-      }
-    } else {
-      console.log("textが存在:", false);
-    }
-
-    // textBlocksの確認
-    if (rawData.textBlocks) {
-      console.log("textBlocksが存在:", true);
-      console.log("textBlocksの型:", typeof rawData.textBlocks);
-      console.log("textBlocksの長さ:", Array.isArray(rawData.textBlocks) ? rawData.textBlocks.length : "配列ではない");
-      if (Array.isArray(rawData.textBlocks) && rawData.textBlocks.length > 0) {
-        console.log("textBlocksの最初の要素:", rawData.textBlocks[0]);
-      }
-    } else {
-      console.log("textBlocksが存在:", false);
-    }
-  }
-  console.log("=== データ受信状態の確認終了 ===");
-
-  try {
-    console.log("データ正規化開始:", typeof rawData === 'object' ?
-      (Array.isArray(rawData) ? `配列 (${rawData.length}項目)` : Object.keys(rawData).join(', ')) : typeof rawData);
-
     // データがすでに必要なプロパティを持っている場合は、それを優先的に使用
     // Python側から直接返されるオブジェクト構造（colors, text.text, textBlocks）にも対応
     if (rawData && typeof rawData === 'object') {
@@ -1581,13 +1521,11 @@ function normalizeAnalysisData(rawData) {
 
       // レイアウト情報の処理
       if (rawData.layout && typeof rawData.layout === 'object') {
-        console.log("レイアウト情報を処理: ", Object.keys(rawData.layout).join(', '));
         Object.assign(normalized.layout, rawData.layout);
       }
 
       // 色情報の処理（配列形式）
       if (Array.isArray(rawData.colors)) {
-        console.log("色情報の処理開始: 配列 (" + rawData.colors.length + "項目)");
         normalized.colors = rawData.colors.map(color => ({
           ...color,
           role: color.role || 'general',
@@ -1598,14 +1536,11 @@ function normalizeAnalysisData(rawData) {
       }
 
       // レイアウト情報の処理
-      console.log("レイアウト情報の処理開始:",
-        rawData.layout ? Object.keys(rawData.layout).join(', ') : 'なし');
       if (rawData.layout) {
         Object.assign(normalized.layout, rawData.layout);
       }
 
       // テキスト情報の処理
-      console.log("テキスト情報の処理開始:", rawData.text);
       if (typeof rawData.text === 'string') {
         // 文字列の場合
         normalized.text.content = rawData.text;
@@ -1624,8 +1559,6 @@ function normalizeAnalysisData(rawData) {
       }
 
       // textBlocksが直接存在する場合（Python側から直接返される形式）
-      console.log("UI要素情報の処理開始:", rawData.elements ?
-        (typeof rawData.elements === 'object' ? 'オブジェクト' : 'その他') : 'なし');
       if (Array.isArray(rawData.textBlocks)) {
         normalized.text.blocks = rawData.textBlocks;
         // テキスト内容が未設定の場合、最初のブロックから抽出
@@ -1669,11 +1602,9 @@ function normalizeAnalysisData(rawData) {
         normalized.layout.sectionCount = rawData.sections.length;
       }
 
-      console.log("データ正規化完了: ", Object.keys(normalized).join(', '));
       return normalized;
     }
 
-    console.warn("rawDataは有効なオブジェクトではありません");
     return {
       layout: { type: 'unknown', width: 1200, height: 800 },
       colors: [],
@@ -1682,8 +1613,6 @@ function normalizeAnalysisData(rawData) {
       sections: []
     };
   } catch (error) {
-    console.error("データ正規化エラー:", error);
-    console.error("エラーのスタックトレース:", error.stack);
     return {
       layout: { type: 'unknown', width: 1200, height: 800 },
       colors: [],
@@ -2284,19 +2213,14 @@ function inferWebsiteType(sectionTypes, elementSummary) {
  */
 const buildBetterPrompt = (rawData) => {
   try {
-    console.log("拡張プロンプト構築開始:", typeof rawData);
     if (!rawData) {
-      console.warn("buildBetterPrompt: データが提供されていません");
       return null;
     }
 
     // 生データを標準化された形式に変換
     const compressedData = normalizeAnalysisData(rawData);
-    //rawDataの中身をログに出力
-    console.log("rawDataの中身:", rawData);
 
     if (!compressedData) {
-      console.warn("buildBetterPrompt: データ正規化に失敗しました");
       return null;
     }
 
@@ -2309,27 +2233,6 @@ const buildBetterPrompt = (rawData) => {
     const hasElements = compressedData.elements &&
       ((Array.isArray(compressedData.elements) && compressedData.elements.length > 0) ||
         (compressedData.elements.elements && Array.isArray(compressedData.elements.elements)));
-
-    console.log("データ検証結果: ", {
-      hasColors,
-      hasText,
-      hasLayout,
-      hasElements
-    });
-
-    // 分析がうまくいかなかった場合の警告
-    if (!hasColors) {
-      console.warn("buildBetterPrompt: 色情報が不足しています");
-    }
-    if (!hasText) {
-      console.warn("buildBetterPrompt: テキスト情報が不足しています");
-    }
-    if (!hasLayout) {
-      console.warn("buildBetterPrompt: レイアウト情報が不足しています");
-    }
-    if (!hasElements) {
-      console.warn("buildBetterPrompt: UI要素情報が不足しています");
-    }
 
     // セマンティックなタグの生成
     const semanticTags = generateSemanticTags(compressedData);
@@ -2393,10 +2296,8 @@ ${elementsSection}
 - Ensure smooth animations and transitions where appropriate.
 - Test thoroughly across different browsers and devices.`;
 
-    console.log("拡張プロンプト構築完了: 文字数=" + prompt.length);
     return prompt;
   } catch (error) {
-    console.error("拡張プロンプト構築エラー:", error);
     return null;
   }
 }
