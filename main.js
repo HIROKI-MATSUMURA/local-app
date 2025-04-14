@@ -1817,9 +1817,12 @@ $mediaquerys: (
 
       const projectFilePath = path.join(projectDir, `${project.id}.json`);
 
-      // 最終更新日時を設定
-      if (!project.lastModified) {
+      // ファイル操作関連の更新フラグがあれば最終更新日時を設定
+      // このフラグは、ファイル追加・編集操作時に設定される
+      if (project.fileUpdated) {
         project.lastModified = new Date().toISOString();
+        // 一度使用したら削除
+        delete project.fileUpdated;
       }
 
       await fs.promises.writeFile(projectFilePath, JSON.stringify(project, null, 2));
@@ -2559,6 +2562,180 @@ $mediaquerys: (
         success: false,
         error: error.message || String(error),
         details: error.response?.data || null
+      };
+    }
+  });
+
+  // AIで生成したHTMLとSCSSコードを保存する
+  ipcMain.handle('save-ai-generated-code', async (event, { htmlFileName, htmlContent, scssFileName, scssContent }) => {
+    try {
+      isAICodeSaving = true; // コード保存中フラグをON
+
+      console.log('AIコードの保存を開始します');
+      if (!htmlFileName || !scssFileName) {
+        throw new Error('ファイル名が指定されていません');
+      }
+
+      // アクティブプロジェクトの取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        throw new Error('アクティブなプロジェクトが設定されていません');
+      }
+
+      // プロジェクト情報の取得
+      const project = await loadProjectSettings(activeProjectId);
+      if (!project) {
+        throw new Error('プロジェクト情報の取得に失敗しました');
+      }
+
+      // fileUpdated フラグを追加
+      project.fileUpdated = true;
+
+      // ファイル保存
+      const savedFiles = [];
+
+      // HTML保存
+      if (htmlFileName && htmlContent) {
+        const htmlFilePath = path.join(project.path, htmlFileName);
+        await fs.promises.writeFile(htmlFilePath, htmlContent, 'utf8');
+        console.log(`${htmlFileName} を保存しました`);
+        savedFiles.push(htmlFilePath);
+      }
+
+      // SCSS保存
+      if (scssFileName && scssContent) {
+        const scssFilePath = path.join(project.path, scssFileName);
+        // SCSSファイルのディレクトリが存在するか確認し、存在しなければ作成
+        const scssDir = path.dirname(scssFilePath);
+        await fs.promises.mkdir(scssDir, { recursive: true });
+
+        await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
+        console.log(`${scssFileName} を保存しました`);
+        savedFiles.push(scssFilePath);
+      }
+
+      // プロジェクト設定を更新して保存
+      await saveProjectSettings(project);
+
+      isAICodeSaving = false; // コード保存中フラグをOFF
+
+      return {
+        success: true,
+        savedFiles: savedFiles
+      };
+    } catch (error) {
+      isAICodeSaving = false; // エラー時もフラグを必ずOFF
+      console.error('AIコードの保存に失敗:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  // HTMLファイルの保存ハンドラー
+  ipcMain.handle('save-html-file', async (event, { fileName, content }) => {
+    try {
+      // ファイル保存中フラグをON
+      isAICodeSaving = true;
+
+      if (!fileName) {
+        throw new Error('ファイル名が指定されていません');
+      }
+
+      // アクティブプロジェクトの取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        throw new Error('アクティブなプロジェクトが設定されていません');
+      }
+
+      // プロジェクト情報の取得
+      const project = await loadProjectSettings(activeProjectId);
+      if (!project) {
+        throw new Error('プロジェクト情報の取得に失敗しました');
+      }
+
+      // fileUpdated フラグを追加
+      project.fileUpdated = true;
+
+      // HTMLファイルの保存
+      const htmlFilePath = path.join(project.path, fileName);
+      await fs.promises.writeFile(htmlFilePath, content, 'utf8');
+      console.log(`${fileName} を保存しました`);
+
+      // プロジェクト設定を更新
+      await saveProjectSettings(project);
+
+      // ファイル保存中フラグをOFF
+      isAICodeSaving = false;
+
+      return {
+        success: true,
+        filePath: htmlFilePath
+      };
+    } catch (error) {
+      // エラー時もフラグを必ずOFF
+      isAICodeSaving = false;
+      console.error('HTMLファイルの保存に失敗:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  // SCSSファイルの保存ハンドラー
+  ipcMain.handle('save-scss-file', async (event, { fileName, content }) => {
+    try {
+      // ファイル保存中フラグをON
+      isAICodeSaving = true;
+
+      if (!fileName) {
+        throw new Error('ファイル名が指定されていません');
+      }
+
+      // アクティブプロジェクトの取得
+      const activeProjectId = await loadActiveProjectId();
+      if (!activeProjectId) {
+        throw new Error('アクティブなプロジェクトが設定されていません');
+      }
+
+      // プロジェクト情報の取得
+      const project = await loadProjectSettings(activeProjectId);
+      if (!project) {
+        throw new Error('プロジェクト情報の取得に失敗しました');
+      }
+
+      // fileUpdated フラグを追加
+      project.fileUpdated = true;
+
+      // SCSSファイルの保存
+      const scssFilePath = path.join(project.path, fileName);
+
+      // SCSSファイルのディレクトリが存在するか確認し、存在しなければ作成
+      const scssDir = path.dirname(scssFilePath);
+      await fs.promises.mkdir(scssDir, { recursive: true });
+
+      await fs.promises.writeFile(scssFilePath, content, 'utf8');
+      console.log(`${fileName} を保存しました`);
+
+      // プロジェクト設定を更新
+      await saveProjectSettings(project);
+
+      // ファイル保存中フラグをOFF
+      isAICodeSaving = false;
+
+      return {
+        success: true,
+        filePath: scssFilePath
+      };
+    } catch (error) {
+      // エラー時もフラグを必ずOFF
+      isAICodeSaving = false;
+      console.error('SCSSファイルの保存に失敗:', error);
+      return {
+        success: false,
+        error: error.message
       };
     }
   });

@@ -1059,8 +1059,8 @@ const ProjectManager = ({ onProjectChange }) => {
 
     const updatedProject = {
       ...project,
-      category,
-      lastModified: new Date().toISOString()
+      category
+      // lastModified を更新しない - カテゴリ変更はメタデータの変更のみ
     };
 
     const updatedProjects = projects.map(p =>
@@ -1093,8 +1093,8 @@ const ProjectManager = ({ onProjectChange }) => {
 
       const updatedProject = {
         ...projectForTags,
-        tags: newTags,
-        lastModified: new Date().toISOString()
+        tags: newTags
+        // lastModified を更新しない - タグ変更はメタデータの変更のみ
       };
 
       const updatedProjects = projects.map(p =>
