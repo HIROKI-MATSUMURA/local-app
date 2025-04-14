@@ -353,11 +353,6 @@ contextBridge.exposeInMainWorld('api', {
   },
 
 
-  // Python画像処理API
-  extractColorsFromImage: (imageData) => ipcRenderer.invoke('extract-colors-from-image', imageData),
-  extractTextFromImage: (imageData) => ipcRenderer.invoke('extract-text-from-image', imageData),
-  analyzeImageSections: (imageData) => ipcRenderer.invoke('analyze-image-sections', imageData),
-
   // プロジェクト追加ダイアログ
   openProjectDialog: () => ipcRenderer.invoke('open-project-dialog'),
 

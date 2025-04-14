@@ -1,4 +1,4 @@
-import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
+import { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
 
 // 共通のエラーハンドリング関数
 const handleAnalysisError = (operation, error, defaultValue) => {
@@ -139,215 +139,380 @@ const extractHexValuesFromVariables = (cssVars) => {
   return hexValues;
 };
 
+
+
 // 画像解析を実行して結果を取得する関数（Python APIを使用）
-const analyzeImage = async (imageBase64, imageType) => {
+const analyzeImage = async (imageBase64, imageType, setState = {}) => {
+  const {
+    setColorData = () => { },
+    setTextData = () => { },
+    setSections = () => { },
+    setLayout = () => { },
+    setElements = () => { }
+  } = setState;
+
   if (!imageBase64) {
     console.warn(`${imageType}画像データが存在しません。空の結果を返します。`);
-    return { colors: [], text: '', sections: [], elements: { elements: [] } };
+    return {
+      colors: [],
+      text: '',
+      textBlocks: [],
+      sections: [],
+      elements: { elements: [] },
+      compressedAnalysis: null
+    };
   }
 
   console.log(`${imageType}画像の解析を開始します...`);
 
+  // ❶ メイン解析（analyzeAll）
+  let analysisResult;
   try {
-    // Python APIが利用可能かチェック
-    if (!window.api) {
-      console.warn('window.apiが利用できません。空の結果を返します。');
-      return { colors: [], text: '', sections: [], elements: { elements: [] } };
+    const rawResult = await window.api.analyzeAll(imageBase64);
+    console.log("🐛 result内容:", rawResult);
+
+    const res = rawResult?.result || rawResult?.data || {};
+    console.log("🐛 抽出されたres:", res);
+
+    if (!res || res.success === false || res.error) {
+      console.warn(`${imageType}画像の解析に失敗:`, res.error || '未知のエラー');
+      analysisResult = {
+        colors: [],
+        text: '',
+        textBlocks: [],
+        sections: [],
+        layout: {},
+        elements: [],
+        compressedAnalysis: null
+      };
+    } else {
+      analysisResult = {
+        colors: res.colors || [],
+        text: res.text || '',
+        textBlocks: res.textBlocks || [],
+        sections: res.sections || [],
+        layout: res.layout || {},
+        elements: res.elements || [],
+        compressedAnalysis: res.compressed || null
+      };
     }
-
-    // 各分析処理を同時に開始（Python APIを使用）
-    const colorPromise = window.api.extractColorsFromImage ?
-      window.api.extractColorsFromImage(imageBase64)
-        .then(result => {
-          console.log(`${imageType}色抽出の結果データ:`, result);
-
-          // 結果の形式をチェック
-          if (result && typeof result === 'object') {
-            // 成功/データ形式のレスポンス
-            if (result.success === false || result.error) {
-              console.warn(`${imageType}画像の色抽出に失敗:`, result.error || '未知のエラー');
-              return [];
-            }
-
-            // 直接colorsプロパティを持っている場合
-            if (result.colors && Array.isArray(result.colors)) {
-              console.log(`${imageType}直接colorsプロパティを持つ結果を返します:`, result.colors.length);
-              return result.colors;
-            }
-
-            // dataプロパティにcolorsがある場合
-            if (result.data) {
-              if (Array.isArray(result.data)) {
-                console.log(`${imageType}result.dataは配列です:`, result.data.length);
-                return result.data;
-              }
-              if (result.data.colors && Array.isArray(result.data.colors)) {
-                console.log(`${imageType}result.data.colorsを返します:`, result.data.colors.length);
-                return result.data.colors;
-              }
-            }
-
-            // 配列自体が直接返された場合
-            if (Array.isArray(result)) {
-              console.log(`${imageType}結果自体が配列です:`, result.length);
-              return result;
-            }
-          }
-
-          console.warn(`${imageType}画像の色抽出結果が予期しない形式です:`, result);
-          return [];
-        })
-        .catch(error => handleAnalysisError(`${imageType}画像の色抽出`, error, [])) :
-      Promise.resolve([]);
-
-    const textPromise = window.api.extractTextFromImage ?
-      window.api.extractTextFromImage(imageBase64)
-        .then(result => {
-          console.log(`${imageType}テキスト抽出の結果データ:`, result);
-
-          // 結果の形式をチェック
-          if (result && typeof result === 'object') {
-            // 成功/データ形式のレスポンス
-            if (result.success === false || result.error) {
-              console.warn(`${imageType}画像のテキスト抽出に失敗:`, result.error || '未知のエラー');
-              return { text: '', textBlocks: [] };
-            }
-
-            // textとtextBlocksプロパティを持っている場合
-            if ('text' in result || 'textBlocks' in result) {
-              console.log(`${imageType}直接text/textBlocksプロパティを持つ結果を使用`);
-              return {
-                text: result.text || '',
-                textBlocks: result.textBlocks || []
-              };
-            }
-
-            // dataプロパティにテキスト情報がある場合
-            if (result.data) {
-              if (typeof result.data === 'string') {
-                console.log(`${imageType}result.dataは文字列です`);
-                return { text: result.data, textBlocks: [] };
-              }
-              if (typeof result.data === 'object' && ('text' in result.data || 'textBlocks' in result.data)) {
-                console.log(`${imageType}result.data.text/textBlocksを使用`);
-                return {
-                  text: result.data.text || '',
-                  textBlocks: result.data.textBlocks || []
-                };
-              }
-            }
-          }
-
-          // 文字列が直接返された場合
-          if (typeof result === 'string') {
-            console.log(`${imageType}結果自体が文字列です`);
-            return { text: result, textBlocks: [] };
-          }
-
-          console.warn(`${imageType}画像のテキスト抽出結果が予期しない形式です:`, result);
-          return { text: '', textBlocks: [] };
-        })
-        .catch(error => handleAnalysisError(`${imageType}画像のテキスト抽出`, error, { text: '', textBlocks: [] })) :
-      Promise.resolve({ text: '', textBlocks: [] });
-
-    const sectionsPromise = window.api.analyzeImageSections ?
-      window.api.analyzeImageSections(imageBase64)
-        .then(result => {
-          if (!result.success) {
-            console.warn(`${imageType}画像のセクション分析に失敗:`, result.error || '未知のエラー');
-          }
-          return result.success ? result.data : [];
-        })
-        .catch(error => handleAnalysisError(`${imageType}画像のセクション分析`, error, [])) :
-      Promise.resolve([]);
-
-    console.log("🔥 analyzeImage 呼び出し前 - 要素検出", imageBase64.slice(0, 100));
-    const elementsPromise = window.api.analyzeAll ?
-      window.api.analyzeImage({ image: imageBase64, type: 'features' })
-        .then(result => {
-          if (!result.success) {
-            console.warn(`${imageType}画像の要素検出に失敗:`, result.error || '未知のエラー');
-          }
-          return result.success ? result.data : { elements: [] };
-        })
-        .catch(error => handleAnalysisError(`${imageType}画像の要素検出`, error, { elements: [] })) :
-      Promise.resolve({ elements: [] });
-
-    // 圧縮解析結果を取得（新機能）
-    console.log("🔥 analyzeImage 呼び出し前 - 圧縮解析", imageBase64.slice(0, 100));
-    const compressedAnalysisPromise = window.api.analyzeAll ?
-      window.api.analyzeImage({
-        image: imageBase64,
-        type: 'compress',
-        options: { format_type: 'structured' } // structured, semantic, template
-      })
-        .then(result => {
-          if (!result.success) {
-            console.warn(`${imageType}画像の圧縮解析に失敗:`, result.error || '未知のエラー');
-          }
-          const data = result.success ? result.data : null;
-          if (data) {
-            console.log(`${imageType}圧縮解析データ構造:`, Object.keys(data).join(', '));
-          }
-          return data;
-        })
-        .catch(error => handleAnalysisError(`${imageType}画像の圧縮解析`, error, null)) :
-      Promise.resolve(null);
-
-    // すべてのPromiseを同時に解決
-    const [colors, text, sections, elements, compressedAnalysis] = await Promise.all([
-      colorPromise, textPromise, sectionsPromise, elementsPromise, compressedAnalysisPromise
-    ]);
-
-    // 結果のログと形式確認
-    console.log(`${imageType}画像から色を抽出しました:`, colors?.length || 0, "色");
-    console.log(`${imageType}画像からテキストを抽出しました:`,
-      text && typeof text === 'object' ?
-        `成功 (text: ${Boolean(text.text)}, textBlocks: ${text.textBlocks?.length || 0})` :
-        `${text ? '成功' : '空のテキスト'}`);
-    console.log(`${imageType}画像のセクション分析が完了しました:`, sections?.length || 0, "セクション");
-    console.log(`${imageType}画像の要素検出が完了しました:`,
-      elements && elements.elements ? elements.elements.length : 0, "要素");
-    console.log(`${imageType}画像の圧縮解析が完了しました:`, compressedAnalysis ? "成功" : "失敗");
-
-    // 圧縮解析データの構造検証
-    if (compressedAnalysis) {
-      const expectedProps = ['text', 'colors', 'layout', 'elements', 'sections'];
-      const missingProps = expectedProps.filter(prop => !compressedAnalysis.hasOwnProperty(prop));
-
-      if (missingProps.length > 0) {
-        console.warn(`${imageType}圧縮解析データに不足しているプロパティ:`, missingProps.join(', '));
-      }
-    }
-
-    // テキスト情報の形式を正規化
-    let normalizedText = '';
-    let normalizedTextBlocks = [];
-
-    if (text) {
-      if (typeof text === 'string') {
-        normalizedText = text;
-      } else if (typeof text === 'object') {
-        normalizedText = text.text || '';
-        normalizedTextBlocks = Array.isArray(text.textBlocks) ? text.textBlocks : [];
-      }
-    }
-
-    // 結果の形式を正規化して返す
-    return {
-      colors: Array.isArray(colors) ? colors : [],
-      text: normalizedText,
-      textBlocks: normalizedTextBlocks,
-      sections: Array.isArray(sections) ? sections : [],
-      elements: elements && typeof elements === 'object' ? elements : { elements: [] },
-      compressedAnalysis: compressedAnalysis || null
-    };
   } catch (error) {
     console.error(`${imageType}画像の解析でエラーが発生しました:`, error);
-    return { colors: [], text: '', sections: [], elements: { elements: [] }, compressedAnalysis: null };
+    analysisResult = {
+      colors: [],
+      text: '',
+      textBlocks: [],
+      sections: [],
+      layout: {},
+      elements: [],
+      compressedAnalysis: null
+    };
+  }
+
+  const {
+    colors,
+    text,
+    textBlocks,
+    sections,
+    layout,
+    elements,
+    compressedAnalysis
+  } = analysisResult;
+
+  // ステート反映（必要なら）
+  if (setColorData) setColorData(colors);
+  if (setTextData) setTextData({ text, textBlocks });
+  if (setSections) setSections(sections);
+  if (setLayout) setLayout(layout);
+  if (setElements) setElements(elements);
+
+  // ✅ 最終返却
+  return {
+    colors: Array.isArray(colors) ? colors : [],
+    text: typeof text === 'string' ? text : '',
+    textBlocks: Array.isArray(textBlocks) ? textBlocks : [],
+    sections: Array.isArray(sections) ? sections : [],
+    elements: { elements: Array.isArray(elements) ? elements : [] },
+    compressedAnalysis: compressedAnalysis || null
+  };
+};
+
+// analyze_all を送信する関数（タイムアウト付き）
+const analyzeAll = async (params) => {
+  try {
+    const rawResponse = await Promise.race([
+      window.api.invoke('analyze_all', params),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 60000)),
+    ]);
+
+    // ネストされている場合も吸収
+    const result = rawResponse?.result || rawResponse;
+
+    console.log('✅ Pythonのレスポンス:', result);
+    console.log('✅ JSON形式（全体）:', JSON.stringify(result, null, 2));
+
+    if (!result || result.success === false || result.error) {
+      console.warn('⚠️ Pythonの解析に失敗:', result?.error || '不明なエラー');
+      return { success: false, error: result?.error || '不明なエラー' };
+    }
+
+    return {
+      success: true,
+      ...result
+    };
+
+  } catch (error) {
+    console.error('❌ タイムアウト or Python解析エラー:', error.message);
+    return { success: false, error: error.message };
   }
 };
 
+
+
+
+// メイン関数を修正して新機能を統合
+export const generatePrompt = async (options) => {
+  console.log('プロンプト生成処理を開始');
+  const {
+    pcImage, spImage,
+    responsiveMode = "pc",
+    aiBreakpoints = []
+  } = options;
+  console.log("🔥 generatePrompt 開始");
+
+  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
+  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
+
+  // ↓以下既存の処理
+
+  try {
+    // 画像解析を実行
+    const [pcAnalysis, spAnalysis] = await Promise.all([
+      pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
+      spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
+    ]);
+
+    // 新：置き換え
+    // const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
+
+    // 解析結果の検証
+    if (!pcImage && !spImage) {
+      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
+    } else {
+      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
+        console.error('PC画像の解析結果が空です。');
+      }
+      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
+        console.error('SP画像の解析結果が空です。');
+      }
+    }
+
+    // プロジェクト設定を取得（非同期）
+    console.log('プロジェクト設定を取得中...');
+    const settings = await getSettingsFromActiveProject();
+    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
+
+    // プロンプトの構築を開始
+    console.log('プロンプトの構築を開始');
+
+    // 1. コアプロンプト
+    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
+
+    // 2. 解析結果
+    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
+
+    // 3. 設定情報
+    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
+
+    // 4. 要件
+    prompt += `
+## Requirements
+- Create clean, semantic HTML5 and SCSS
+- Use BEM methodology for class naming
+- Ensure the design is responsive and works well across all device sizes
+- Pay attention to spacing, alignment, and typography
+- Include all necessary hover states and transitions
+`;
+
+    // 5. 出力形式
+    prompt += `
+## Output Format
+- Provide the HTML code first, followed by the SCSS code
+- Make sure both codes are properly formatted and organized
+- Include comments for major sections
+`;
+
+    // 最終プロンプトを生成
+    let finalPrompt = '';
+
+    // 拡張された分析機能を使用（オプション）
+    try {
+      // 画像解析結果に応じて高度なプロンプト生成を試みる
+      console.log("拡張プロンプト生成を試みます...");
+
+      // compressedAnalysisがなければ画像解析結果を直接使用
+      let analysisData = null;
+
+      if (pcAnalysis && pcAnalysis.compressedAnalysis) {
+        console.log("PC画像の圧縮解析データを使用");
+        analysisData = pcAnalysis.compressedAnalysis;
+        validateAndLogData(analysisData, 'PC圧縮解析');
+      } else if (spAnalysis && spAnalysis.compressedAnalysis) {
+        console.log("SP画像の圧縮解析データを使用");
+        analysisData = spAnalysis.compressedAnalysis;
+        validateAndLogData(analysisData, 'SP圧縮解析');
+      } else {
+        // 圧縮解析データがない場合は、生の解析データから統合オブジェクトを作成
+        console.log("圧縮解析データがないため、生の解析データから構築");
+
+        // 基本オブジェクト構造を作成
+        analysisData = {
+          text: '',
+          textBlocks: [],
+          colors: [],
+          layout: {
+            width: 1200,  // デフォルト値
+            height: 800,  // デフォルト値
+            type: 'standard'
+          },
+          elements: {
+            elements: []
+          },
+          sections: []
+        };
+
+        // テキスト情報を追加
+        if (pcAnalysis && typeof pcAnalysis.text === 'string' && pcAnalysis.text.trim()) {
+          analysisData.text = pcAnalysis.text;
+        } else if (spAnalysis && typeof spAnalysis.text === 'string' && spAnalysis.text.trim()) {
+          analysisData.text = spAnalysis.text;
+        }
+
+        // 色情報を追加
+        if (pcAnalysis && Array.isArray(pcAnalysis.colors) && pcAnalysis.colors.length > 0) {
+          analysisData.colors = pcAnalysis.colors;
+        } else if (spAnalysis && Array.isArray(spAnalysis.colors) && spAnalysis.colors.length > 0) {
+          analysisData.colors = spAnalysis.colors;
+        }
+
+        // 要素情報を追加
+        if (pcAnalysis && pcAnalysis.elements && pcAnalysis.elements.elements) {
+          analysisData.elements = pcAnalysis.elements;
+        } else if (spAnalysis && spAnalysis.elements && spAnalysis.elements.elements) {
+          analysisData.elements = spAnalysis.elements;
+        }
+
+        // セクション情報を追加
+        if (pcAnalysis && Array.isArray(pcAnalysis.sections) && pcAnalysis.sections.length > 0) {
+          analysisData.sections = pcAnalysis.sections;
+        } else if (spAnalysis && Array.isArray(spAnalysis.sections) && spAnalysis.sections.length > 0) {
+          analysisData.sections = spAnalysis.sections;
+        }
+
+        // テキストブロック情報の探索とフォールバック
+        const getTextBlocks = (analysis) => {
+          if (!analysis) return null;
+
+          // 直接textBlocksが存在する場合
+          if (Array.isArray(analysis.textBlocks)) {
+            return analysis.textBlocks;
+          }
+
+          // 圧縮解析データのtext.blocksを探索
+          if (analysis.compressedAnalysis &&
+            analysis.compressedAnalysis.text &&
+            Array.isArray(analysis.compressedAnalysis.text.blocks)) {
+            return analysis.compressedAnalysis.text.blocks;
+          }
+
+          return null;
+        };
+
+        // テキストブロックを追加
+        const pcTextBlocks = getTextBlocks(pcAnalysis);
+        const spTextBlocks = getTextBlocks(spAnalysis);
+
+        if (pcTextBlocks) {
+          analysisData.textBlocks = pcTextBlocks;
+        } else if (spTextBlocks) {
+          analysisData.textBlocks = spTextBlocks;
+        }
+
+        // データ構造の検証
+        validateAndLogData(analysisData, '統合解析');
+      }
+
+      if (analysisData) {
+        console.log("解析データ確認:",
+          typeof analysisData === 'object' ?
+            Object.keys(analysisData).join(', ') : typeof analysisData);
+
+        // 重要なプロパティがあるか確認
+        const requiredProps = ['text', 'colors', 'layout'];
+        const missingProps = requiredProps.filter(prop => !analysisData.hasOwnProperty(prop));
+
+        if (missingProps.length > 0) {
+          console.warn("解析データに不足しているプロパティがあります:", missingProps.join(', '));
+          // 不足プロパティのフォールバック
+          missingProps.forEach(prop => {
+            switch (prop) {
+              case 'text':
+                analysisData.text = '';
+                break;
+              case 'colors':
+                analysisData.colors = [];
+                break;
+              case 'layout':
+                analysisData.layout = { width: 1200, height: 800, type: 'standard' };
+                break;
+            }
+          });
+        }
+
+        // 拡張プロンプト生成
+        const enhancedPrompt = buildBetterPrompt(analysisData);
+
+        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
+          console.log("拡張プロンプト生成に成功しました");
+          return enhancedPrompt; // 拡張プロンプトを使用
+        } else {
+          console.log("拡張プロンプト生成失敗 - 出力が短すぎるか空です:",
+            enhancedPrompt ? `長さ: ${enhancedPrompt.length}文字` : '出力なし');
+        }
+      } else {
+        console.log("解析データが利用できません");
+      }
+    } catch (error) {
+      console.error("拡張プロンプト生成エラー:", error);
+      // エラー詳細をログ出力
+      if (error.stack) {
+        console.error("エラースタック:", error.stack);
+      }
+      // エラー時は通常のプロンプト生成にフォールバック
+    }
+
+    // 拡張プロンプトが生成できなかった場合は従来の方法でプロンプト生成
+    console.log("従来のプロンプト生成方法にフォールバックします");
+    finalPrompt = `
+# ウェブサイトデザイン実装タスク
+
+${prompt}
+
+${buildGuidelinesSection(responsiveMode)}
+
+${buildFinalInstructionsSection()}
+`;
+
+    console.log('プロンプト生成が完了しました');
+    return finalPrompt.trim();
+  } catch (error) {
+    console.error('プロンプト生成エラー:', error);
+    if (error.stack) {
+      console.error("エラースタック:", error.stack);
+    }
+    return 'プロンプト生成中にエラーが発生しました。再試行してください。';
+  }
+};
 // コアプロンプト部分を構築する関数
 const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
   return `
@@ -2386,264 +2551,5 @@ const suggestDesignSystem = (data) => {
   } catch (error) {
     console.error("デザインシステム推奨エラー:", error);
     return "4色カラーパレット、サンセリフ体タイポグラフィ、8pxベースのスペーシングシステム、基本コンポーネント一式";
-  }
-};
-
-// analyze_all を送信する関数（タイムアウト付き）
-const analyzeAll = async (params) => {
-  try {
-    const result = await Promise.race([
-      window.api.invoke('analyze_all', params), // ← await を外す！
-      new Promise((_, reject) => setTimeout(() => reject(new Error('タイムアウト')), 60000)),
-    ]);
-    console.log('✅ Pythonのレスポンス:', result);
-    return result;
-  } catch (error) {
-    console.error('❌ タイムアウト or Python解析エラー:', error.message);
-    return { success: false, error: error.message };
-  }
-};
-
-
-
-// メイン関数を修正して新機能を統合
-export const generatePrompt = async (options) => {
-  console.log('プロンプト生成処理を開始');
-  const {
-    pcImage, spImage,
-    responsiveMode = "pc",
-    aiBreakpoints = []
-  } = options;
-  console.log("🔥 generatePrompt 開始");
-
-  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
-  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
-
-  // ↓以下既存の処理
-
-  try {
-    // 画像解析を実行
-    const pcAnalysis = pcImage ? await analyzeAll(pcImage, 'PC') : { colors: [], text: '', sections: [], elements: { elements: [] } };
-    const spAnalysis = spImage ? await analyzeAll(spImage, 'SP') : { colors: [], text: '', sections: [], elements: { elements: [] } };
-
-    // 新：置き換え
-    // const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
-
-    // 解析結果の検証
-    if (!pcImage && !spImage) {
-      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
-    } else {
-      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
-        console.error('PC画像の解析結果が空です。');
-      }
-      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
-        console.error('SP画像の解析結果が空です。');
-      }
-    }
-
-    // プロジェクト設定を取得（非同期）
-    console.log('プロジェクト設定を取得中...');
-    const settings = await getSettingsFromActiveProject();
-    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
-
-    // プロンプトの構築を開始
-    console.log('プロンプトの構築を開始');
-
-    // 1. コアプロンプト
-    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
-
-    // 2. 解析結果
-    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
-
-    // 3. 設定情報
-    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
-
-    // 4. 要件
-    prompt += `
-## Requirements
-- Create clean, semantic HTML5 and SCSS
-- Use BEM methodology for class naming
-- Ensure the design is responsive and works well across all device sizes
-- Pay attention to spacing, alignment, and typography
-- Include all necessary hover states and transitions
-`;
-
-    // 5. 出力形式
-    prompt += `
-## Output Format
-- Provide the HTML code first, followed by the SCSS code
-- Make sure both codes are properly formatted and organized
-- Include comments for major sections
-`;
-
-    // 最終プロンプトを生成
-    let finalPrompt = '';
-
-    // 拡張された分析機能を使用（オプション）
-    try {
-      // 画像解析結果に応じて高度なプロンプト生成を試みる
-      console.log("拡張プロンプト生成を試みます...");
-
-      // compressedAnalysisがなければ画像解析結果を直接使用
-      let analysisData = null;
-
-      if (pcAnalysis && pcAnalysis.compressedAnalysis) {
-        console.log("PC画像の圧縮解析データを使用");
-        analysisData = pcAnalysis.compressedAnalysis;
-        validateAndLogData(analysisData, 'PC圧縮解析');
-      } else if (spAnalysis && spAnalysis.compressedAnalysis) {
-        console.log("SP画像の圧縮解析データを使用");
-        analysisData = spAnalysis.compressedAnalysis;
-        validateAndLogData(analysisData, 'SP圧縮解析');
-      } else {
-        // 圧縮解析データがない場合は、生の解析データから統合オブジェクトを作成
-        console.log("圧縮解析データがないため、生の解析データから構築");
-
-        // 基本オブジェクト構造を作成
-        analysisData = {
-          text: '',
-          textBlocks: [],
-          colors: [],
-          layout: {
-            width: 1200,  // デフォルト値
-            height: 800,  // デフォルト値
-            type: 'standard'
-          },
-          elements: {
-            elements: []
-          },
-          sections: []
-        };
-
-        // テキスト情報を追加
-        if (pcAnalysis && typeof pcAnalysis.text === 'string' && pcAnalysis.text.trim()) {
-          analysisData.text = pcAnalysis.text;
-        } else if (spAnalysis && typeof spAnalysis.text === 'string' && spAnalysis.text.trim()) {
-          analysisData.text = spAnalysis.text;
-        }
-
-        // 色情報を追加
-        if (pcAnalysis && Array.isArray(pcAnalysis.colors) && pcAnalysis.colors.length > 0) {
-          analysisData.colors = pcAnalysis.colors;
-        } else if (spAnalysis && Array.isArray(spAnalysis.colors) && spAnalysis.colors.length > 0) {
-          analysisData.colors = spAnalysis.colors;
-        }
-
-        // 要素情報を追加
-        if (pcAnalysis && pcAnalysis.elements && pcAnalysis.elements.elements) {
-          analysisData.elements = pcAnalysis.elements;
-        } else if (spAnalysis && spAnalysis.elements && spAnalysis.elements.elements) {
-          analysisData.elements = spAnalysis.elements;
-        }
-
-        // セクション情報を追加
-        if (pcAnalysis && Array.isArray(pcAnalysis.sections) && pcAnalysis.sections.length > 0) {
-          analysisData.sections = pcAnalysis.sections;
-        } else if (spAnalysis && Array.isArray(spAnalysis.sections) && spAnalysis.sections.length > 0) {
-          analysisData.sections = spAnalysis.sections;
-        }
-
-        // テキストブロック情報の探索とフォールバック
-        const getTextBlocks = (analysis) => {
-          if (!analysis) return null;
-
-          // 直接textBlocksが存在する場合
-          if (Array.isArray(analysis.textBlocks)) {
-            return analysis.textBlocks;
-          }
-
-          // 圧縮解析データのtext.blocksを探索
-          if (analysis.compressedAnalysis &&
-            analysis.compressedAnalysis.text &&
-            Array.isArray(analysis.compressedAnalysis.text.blocks)) {
-            return analysis.compressedAnalysis.text.blocks;
-          }
-
-          return null;
-        };
-
-        // テキストブロックを追加
-        const pcTextBlocks = getTextBlocks(pcAnalysis);
-        const spTextBlocks = getTextBlocks(spAnalysis);
-
-        if (pcTextBlocks) {
-          analysisData.textBlocks = pcTextBlocks;
-        } else if (spTextBlocks) {
-          analysisData.textBlocks = spTextBlocks;
-        }
-
-        // データ構造の検証
-        validateAndLogData(analysisData, '統合解析');
-      }
-
-      if (analysisData) {
-        console.log("解析データ確認:",
-          typeof analysisData === 'object' ?
-            Object.keys(analysisData).join(', ') : typeof analysisData);
-
-        // 重要なプロパティがあるか確認
-        const requiredProps = ['text', 'colors', 'layout'];
-        const missingProps = requiredProps.filter(prop => !analysisData.hasOwnProperty(prop));
-
-        if (missingProps.length > 0) {
-          console.warn("解析データに不足しているプロパティがあります:", missingProps.join(', '));
-          // 不足プロパティのフォールバック
-          missingProps.forEach(prop => {
-            switch (prop) {
-              case 'text':
-                analysisData.text = '';
-                break;
-              case 'colors':
-                analysisData.colors = [];
-                break;
-              case 'layout':
-                analysisData.layout = { width: 1200, height: 800, type: 'standard' };
-                break;
-            }
-          });
-        }
-
-        // 拡張プロンプト生成
-        const enhancedPrompt = buildBetterPrompt(analysisData);
-
-        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
-          console.log("拡張プロンプト生成に成功しました");
-          return enhancedPrompt; // 拡張プロンプトを使用
-        } else {
-          console.log("拡張プロンプト生成失敗 - 出力が短すぎるか空です:",
-            enhancedPrompt ? `長さ: ${enhancedPrompt.length}文字` : '出力なし');
-        }
-      } else {
-        console.log("解析データが利用できません");
-      }
-    } catch (error) {
-      console.error("拡張プロンプト生成エラー:", error);
-      // エラー詳細をログ出力
-      if (error.stack) {
-        console.error("エラースタック:", error.stack);
-      }
-      // エラー時は通常のプロンプト生成にフォールバック
-    }
-
-    // 拡張プロンプトが生成できなかった場合は従来の方法でプロンプト生成
-    console.log("従来のプロンプト生成方法にフォールバックします");
-    finalPrompt = `
-# ウェブサイトデザイン実装タスク
-
-${prompt}
-
-${buildGuidelinesSection(responsiveMode)}
-
-${buildFinalInstructionsSection()}
-`;
-
-    console.log('プロンプト生成が完了しました');
-    return finalPrompt.trim();
-  } catch (error) {
-    console.error('プロンプト生成エラー:', error);
-    if (error.stack) {
-      console.error("エラースタック:", error.stack);
-    }
-    return 'プロンプト生成中にエラーが発生しました。再試行してください。';
   }
 };

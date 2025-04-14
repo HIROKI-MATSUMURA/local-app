@@ -15,7 +15,7 @@ import 'codemirror/addon/fold/xml-fold';
 import CodeDisplay from "./CodeDisplay";
 import CodeGenerationSettings from "./CodeGenerationSettings";
 import { generatePrompt } from "../utils/promptGenerator";
-import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
+// import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
 import "../styles/AICodeGenerator.scss";
 import 'highlight.js/styles/github.css';
 import Header from './Header';
@@ -1134,46 +1134,12 @@ const AICodeGenerator = () => {
               preview: processedBase64 // Data URLを直接使用
             });
             setPcImageBase64(processedBase64);
-
-            // 必要に応じて追加の解析を実行
-            try {
-              const text = await extractTextFromImage(processedBase64);
-              setPcText(text);
-              console.log(`PC画像からテキストを抽出しました`);
-            } catch (error) {
-              console.error("PC画像のテキスト抽出エラー:", error);
-            }
-
-            try {
-              const colors = await extractColorsFromImage(processedBase64);
-              setPcColors(colors);
-              console.log(`PC画像の色を抽出しました: ${colors.length}色`);
-            } catch (error) {
-              console.error("PC画像の色抽出エラー:", error);
-            }
           } else if (type === 'sp') {
             setSpImage({
               file,
               preview: processedBase64 // Data URLを直接使用
             });
             setSpImageBase64(processedBase64);
-
-            // 必要に応じて追加の解析を実行
-            try {
-              const text = await extractTextFromImage(processedBase64);
-              setSpText(text);
-              console.log(`SP画像からテキストを抽出しました`);
-            } catch (error) {
-              console.error("SP画像のテキスト抽出エラー:", error);
-            }
-
-            try {
-              const colors = await extractColorsFromImage(processedBase64);
-              setSpColors(colors);
-              console.log(`SP画像の色を抽出しました: ${colors.length}色`);
-            } catch (error) {
-              console.error("SP画像の色抽出エラー:", error);
-            }
           }
 
           console.log(`画像の処理が完了しました（${type}）`);

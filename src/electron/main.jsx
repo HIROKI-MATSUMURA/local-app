@@ -78,17 +78,17 @@ function setupElectronFallback() {
         message: 'ブラウザ環境ではPythonブリッジの起動は利用できません'
       }),
 
-      // 画像処理関連のダミー関数
-      extractColorsFromImage: () => Promise.resolve({
-        success: false,
-        data: [],
-        error: 'ブラウザ環境ではPython画像処理は利用できません'
-      }),
-      extractTextFromImage: () => Promise.resolve({
-        success: false,
-        data: '',
-        error: 'ブラウザ環境ではPython OCR処理は利用できません'
-      }),
+      // // 画像処理関連のダミー関数
+      // extractColorsFromImage: () => Promise.resolve({
+      //   success: false,
+      //   data: [],
+      //   error: 'ブラウザ環境ではPython画像処理は利用できません'
+      // }),
+      // extractTextFromImage: () => Promise.resolve({
+      //   success: false,
+      //   data: '',
+      //   error: 'ブラウザ環境ではPython OCR処理は利用できません'
+      // }),
       analyzeImageSections: () => Promise.resolve({
         success: false,
         data: [],

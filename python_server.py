@@ -711,6 +711,13 @@ def handle_analyze_all(request_id, params):
             }
 
         result = analyze_all(image, options)
+        # 中身がなさすぎる場合 fallback させる
+        if not result.get("text") and not result.get("colors") and not result.get("elements"):
+            result["success"] = False
+            result["context"] = "fallback_from_analyzeAll"
+            result["error"] = "画像分析エラー: 情報が取得できませんでした"
+        else:
+            result["success"] = True
 
         try:
             logger.error("✅✅✅ analyze_all結果の構造:")

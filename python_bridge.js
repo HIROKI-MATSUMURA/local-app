@@ -535,100 +535,6 @@ class PythonBridge {
   }
 
   /**
-   * 画像から色情報を抽出する
-   * @param {string} imageBase64 - Base64エンコードされた画像データ
-   * @param {object} options - オプション
-   * @returns {Promise<object>} 抽出された色情報
-   */
-  async extractColorsFromImage(imageBase64, options = {}) {
-    console.log('Pythonブリッジ: 色抽出リクエスト送信');
-
-    try {
-      // Pythonプロセスが実行中であることを確認
-      await this._ensureRunning();
-
-      const result = await this.sendCommand('extract_colors', {
-        image_data: imageBase64,  // Python側が期待するパラメータ名に修正
-        options
-      });
-      console.log('Pythonブリッジ: 色抽出完了');
-
-      // 戻り値の詳細なデバッグ
-      console.log('Pythonブリッジ: 色抽出結果の詳細:');
-      console.log('- 型:', typeof result);
-      console.log('- キー:', result ? Object.keys(result) : 'null');
-      console.log('- colors配列が存在:', result && result.colors ? 'はい' : 'いいえ');
-      console.log('- colors配列の長さ:', result && result.colors ? result.colors.length : '無し');
-      if (result && result.colors && result.colors.length > 0) {
-        console.log('- colors配列の内容サンプル:', JSON.stringify(result.colors[0]));
-      }
-      console.log('- 完全な結果データ:', JSON.stringify(result, null, 2));
-
-      return result;
-    } catch (error) {
-      console.error('Pythonブリッジ: 色抽出エラー:', error);
-      throw new Error(`色抽出エラー: ${error.message}`);
-    }
-  }
-
-
-  /**
-   * 画像からテキストを抽出する
-   * @param {string} imageBase64 - Base64エンコードされた画像データ
-   * @param {object} options - オプション
-   * @returns {Promise<object>} 抽出されたテキスト情報
-   */
-  async extractTextFromImage(imageBase64, options = {}) {
-    console.log('Pythonブリッジ: テキスト抽出リクエスト送信');
-
-    try {
-      // Pythonプロセスが実行中であることを確認
-      await this._ensureRunning();
-
-      const result = await this.sendCommand('extract_text', {
-        image_data: imageBase64,  // Python側が期待するパラメータ名に修正
-        options
-      });
-      console.log('Pythonブリッジ: テキスト抽出完了');
-
-      // 戻り値の詳細なデバッグ
-      console.log('Pythonブリッジ: テキスト抽出結果の詳細:');
-      console.log('- 型:', typeof result);
-      console.log('- キー:', result ? Object.keys(result) : 'null');
-      console.log('- text:', result && result.text ? result.text.substring(0, 100) + '...' : '無し');
-      console.log('- textBlocks配列が存在:', result && result.textBlocks ? 'はい' : 'いいえ');
-      console.log('- textBlocks配列の長さ:', result && result.textBlocks ? result.textBlocks.length : '無し');
-      if (result && result.textBlocks && result.textBlocks.length > 0) {
-        console.log('- textBlocks配列の内容サンプル:', JSON.stringify(result.textBlocks[0]));
-      }
-      console.log('- 完全な結果データ:', JSON.stringify(result, null, 2));
-
-      return result;
-    } catch (error) {
-      console.error('Pythonブリッジ: テキスト抽出エラー:', error);
-      throw new Error(`テキスト抽出エラー: ${error.message}`);
-    }
-  }
-
-  /**
-   * 画像をセクション分析する
-   * @param {string} imageData - Base64形式の画像データ
-   * @param {object} options - オプション
-   * @returns {Promise<Array>} セクション分析結果
-   */
-  async analyzeImageSections(imageData, options = {}) {
-    try {
-      return await this.sendCommand('analyze_sections', {
-        image_data: imageData,
-        options
-      });
-    } catch (error) {
-      console.error('セクション分析エラー:', error);
-      return [];
-    }
-  }
-
-  /**
    * 画像のレイアウトパターンを分析する
    * @param {string} imageData - Base64形式の画像データ
    * @param {object} options - オプション
@@ -1028,14 +934,6 @@ if (isNode) {
       console.warn('ブラウザ環境ではPython処理は利用できません');
       return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
     },
-    extractColorsFromImage: async () => {
-      console.warn('ブラウザ環境ではPython画像処理は利用できません');
-      return { colors: [], error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
-    },
-    extractTextFromImage: async () => {
-      console.warn('ブラウザ環境ではPython OCR処理は利用できません');
-      return { text: '', error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
-    }
   };
 
   // ES ModulesとCommonJSの両方に対応

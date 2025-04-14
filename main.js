@@ -67,8 +67,6 @@ if __name__ == "__main__":
   console.error('Pythonブリッジの読み込みに失敗しました:', error);
   pythonBridge = {
     checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }),
-    extractTextFromImage: () => Promise.resolve({ success: false, error: 'Pythonブリッジが初期化されていません' }),
-    extractColorsFromImage: () => Promise.resolve({ success: false, error: 'Pythonブリッジが初期化されていません' })
   };
 }
 
@@ -2139,100 +2137,6 @@ $mediaquerys: (
     } catch (error) {
       console.error('プロジェクトデータ読み込みエラー:', error);
       return null;
-    }
-  });
-
-  // Python画像処理ハンドラー
-  ipcMain.handle('extract-text-from-image', async (event, imageData) => {
-    try {
-      console.log('画像からテキスト抽出リクエストを受信');
-      // デバッグ情報を追加
-      console.log('受信した画像データの形式:', typeof imageData);
-      console.log('画像データサイズ:', typeof imageData === 'string' ? imageData.length : 'unknown');
-
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      // データ形式を確認して適切に処理する
-      // Pythonサーバーが期待するパラメータ名に変換
-      const params = {
-        image_data: imageData,  // imageDataを正しいキー名に割り当て
-        options: {}
-      };
-
-      console.log('Pythonブリッジにテキスト抽出リクエストを送信します', {
-        paramsKeys: Object.keys(params),
-        hasImageData: Boolean(params.image_data)
-      });
-
-      // ここでparamsを使用するように修正
-      const result = await pythonBridge.extractTextFromImage(params.image_data, params.options);
-      console.log('画像からテキスト抽出が完了しました');
-      return result;
-    } catch (error) {
-      console.error('画像からテキスト抽出エラー:', error);
-      console.error('エラースタック:', error.stack);
-      return { success: false, error: error.message || String(error) };
-    }
-  });
-
-  ipcMain.handle('extract-colors-from-image', async (event, imageData) => {
-    try {
-      console.log('画像から色抽出リクエストを受信');
-      // デバッグ情報を追加
-      console.log('受信した画像データの形式:', typeof imageData);
-      console.log('画像データサイズ:', typeof imageData === 'string' ? imageData.length : 'unknown');
-
-      // pythonブリッジを通じて画像から色を抽出
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      // データ形式を確認して適切に処理する
-      // Pythonサーバーが期待するパラメータ名に変換
-      const params = {
-        image_data: imageData,  // imageDataを正しいキー名に割り当て
-        options: {}
-      };
-
-      console.log('Pythonブリッジに色抽出リクエストを送信します', {
-        paramsKeys: Object.keys(params),
-        hasImageData: Boolean(params.image_data)
-      });
-
-      // ここでparamsを使用するように修正
-      const result = await pythonBridge.extractColorsFromImage(params.image_data, params.options);
-      console.log('画像から色抽出が完了しました', {
-        resultType: typeof result,
-        hasColors: result && result.colors ? `${result.colors.length}色` : 'なし'
-      });
-      return result;
-    } catch (error) {
-      console.error('画像から色抽出エラー:', error);
-      return { success: false, error: error.message || String(error) };
-    }
-  });
-
-
-
-  // 画像セクション解析ハンドラ
-  ipcMain.handle('analyze-image-sections', async (event, imageData) => {
-    try {
-      console.log('画像セクション解析リクエストを受信');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      const result = await pythonBridge.analyzeImageSections(imageData);
-      console.log('画像セクション解析が完了しました');
-      return result;
-    } catch (error) {
-      console.error('画像セクション解析エラー:', error);
-      return { success: false, error: error.message || String(error) };
     }
   });
 

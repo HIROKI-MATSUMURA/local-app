@@ -126,9 +126,6 @@ if (!isNode) {
     checkRequiredScripts: createDummyFunction('checkRequiredScripts'),
     verifyPythonEnvironment: createDummyFunction('verifyPythonEnvironment'),
     installPythonPackages: createDummyFunction('installPythonPackages'),
-    extractColorsFromImage: createDummyFunction('extractColorsFromImage'),
-    extractTextFromImage: createDummyFunction('extractTextFromImage'),
-    analyzeImageSections: createDummyFunction('analyzeImageSections'),
     analyzeLayoutPattern: createDummyFunction('analyzeLayoutPattern'),
     detectMainSections: createDummyFunction('detectMainSections'),
     detectCardElements: createDummyFunction('detectCardElements'),
@@ -313,51 +310,6 @@ if (!isNode) {
         }
       });
     });
-  }
-
-  /**
-   * 画像から色情報を抽出する
-   * @param {string} imageBase64 - Base64エンコードされた画像データ
-   * @returns {Promise<Object>} 色情報
-   */
-  async function extractColorsFromImage(imageBase64) {
-    try {
-      const result = await runPythonAnalysis('extract_colors', { image: imageBase64 });
-      return result;
-    } catch (error) {
-      log.error(`色抽出エラー: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 画像からテキストを抽出する (OCR)
-   * @param {string} imageBase64 - Base64エンコードされた画像データ
-   * @returns {Promise<Object>} 抽出されたテキスト情報
-   */
-  async function extractTextFromImage(imageBase64) {
-    try {
-      const result = await runPythonAnalysis('extract_text', { image: imageBase64 });
-      return result;
-    } catch (error) {
-      log.error(`テキスト抽出エラー: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 画像のセクション分析を行う
-   * @param {string} imageBase64 - Base64エンコードされた画像データ
-   * @returns {Promise<Object>} セクション分析結果
-   */
-  async function analyzeImageSections(imageBase64) {
-    try {
-      const result = await runPythonAnalysis('analyze_sections', { image: imageBase64 });
-      return result;
-    } catch (error) {
-      log.error(`セクション分析エラー: ${error.message}`);
-      throw error;
-    }
   }
 
   /**
@@ -558,9 +510,6 @@ if (!isNode) {
     checkRequiredScripts,
     verifyPythonEnvironment,
     installPythonPackages,
-    extractColorsFromImage,
-    extractTextFromImage,
-    analyzeImageSections,
     analyzeLayoutPattern,
     detectMainSections,
     detectCardElements,

@@ -192,59 +192,6 @@ async function shutdown() {
   isShuttingDown = false;
 }
 
-/**
- * 画像の主要な色を抽出する
- * @param {string} imageBase64 - Base64形式の画像データ
- * @returns {Promise<Array>} 抽出された色の配列
- */
-export const extractColorsFromImage = async (imageBase64) => {
-  if (!isElectron) {
-    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
-  }
-
-  try {
-    return window.api.extractColorsFromImage(imageBase64);
-  } catch (error) {
-    logger.error('色抽出処理エラー:', error);
-    return { success: false, data: [], error: error.message || String(error) };
-  }
-};
-
-/**
- * 画像からテキストを抽出する（OCR）
- * @param {string} imageBase64 - Base64形式の画像データ
- * @returns {Promise<string>} 抽出されたテキスト
- */
-export const extractTextFromImage = async (imageBase64) => {
-  if (!isElectron) {
-    return { success: false, data: '', error: 'ブラウザ環境では処理できません' };
-  }
-
-  try {
-    return window.api.extractTextFromImage(imageBase64);
-  } catch (error) {
-    logger.error('テキスト抽出処理エラー:', error);
-    return { success: false, data: '', error: error.message || String(error) };
-  }
-};
-
-/**
- * 画像のセクション分析機能
- * @param {string} imageBase64 - Base64形式の画像データ
- * @returns {Promise<Array>} セクション情報の配列
- */
-export const analyzeImageSections = async (imageBase64) => {
-  if (!isElectron) {
-    return { success: false, data: [], error: 'ブラウザ環境では処理できません' };
-  }
-
-  try {
-    return window.api.analyzeImageSections(imageBase64);
-  } catch (error) {
-    logger.error('セクション分析処理エラー:', error);
-    return { success: false, data: [], error: error.message || String(error) };
-  }
-};
 
 /**
  * レイアウトパターンを分析する
