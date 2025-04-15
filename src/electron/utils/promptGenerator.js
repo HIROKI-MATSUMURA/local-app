@@ -168,11 +168,13 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
   // ❶ メイン解析（analyzeAll）
   let analysisResult;
   try {
+    console.log('🔍 画像解析を開始...');
     const rawResult = await window.api.analyzeAll(imageBase64);
-    console.log("🐛 result内容:", rawResult);
+    console.log('🐛 result内容:', rawResult);
 
-    const res = rawResult?.result || rawResult?.data || {};
-    console.log("🐛 抽出されたres:", res);
+    // 修正: rawResultを直接resに代入
+    const res = rawResult;
+    console.log('🐛 抽出されたres:', res);
 
     if (!res || res.success === false || res.error) {
       console.warn(`${imageType}画像の解析に失敗:`, res.error || '未知のエラー');
@@ -291,10 +293,6 @@ export const generatePrompt = async (options) => {
       pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
       spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
     ]);
-
-    // 新：置き換え
-    // const { pc: pcAnalysis = {}, sp: spAnalysis = {} } = await analyzeAll({ pcImage, spImage });
-
     // 解析結果の検証
     if (!pcImage && !spImage) {
       console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
