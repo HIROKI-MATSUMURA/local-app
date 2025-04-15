@@ -1182,7 +1182,644 @@ const AnalysisModules = {
     // textAnalyzer.jsから抽出予定
   },
   layout: {
-    // layoutAnalyzer.jsから抽出予定
+    // レイアウト分析メイン関数
+    analyzeLayout(data, options = {}) {
+      try {
+        if (!data) {
+          return {
+            hasLayout: false,
+            gridSystem: null,
+            spacingPatterns: null,
+            alignmentPatterns: null,
+            aspectRatios: null,
+            recommendations: null
+          };
+        }
+
+        // elementsの取得 (異なる構造に対応)
+        let elements = [];
+        if (data.elements) {
+          elements = Array.isArray(data.elements) ? data.elements :
+            (data.elements.elements && Array.isArray(data.elements.elements) ?
+              data.elements.elements : []);
+        }
+
+        if (elements.length === 0) {
+          return { hasLayout: false };
+        }
+
+        // グリッドシステムの検出
+        const gridSystem = this.detectGridSystem(elements, options);
+
+        // 間隔パターンの識別
+        const spacingPatterns = this.identifySpacingPatterns(elements);
+
+        // 配置パターンの識別
+        const alignmentPatterns = this.analyzeAlignment(elements);
+
+        // アスペクト比の計算
+        const sections = data.sections || [];
+        const aspectRatios = this.calculateAspectRatios(sections, elements);
+
+        // レイアウト推奨事項の生成
+        const recommendations = this.generateLayoutRecommendations({
+          gridSystem,
+          spacingPatterns,
+          alignmentPatterns,
+          aspectRatios
+        }, options);
+
+        return {
+          hasLayout: true,
+          gridSystem,
+          spacingPatterns,
+          alignmentPatterns,
+          aspectRatios,
+          recommendations
+        };
+      } catch (error) {
+        console.error('レイアウト分析中にエラーが発生しました:', error);
+        return { hasLayout: false };
+      }
+    },
+
+    // グリッドシステムの検出
+    detectGridSystem(elements, options = {}) {
+      const { responsiveMode = "pc" } = options;
+
+      // 位置情報のある要素のみをフィルタリング
+      const validElements = elements.filter(el => {
+        const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+        return hasPosition && (el.position?.width || el.width) > 0 && (el.position?.height || el.height) > 0;
+      });
+
+      if (validElements.length < 3) {
+        return {
+          detected: false,
+          columns: 0,
+          gaps: { horizontal: 0, vertical: 0 },
+          confidence: 0
+        };
+      }
+
+      // 水平方向の位置を取得してソート
+      const horizontalPositions = validElements.map(el => {
+        const pos = el.position || {};
+        return {
+          x: pos.x !== undefined ? pos.x : (el.x || 0),
+          width: pos.width !== undefined ? pos.width : (el.width || 0),
+          right: (pos.x !== undefined ? pos.x : (el.x || 0)) + (pos.width !== undefined ? pos.width : (el.width || 0))
+        };
+      }).sort((a, b) => a.x - b.x);
+
+      // 要素間の間隔を計算
+      const gaps = [];
+      for (let i = 1; i < horizontalPositions.length; i++) {
+        const prevElement = horizontalPositions[i - 1];
+        const currElement = horizontalPositions[i];
+        const gap = currElement.x - prevElement.right;
+
+        // 有効な間隔のみを記録 (負の値や巨大な値は無視)
+        if (gap > 0 && gap < 300) {
+          gaps.push(gap);
+        }
+      }
+
+      // 最も頻出する間隔を特定
+      const gapFrequency = {};
+      let mostCommonGap = 0;
+      let maxFrequency = 0;
+
+      gaps.forEach(gap => {
+        // 近似値のグループ化 (±5px)
+        const roundedGap = Math.round(gap / 5) * 5;
+        gapFrequency[roundedGap] = (gapFrequency[roundedGap] || 0) + 1;
+
+        if (gapFrequency[roundedGap] > maxFrequency) {
+          maxFrequency = gapFrequency[roundedGap];
+          mostCommonGap = roundedGap;
+        }
+      });
+
+      // カラム数の推定（画面を等分割すると仮定）
+      // 標準的なデスクトップ幅を1200pxと仮定
+      const assumedScreenWidth = responsiveMode === 'sp' ? 375 : 1200;
+      const avgElementWidth = horizontalPositions.reduce((sum, pos) => sum + pos.width, 0) / horizontalPositions.length;
+
+      // 推定カラム数 (最小1、最大12、整数に丸める)
+      let estimatedColumns = Math.min(12, Math.max(1, Math.round(assumedScreenWidth / (avgElementWidth + mostCommonGap))));
+
+      // 一般的なグリッドシステムの列数に合わせる (1, 2, 3, 4, 6, 12)
+      const commonGrids = [1, 2, 3, 4, 6, 12];
+      let closestGrid = commonGrids.reduce((prev, curr) =>
+        Math.abs(curr - estimatedColumns) < Math.abs(prev - estimatedColumns) ? curr : prev
+      );
+
+      // 確信度の計算 (ギャップの一貫性と要素数に基づく)
+      const gapConsistency = maxFrequency / gaps.length;
+      const confidence = Math.min(0.95, Math.max(0.5, gapConsistency * 0.7 + (validElements.length > 10 ? 0.3 : 0.1)));
+
+      return {
+        detected: confidence > 0.6,
+        columns: closestGrid,
+        gaps: {
+          horizontal: mostCommonGap,
+          vertical: Math.round(mostCommonGap * 1.5) // 垂直ギャップは通常水平より大きい
+        },
+        confidence
+      };
+    },
+
+    // 間隔パターンの識別
+    identifySpacingPatterns(elements) {
+      if (!elements || elements.length < 3) {
+        return {
+          detected: false,
+          patterns: []
+        };
+      }
+
+      // 位置情報のある要素のみフィルタリング
+      const validElements = elements.filter(el => {
+        const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+        return hasPosition;
+      });
+
+      if (validElements.length < 3) {
+        return {
+          detected: false,
+          patterns: []
+        };
+      }
+
+      // 水平間隔と垂直間隔を収集
+      const horizontalSpacings = [];
+      const verticalSpacings = [];
+
+      // 位置情報を標準化する関数
+      const getStandardPosition = (el) => {
+        const pos = el.position || {};
+        return {
+          x: pos.x !== undefined ? pos.x : (el.x || 0),
+          y: pos.y !== undefined ? pos.y : (el.y || 0),
+          width: pos.width !== undefined ? pos.width : (el.width || 0),
+          height: pos.height !== undefined ? pos.height : (el.height || 0),
+          right: (pos.x !== undefined ? pos.x : (el.x || 0)) + (pos.width !== undefined ? pos.width : (el.width || 0)),
+          bottom: (pos.y !== undefined ? pos.y : (el.y || 0)) + (pos.height !== undefined ? pos.height : (el.height || 0))
+        };
+      };
+
+      // ソートされた位置情報を取得
+      const sortedByX = [...validElements].map(getStandardPosition).sort((a, b) => a.x - b.x);
+      const sortedByY = [...validElements].map(getStandardPosition).sort((a, b) => a.y - b.y);
+
+      // 水平間隔の計算
+      for (let i = 1; i < sortedByX.length; i++) {
+        const gap = sortedByX[i].x - sortedByX[i - 1].right;
+        if (gap > 0 && gap < 300) {
+          horizontalSpacings.push(Math.round(gap));
+        }
+      }
+
+      // 垂直間隔の計算
+      for (let i = 1; i < sortedByY.length; i++) {
+        const gap = sortedByY[i].y - sortedByY[i - 1].bottom;
+        if (gap > 0 && gap < 500) {
+          verticalSpacings.push(Math.round(gap));
+        }
+      }
+
+      // 間隔の頻度分析
+      const analyzeSpacings = (spacings) => {
+        if (spacings.length === 0) return [];
+
+        // 5px単位でグループ化
+        const groupedSpacings = {};
+        spacings.forEach(space => {
+          const roundedSpace = Math.round(space / 5) * 5;
+          groupedSpacings[roundedSpace] = (groupedSpacings[roundedSpace] || 0) + 1;
+        });
+
+        // 頻度順にソート
+        return Object.entries(groupedSpacings)
+          .map(([value, count]) => ({
+            value: parseInt(value),
+            frequency: count / spacings.length
+          }))
+          .sort((a, b) => b.frequency - a.frequency)
+          .slice(0, 3); // 上位3つのみ返す
+      };
+
+      const horizontalPatterns = analyzeSpacings(horizontalSpacings);
+      const verticalPatterns = analyzeSpacings(verticalSpacings);
+
+      // パターンの種類を特定
+      const patternType =
+        horizontalPatterns.length > 0 && verticalPatterns.length > 0 ? 'grid' :
+          horizontalPatterns.length > 0 ? 'horizontal' :
+            verticalPatterns.length > 0 ? 'vertical' : 'unknown';
+
+      // 結果を返す
+      return {
+        detected: horizontalPatterns.length > 0 || verticalPatterns.length > 0,
+        patternType,
+        horizontal: horizontalPatterns,
+        vertical: verticalPatterns
+      };
+    },
+
+    // 配置パターンの分析
+    analyzeAlignment(elements) {
+      if (!elements || elements.length < 2) {
+        return {
+          detected: false,
+          patterns: []
+        };
+      }
+
+      // 位置情報のある要素のみをフィルタリング
+      const validElements = elements.filter(el => {
+        const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+        return hasPosition;
+      });
+
+      if (validElements.length < 2) {
+        return {
+          detected: false,
+          patterns: []
+        };
+      }
+
+      // 位置情報を標準化
+      const normalizedElements = validElements.map(el => {
+        const pos = el.position || {};
+        return {
+          x: pos.x !== undefined ? pos.x : (el.x || 0),
+          y: pos.y !== undefined ? pos.y : (el.y || 0),
+          width: pos.width !== undefined ? pos.width : (el.width || 0),
+          height: pos.height !== undefined ? pos.height : (el.height || 0),
+          centerX: (pos.x !== undefined ? pos.x : (el.x || 0)) + (pos.width !== undefined ? pos.width : (el.width || 0)) / 2,
+          right: (pos.x !== undefined ? pos.x : (el.x || 0)) + (pos.width !== undefined ? pos.width : (el.width || 0))
+        };
+      });
+
+      // 左揃えの要素をカウント (x座標が近いものをグループ化)
+      const leftAlignedGroups = {};
+      normalizedElements.forEach(el => {
+        const roundedX = Math.round(el.x / 5) * 5;
+        leftAlignedGroups[roundedX] = (leftAlignedGroups[roundedX] || 0) + 1;
+      });
+
+      // 中央揃えの要素をカウント
+      const centerAlignedGroups = {};
+      normalizedElements.forEach(el => {
+        const roundedCenterX = Math.round(el.centerX / 5) * 5;
+        centerAlignedGroups[roundedCenterX] = (centerAlignedGroups[roundedCenterX] || 0) + 1;
+      });
+
+      // 右揃えの要素をカウント
+      const rightAlignedGroups = {};
+      normalizedElements.forEach(el => {
+        const roundedRight = Math.round(el.right / 5) * 5;
+        rightAlignedGroups[roundedRight] = (rightAlignedGroups[roundedRight] || 0) + 1;
+      });
+
+      // 各揃えの最大頻度を取得
+      const getMaxAlignment = (groups) => {
+        const entries = Object.entries(groups);
+        if (entries.length === 0) return { value: 0, count: 0 };
+
+        const sortedByCount = entries.sort((a, b) => b[1] - a[1]);
+        return {
+          value: parseInt(sortedByCount[0][0]),
+          count: sortedByCount[0][1]
+        };
+      };
+
+      const maxLeftAlign = getMaxAlignment(leftAlignedGroups);
+      const maxCenterAlign = getMaxAlignment(centerAlignedGroups);
+      const maxRightAlign = getMaxAlignment(rightAlignedGroups);
+
+      // 配置パターンの結果を作成
+      const alignmentPatterns = [];
+
+      if (maxLeftAlign.count >= normalizedElements.length * 0.3) {
+        alignmentPatterns.push({ type: 'left', strength: maxLeftAlign.count / normalizedElements.length });
+      }
+
+      if (maxCenterAlign.count >= normalizedElements.length * 0.3) {
+        alignmentPatterns.push({ type: 'center', strength: maxCenterAlign.count / normalizedElements.length });
+      }
+
+      if (maxRightAlign.count >= normalizedElements.length * 0.3) {
+        alignmentPatterns.push({ type: 'right', strength: maxRightAlign.count / normalizedElements.length });
+      }
+
+      // 結果をstrenthで降順ソート
+      alignmentPatterns.sort((a, b) => b.strength - a.strength);
+
+      // 対称性の判定
+      const hasSymmetry = maxCenterAlign.count > (maxLeftAlign.count + maxRightAlign.count) * 0.7;
+
+      return {
+        detected: alignmentPatterns.length > 0,
+        patterns: alignmentPatterns,
+        dominantAlignment: alignmentPatterns.length > 0 ? alignmentPatterns[0].type : 'mixed',
+        symmetrical: hasSymmetry
+      };
+    },
+
+    // アスペクト比の計算
+    calculateAspectRatios(sections, elements) {
+      // セクションがない場合、要素から最大の境界ボックスを計算
+      if (!sections || sections.length === 0) {
+        if (!elements || elements.length === 0) {
+          return {
+            detected: false,
+            ratios: []
+          };
+        }
+
+        // 位置情報のある要素のみをフィルタリング
+        const validElements = elements.filter(el => {
+          const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+          return hasPosition;
+        });
+
+        if (validElements.length === 0) {
+          return {
+            detected: false,
+            ratios: []
+          };
+        }
+
+        // 要素の境界を計算
+        const bounds = {
+          minX: Math.min(...validElements.map(el => el.position?.x !== undefined ? el.position.x : (el.x || 0))),
+          minY: Math.min(...validElements.map(el => el.position?.y !== undefined ? el.position.y : (el.y || 0))),
+          maxX: Math.max(...validElements.map(el => {
+            const x = el.position?.x !== undefined ? el.position.x : (el.x || 0);
+            const width = el.position?.width !== undefined ? el.position.width : (el.width || 0);
+            return x + width;
+          })),
+          maxY: Math.max(...validElements.map(el => {
+            const y = el.position?.y !== undefined ? el.position.y : (el.y || 0);
+            const height = el.position?.height !== undefined ? el.position.height : (el.height || 0);
+            return y + height;
+          }))
+        };
+
+        const totalWidth = bounds.maxX - bounds.minX;
+        const totalHeight = bounds.maxY - bounds.minY;
+
+        if (totalWidth <= 0 || totalHeight <= 0) {
+          return {
+            detected: false,
+            ratios: []
+          };
+        }
+
+        const ratio = totalWidth / totalHeight;
+        return {
+          detected: true,
+          ratios: [{
+            name: 'content-area',
+            ratio: parseFloat(ratio.toFixed(2)),
+            width: totalWidth,
+            height: totalHeight,
+            isCommon: this.isCommonRatio(ratio)
+          }]
+        };
+      }
+
+      // セクションごとのアスペクト比を計算
+      const sectionRatios = sections.map(section => {
+        const width = section.width || (section.position?.width || 0);
+        const height = section.height || (section.position?.height || 0);
+
+        if (width <= 0 || height <= 0) return null;
+
+        const ratio = width / height;
+        return {
+          name: section.type || 'section',
+          ratio: parseFloat(ratio.toFixed(2)),
+          width,
+          height,
+          isCommon: this.isCommonRatio(ratio)
+        };
+      }).filter(ratio => ratio !== null);
+
+      return {
+        detected: sectionRatios.length > 0,
+        ratios: sectionRatios
+      };
+    },
+
+    // 一般的なアスペクト比かどうかを判定
+    isCommonRatio(ratio) {
+      // 一般的なアスペクト比のリスト
+      const commonRatios = [
+        { name: '1:1', value: 1 },        // 正方形
+        { name: '4:3', value: 4 / 3 },      // 従来のTV
+        { name: '16:9', value: 16 / 9 },    // ワイドスクリーン
+        { name: '21:9', value: 21 / 9 },    // ウルトラワイド
+        { name: '3:2', value: 3 / 2 },      // 写真
+        { name: 'golden', value: 1.618 }  // 黄金比
+      ];
+
+      // 比率の許容誤差
+      const tolerance = 0.1;
+
+      // 最も近い一般的なアスペクト比を見つける
+      const closestRatio = commonRatios.find(common =>
+        Math.abs(common.value - ratio) < tolerance
+      );
+
+      return closestRatio ? closestRatio.name : null;
+    },
+
+    // レイアウト推奨事項の生成
+    generateLayoutRecommendations(analysis, options = {}) {
+      const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+      const isMobileFirst = responsiveMode === "sp" || responsiveMode === "both";
+      const breakpointName = aiBreakpoints && aiBreakpoints.length > 0 ?
+        aiBreakpoints[0].name || 'md' : 'md';
+
+      // グリッドシステムの推奨
+      let gridRecommendation = '';
+      if (analysis.gridSystem && analysis.gridSystem.detected) {
+        const columns = analysis.gridSystem.columns;
+        const hGap = analysis.gridSystem.gaps.horizontal;
+        const vGap = analysis.gridSystem.gaps.vertical;
+
+        gridRecommendation = isMobileFirst ?
+          `.grid-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: ${Math.round(vGap / 2)}px;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: repeat(${columns}, 1fr);
+    gap: ${hGap}px ${vGap}px;
+  }
+}` :
+          `.grid-container {
+  display: grid;
+  grid-template-columns: repeat(${columns}, 1fr);
+  gap: ${hGap}px ${vGap}px;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: 1fr;
+    gap: ${Math.round(vGap / 2)}px;
+  }
+}`;
+      }
+
+      // 配置パターンの推奨
+      let alignmentRecommendation = '';
+      if (analysis.alignmentPatterns && analysis.alignmentPatterns.detected) {
+        const dominantAlignment = analysis.alignmentPatterns.dominantAlignment;
+        const justifyValue =
+          dominantAlignment === 'left' ? 'flex-start' :
+            dominantAlignment === 'right' ? 'flex-end' : 'center';
+
+        alignmentRecommendation = isMobileFirst ?
+          `.aligned-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  @include mq(${breakpointName}) {
+    flex-direction: row;
+    justify-content: ${justifyValue};
+  }
+}` :
+          `.aligned-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: ${justifyValue};
+
+  @include mq(${breakpointName}) {
+    flex-direction: column;
+    align-items: center;
+  }
+}`;
+      }
+
+      // 空間利用分析
+      let spacingRecommendation = '';
+      if (analysis.spacingPatterns && analysis.spacingPatterns.detected) {
+        const horizontalSpacing = analysis.spacingPatterns.horizontal && analysis.spacingPatterns.horizontal.length > 0 ?
+          analysis.spacingPatterns.horizontal[0].value : 20;
+        const verticalSpacing = analysis.spacingPatterns.vertical && analysis.spacingPatterns.vertical.length > 0 ?
+          analysis.spacingPatterns.vertical[0].value : 30;
+
+        spacingRecommendation =
+          `:root {
+  --space-sm: ${Math.round(horizontalSpacing / 2)}px;
+  --space-md: ${horizontalSpacing}px;
+  --space-lg: ${verticalSpacing}px;
+  --space-xl: ${Math.round(verticalSpacing * 1.5)}px;
+}
+
+.section {
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+
+  @include mq(${breakpointName}) {
+    margin-bottom: var(--space-xl);
+    padding: var(--space-lg);
+  }
+}`;
+      }
+
+      // 総合的なレイアウト戦略
+      const layoutStrategy = isMobileFirst ?
+        `モバイルファーストアプローチで、縦に積み重ねたレイアウトから始めて、大きな画面では${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}カラムの` : ''}グリッドレイアウトに拡張します。` :
+        `デスクトップファーストアプローチで、${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}カラムの` : ''}グリッドレイアウトから始めて、小さな画面では縦に積み重ねたレイアウトに縮小します。`;
+
+      return {
+        strategy: layoutStrategy,
+        examples: {
+          grid: gridRecommendation,
+          alignment: alignmentRecommendation,
+          spacing: spacingRecommendation
+        }
+      };
+    },
+
+    // プロンプト用レイアウトセクションの構築
+    buildLayoutSection(analysis, options = {}) {
+      if (!analysis || !analysis.hasLayout) {
+        return '';
+      }
+
+      let section = "\n## レイアウト構造とグリッドシステム\n\n";
+
+      // グリッドシステムの情報
+      if (analysis.gridSystem && analysis.gridSystem.detected) {
+        section += `### グリッドシステム\n`;
+        section += `- **カラム数**: ${analysis.gridSystem.columns}\n`;
+        section += `- **水平間隔**: ${analysis.gridSystem.gaps.horizontal}px\n`;
+        section += `- **垂直間隔**: ${analysis.gridSystem.gaps.vertical}px\n\n`;
+      }
+
+      // 配置パターン
+      if (analysis.alignmentPatterns && analysis.alignmentPatterns.detected) {
+        section += `### 配置パターン\n`;
+        section += `- **主要な配置**: ${analysis.alignmentPatterns.dominantAlignment === 'left' ? '左揃え' : analysis.alignmentPatterns.dominantAlignment === 'right' ? '右揃え' : '中央揃え'}\n`;
+        if (analysis.alignmentPatterns.symmetrical) {
+          section += `- **対称性**: 対称的なレイアウト\n\n`;
+        } else {
+          section += `- **対称性**: 非対称的なレイアウト\n\n`;
+        }
+      }
+
+      // 間隔パターン
+      if (analysis.spacingPatterns && analysis.spacingPatterns.detected) {
+        section += `### 間隔パターン\n`;
+        if (analysis.spacingPatterns.horizontal && analysis.spacingPatterns.horizontal.length > 0) {
+          section += `- **水平間隔**: ${analysis.spacingPatterns.horizontal.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
+        }
+        if (analysis.spacingPatterns.vertical && analysis.spacingPatterns.vertical.length > 0) {
+          section += `- **垂直間隔**: ${analysis.spacingPatterns.vertical.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
+        }
+        section += '\n';
+      }
+
+      // アスペクト比
+      if (analysis.aspectRatios && analysis.aspectRatios.detected) {
+        section += `### アスペクト比\n`;
+        analysis.aspectRatios.ratios.forEach(ratio => {
+          section += `- **${ratio.name}**: ${ratio.ratio}${ratio.isCommon ? ` (${ratio.isCommon})` : ''}\n`;
+        });
+        section += '\n';
+      }
+
+      // レイアウト推奨事項
+      if (analysis.recommendations) {
+        section += `### レイアウト実装ガイド\n`;
+        section += `${analysis.recommendations.strategy}\n\n`;
+
+        if (analysis.recommendations.examples.grid) {
+          section += `#### グリッドレイアウト\n`;
+          section += "```scss\n" + analysis.recommendations.examples.grid + "\n```\n\n";
+        }
+
+        if (analysis.recommendations.examples.alignment) {
+          section += `#### 配置パターン\n`;
+          section += "```scss\n" + analysis.recommendations.examples.alignment + "\n```\n\n";
+        }
+
+        if (analysis.recommendations.examples.spacing) {
+          section += `#### 間隔の統一\n`;
+          section += "```scss\n" + analysis.recommendations.examples.spacing + "\n```\n\n";
+        }
+      }
+
+      return section;
+    }
   }
 };
 
@@ -1499,25 +2136,40 @@ export const generatePrompt = async (options) => {
         // 色彩分析の拡張
         const colorAnalysis = AnalysisModules.color.analyzeColors(pcAnalysis.colors);
 
+        // レイアウト分析の実行
+        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(pcAnalysis, {
+          responsiveMode: 'pc',
+          aiBreakpoints
+        });
+
         // 拡張データを追加
         enhancedPcAnalysis = {
           ...pcAnalysis,
-          enhancedColors: colorAnalysis
+          enhancedColors: colorAnalysis,
+          enhancedLayout: layoutAnalysis
         };
 
         console.log('PC画像の拡張色彩分析が完了しました。',
           colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
+        console.log('PC画像のレイアウト分析が完了しました。',
+          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
       }
 
       // SPデータも同様に処理
       if (spAnalysis && spAnalysis.colors && spAnalysis.colors.length > 0) {
         const colorAnalysis = AnalysisModules.color.analyzeColors(spAnalysis.colors);
 
+        // レイアウト分析の実行
+        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(spAnalysis, {
+          responsiveMode: 'sp',
+          aiBreakpoints
+        });
+
         enhancedSpAnalysis = {
           ...spAnalysis,
-          enhancedColors: colorAnalysis
+          enhancedColors: colorAnalysis,
+          enhancedLayout: layoutAnalysis
         };
-
         console.log('SP画像の拡張色彩分析が完了しました。',
           colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
       }
