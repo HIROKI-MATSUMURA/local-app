@@ -1,5 +1,55 @@
 // 分析モジュールの名前空間（第1段階：基盤作り）
 const AnalysisModules = {
+  // ブレークポイント管理ユーティリティ
+  breakpoints: {
+    // デフォルト値
+    defaults: {
+      md: 768
+    },
+
+    // ブレークポイント値を取得（優先順位: 引数 > プロジェクト設定 > デフォルト値）
+    getMdValue(options = {}) {
+      // aiBreakpointsから取得（複数ブレークポイントの場合はmdを探す）
+      if (options.aiBreakpoints && Array.isArray(options.aiBreakpoints) && options.aiBreakpoints.length > 0) {
+        // mdという名前のブレークポイントを探す
+        const mdBreakpoint = options.aiBreakpoints.find(bp => bp.name === 'md');
+        if (mdBreakpoint && typeof mdBreakpoint.value === 'number') {
+          return mdBreakpoint.value;
+        }
+        // mdが見つからない場合は最初のブレークポイントを使用
+        if (options.aiBreakpoints[0].value) {
+          return options.aiBreakpoints[0].value;
+        }
+      }
+
+      // 直接breakpointプロパティが指定されている場合
+      if (options.breakpoint && typeof options.breakpoint === 'number') {
+        return options.breakpoint;
+      }
+
+      // デフォルト値を返す
+      return this.defaults.md;
+    },
+
+    // レスポンシブモードに応じたSCSSメディアクエリを生成
+    generateMediaQuery(breakpoint, cssContent, mode = 'pc') {
+      const mdValue = typeof breakpoint === 'number' ? breakpoint : this.defaults.md;
+
+      if (mode === 'sp') {
+        // スマホファースト（min-width）
+        return `@include mq(md) {\n    ${cssContent.replace(/\n/g, '\n    ')}\n  }`;
+      } else {
+        // PCファースト（max-width）
+        return `@include mq-down(md) {\n    ${cssContent.replace(/\n/g, '\n    ')}\n  }`;
+      }
+    },
+
+    // レスポンシブモードを判断（'pc', 'sp', または 'both'）
+    getResponsiveMode(options = {}) {
+      return options.responsiveMode || 'pc';
+    }
+  },
+
   color: {
     // カラー分析メイン関数
     analyzeColors(colors) {
@@ -1816,6 +1866,17 @@ const AnalysisModules = {
         }
       }
 
+      // テキスト分析の追加
+      if (pcData.enhancedText || spData.enhancedText) {
+        const textData = pcData.enhancedText || spData.enhancedText;
+
+        if (textData.hasText) {
+          section += textData.buildTextSection ? textData.buildTextSection(textData, {
+            breakpoint: AnalysisModules.breakpoints.getMdValue()
+          }) : '\n### Text Analysis\nText analysis data is available but could not be formatted.';
+        }
+      }
+
       return section;
     },
 
@@ -2027,6 +2088,321 @@ const AnalysisModules = {
         console.error('テキスト配置検出中にエラーが発生しました:', error);
         return { dominant: 'left', distributions: { left: 1 } };
       }
+    },
+
+    // FLOCSSに準拠したタイポグラフィSCSSを構築
+    buildFLOCSSOptimizedTypography(analysis) {
+      try {
+        // ブレークポイント値を取得
+        const mdBreakpoint = analysis.breakpoint || AnalysisModules.breakpoints.defaults.md;
+        const responsiveMode = analysis.responsiveMode || 'pc';
+
+        // 一般的なフォントサイズ変数
+        let scss = `// タイポグラフィ変数
+$font-base-size: ${analysis.baseFontSize || 16}px;
+$font-heading-primary: ${analysis.headingSizes?.primary || 32}px;
+$font-heading-secondary: ${analysis.headingSizes?.secondary || 24}px;
+$font-text-body: ${analysis.bodySizes?.primary || 16}px;
+$font-text-small: ${analysis.bodySizes?.small || 14}px;
+
+// レスポンシブ設定
+$breakpoint-md: ${mdBreakpoint}px;
+
+// Project: セクション固有のスタイル
+`;
+
+        // 各セクションのタイポグラフィを構築
+        if (analysis.sections && analysis.sections.length > 0) {
+          analysis.sections.forEach(section => {
+            const sectionName = section.sectionName || 'section';
+
+            // セクション見出し
+            scss += `.p-${sectionName}__title {\n`;
+
+            if (responsiveMode === 'sp') {
+              // スマホファースト
+              scss += `  font-size: $font-text-body;\n`;
+              scss += `  font-weight: ${section.headingWeight || 700};\n`;
+              scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
+              scss += `  margin-bottom: 20px;\n`;
+              scss += `\n`;
+              scss += `  @include mq(md) {\n`;
+              scss += `    font-size: $font-heading-primary;\n`;
+              scss += `  }\n`;
+            } else {
+              // PCファースト
+              scss += `  font-size: $font-heading-primary;\n`;
+              scss += `  font-weight: ${section.headingWeight || 700};\n`;
+              scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
+              scss += `  margin-bottom: 20px;\n`;
+              scss += `\n`;
+              scss += `  @include mq-down(md) {\n`;
+              scss += `    font-size: $font-text-body;\n`;
+              scss += `  }\n`;
+            }
+
+            scss += `}\n\n`;
+
+            // サブ見出し
+            scss += `.p-${sectionName}__subtitle {\n`;
+
+            if (responsiveMode === 'sp') {
+              // スマホファースト
+              scss += `  font-size: $font-text-small;\n`;
+              scss += `  font-weight: ${section.headingWeight - 100 || 600};\n`;
+              scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
+              scss += `  margin-bottom: 15px;\n`;
+              scss += `\n`;
+              scss += `  @include mq(md) {\n`;
+              scss += `    font-size: $font-heading-secondary;\n`;
+              scss += `  }\n`;
+            } else {
+              // PCファースト
+              scss += `  font-size: $font-heading-secondary;\n`;
+              scss += `  font-weight: ${section.headingWeight - 100 || 600};\n`;
+              scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
+              scss += `  margin-bottom: 15px;\n`;
+              scss += `\n`;
+              scss += `  @include mq-down(md) {\n`;
+              scss += `    font-size: $font-text-small;\n`;
+              scss += `  }\n`;
+            }
+
+            scss += `}\n\n`;
+
+            // テキスト
+            scss += `.p-${sectionName}__text {\n`;
+
+            if (responsiveMode === 'sp') {
+              // スマホファースト
+              scss += `  font-size: $font-text-small;\n`;
+              scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
+              scss += `\n`;
+              scss += `  @include mq(md) {\n`;
+              scss += `    font-size: $font-text-body;\n`;
+              scss += `  }\n`;
+            } else {
+              // PCファースト
+              scss += `  font-size: $font-text-body;\n`;
+              scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
+              scss += `\n`;
+              scss += `  @include mq-down(md) {\n`;
+              scss += `    font-size: $font-text-small;\n`;
+              scss += `  }\n`;
+            }
+
+            scss += `}\n\n`;
+
+            // 説明テキスト
+            scss += `.p-${sectionName}__description {\n`;
+
+            if (responsiveMode === 'sp') {
+              // スマホファースト
+              scss += `  font-size: $font-text-small;\n`;
+              scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
+              scss += `  margin-bottom: 30px;\n`;
+              scss += `\n`;
+              scss += `  @include mq(md) {\n`;
+              scss += `    font-size: $font-text-body;\n`;
+              scss += `  }\n`;
+            } else {
+              // PCファースト
+              scss += `  font-size: $font-text-body;\n`;
+              scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
+              scss += `  margin-bottom: 30px;\n`;
+              scss += `\n`;
+              scss += `  @include mq-down(md) {\n`;
+              scss += `    font-size: $font-text-small;\n`;
+              scss += `  }\n`;
+            }
+
+            scss += `}\n\n`;
+          });
+        } else {
+          // デフォルトのセクションスタイル
+          scss += `.p-section__title {\n`;
+
+          if (responsiveMode === 'sp') {
+            // スマホファースト
+            scss += `  font-size: $font-text-body;\n`;
+            scss += `  font-weight: 700;\n`;
+            scss += `  line-height: 1.4;\n`;
+            scss += `  margin-bottom: 20px;\n`;
+            scss += `\n`;
+            scss += `  @include mq(md) {\n`;
+            scss += `    font-size: $font-heading-primary;\n`;
+            scss += `  }\n`;
+          } else {
+            // PCファースト
+            scss += `  font-size: $font-heading-primary;\n`;
+            scss += `  font-weight: 700;\n`;
+            scss += `  line-height: 1.4;\n`;
+            scss += `  margin-bottom: 20px;\n`;
+            scss += `\n`;
+            scss += `  @include mq-down(md) {\n`;
+            scss += `    font-size: $font-text-body;\n`;
+            scss += `  }\n`;
+          }
+
+          scss += `}\n\n`;
+
+          scss += `.p-section__text {\n`;
+
+          if (responsiveMode === 'sp') {
+            // スマホファースト
+            scss += `  font-size: $font-text-small;\n`;
+            scss += `  line-height: 1.6;\n`;
+            scss += `\n`;
+            scss += `  @include mq(md) {\n`;
+            scss += `    font-size: $font-text-body;\n`;
+            scss += `  }\n`;
+          } else {
+            // PCファースト
+            scss += `  font-size: $font-text-body;\n`;
+            scss += `  line-height: 1.6;\n`;
+            scss += `\n`;
+            scss += `  @include mq-down(md) {\n`;
+            scss += `    font-size: $font-text-small;\n`;
+            scss += `  }\n`;
+          }
+
+          scss += `}\n`;
+        }
+
+        return scss;
+      } catch (error) {
+        console.error('SCSS生成中にエラーが発生しました:', error);
+        return `// タイポグラフィ変数
+$font-base-size: 16px;
+$font-heading-primary: 32px;
+$font-heading-secondary: 24px;
+$font-text-body: 16px;
+$font-text-small: 14px;
+
+// レスポンシブ設定
+$breakpoint-md: ${AnalysisModules.breakpoints.defaults.md}px;
+
+// Project: セクション固有のスタイル
+.p-section__title {
+  font-size: $font-text-body;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 20px;
+
+  @include mq(md) {
+    font-size: $font-heading-primary;
+  }
+}
+
+.p-section__text {
+  font-size: $font-text-small;
+  line-height: 1.6;
+
+  @include mq(md) {
+    font-size: $font-text-body;
+  }
+}`;
+      }
+    },
+
+    // レスポンシブタイポグラフィの推奨事項を生成
+    generateResponsiveTypography(analysis, options = {}) {
+      try {
+        const { fontProperties, hierarchy } = analysis;
+        const mode = AnalysisModules.breakpoints.getResponsiveMode(options);
+
+        // ベースフォントサイズの設定
+        const baseFontSize = fontProperties.baseFontSize || 16;
+
+        // 見出しと本文のサイズ
+        const headingSizes = fontProperties.headingSizes || {
+          primary: 32,
+          secondary: 24
+        };
+
+        const bodySizes = fontProperties.bodySizes || {
+          primary: 16,
+          small: 14
+        };
+
+        // SPでのサイズ比率
+        const responsiveRatio = fontProperties.responsiveRatio || 0.75;
+
+        // フォントサイズの変数定義
+        const fontVariables = [];
+
+        fontVariables.push(`$font-base-size: ${baseFontSize}px;`);
+
+        Object.entries(headingSizes).forEach(([key, size]) => {
+          fontVariables.push(`$font-heading-${key}: ${size}px;`);
+        });
+
+        Object.entries(bodySizes).forEach(([key, size]) => {
+          fontVariables.push(`$font-text-${key}: ${size}px;`);
+        });
+
+        // ブレークポイント値を取得（優先順位: オプション > デフォルト）
+        const breakpoint = AnalysisModules.breakpoints.getMdValue(options);
+        fontVariables.push(`$breakpoint-md: ${breakpoint}px;`);
+
+        // セクションごとのスタイルサンプル
+        const sections = [];
+        const sectionNames = [...new Set(
+          Object.values(analysis.semanticRoles || {})
+            .map(info => info.section)
+            .filter(Boolean)
+        )];
+
+        sectionNames.forEach(sectionName => {
+          sections.push({
+            sectionName,
+            headingSizes: headingSizes,
+            bodySizes: bodySizes,
+            headingWeight: fontProperties.fontWeights?.bold || 700,
+            textLineHeight: fontProperties.lineHeights?.body || 1.6,
+            headingLineHeight: fontProperties.lineHeights?.heading || 1.4
+          });
+        });
+
+        // SCSSサンプルの生成
+        const scssSample = this.buildFLOCSSOptimizedTypography({
+          sections,
+          baseFontSize,
+          headingSizes,
+          bodySizes,
+          responsiveRatio,
+          breakpoint,
+          responsiveMode: mode
+        });
+
+        return {
+          fontVariables,
+          scssSample,
+          responsiveStrategy: {
+            mode,
+            spRatio: responsiveRatio,
+            breakpoint
+          }
+        };
+      } catch (error) {
+        console.error('レスポンシブタイポグラフィ生成中にエラーが発生しました:', error);
+        return {
+          fontVariables: [
+            '$font-base-size: 16px;',
+            '$font-heading-primary: 32px;',
+            '$font-heading-secondary: 24px;',
+            '$font-text-primary: 16px;',
+            '$font-text-small: 14px;',
+            `$breakpoint-md: ${AnalysisModules.breakpoints.defaults.md}px;`
+          ],
+          scssSample: '',
+          responsiveStrategy: {
+            mode: 'both',
+            spRatio: 0.75,
+            breakpoint: AnalysisModules.breakpoints.defaults.md
+          }
+        };
+      }
     }
   }
 };
@@ -2080,7 +2456,7 @@ export const generatePrompt = async (options) => {
         // テキスト分析の実行
         const textAnalysis = AnalysisModules.text.analyzeText(pcAnalysis, {
           responsiveMode: 'pc',
-          breakpoint: aiBreakpoints && aiBreakpoints.length > 0 ? aiBreakpoints[0].value : 768
+          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
         });
 
         // 拡張データを追加
@@ -2112,7 +2488,7 @@ export const generatePrompt = async (options) => {
         // テキスト分析の実行
         const textAnalysis = AnalysisModules.text.analyzeText(spAnalysis, {
           responsiveMode: 'sp',
-          breakpoint: aiBreakpoints && aiBreakpoints.length > 0 ? aiBreakpoints[0].value : 768
+          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
         });
 
         enhancedSpAnalysis = {
@@ -2419,7 +2795,7 @@ Spacing system: Uses a base unit of ${layoutData.spacingSystem.baseUnit}px
       if (rawData.enhancedText.buildTextSection) {
         // テキストモジュールのbuildTextSection関数を使用
         textSection = rawData.enhancedText.buildTextSection(rawData.enhancedText, {
-          breakpoint: 768
+          breakpoint: AnalysisModules.breakpoints.getMdValue()
         });
       } else {
         // 基本的なテキスト情報のみを使用
