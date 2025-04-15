@@ -2552,163 +2552,72 @@ export const generatePrompt = async (options) => {
     // 最終プロンプトを生成
     let finalPrompt = '';
 
-    // 拡張された分析機能を使用（オプション）
+    // 拡張された分析機能を使用
     try {
       // 画像解析結果に応じて高度なプロンプト生成を試みる
       console.log("拡張プロンプト生成を試みます...");
 
-      // compressedAnalysisがなければ画像解析結果を直接使用
+      // 統合データオブジェクトの構築
       let analysisData = null;
 
-      if (pcData && pcData.compressedAnalysis) {
-        console.log("PC画像の圧縮解析データを使用");
-        analysisData = pcData.compressedAnalysis;
-        validateAndLogData(analysisData, 'PC圧縮解析');
-      } else if (spData && spData.compressedAnalysis) {
-        console.log("SP画像の圧縮解析データを使用");
-        analysisData = spData.compressedAnalysis;
-        validateAndLogData(analysisData, 'SP圧縮解析');
-      } else {
-        // 圧縮解析データがない場合は、生の解析データから統合オブジェクトを作成
-        console.log("圧縮解析データがないため、生の解析データから構築");
-
-        // 基本オブジェクト構造を作成
+      // PCデータ優先、ただし存在しなければSPデータを使用
+      if (pcData && Object.keys(pcData).length > 0) {
         analysisData = {
-          text: '',
-          textBlocks: [],
-          colors: [],
-          layout: {
-            width: 1200,  // デフォルト値
-            height: 800,  // デフォルト値
-            type: 'standard'
-          },
-          elements: {
-            elements: []
-          },
-          sections: []
+          ...pcData,
+          responsiveMode
         };
 
-        // テキスト情報を追加
-        if (pcData && typeof pcData.text === 'string' && pcData.text.trim()) {
-          analysisData.text = pcData.text;
-        } else if (spData && typeof spData.text === 'string' && spData.text.trim()) {
-          analysisData.text = spData.text;
-        }
-
-        // 色情報を追加
-        if (pcData && Array.isArray(pcData.colors) && pcData.colors.length > 0) {
-          analysisData.colors = pcData.colors;
-        } else if (spData && Array.isArray(spData.colors) && spData.colors.length > 0) {
-          analysisData.colors = spData.colors;
-        }
-
-        // 要素情報を追加
-        if (pcData && pcData.elements && pcData.elements.elements) {
-          analysisData.elements = pcData.elements;
-        } else if (spData && spData.elements && spData.elements.elements) {
-          analysisData.elements = spData.elements;
-        }
-
-        // セクション情報を追加
-        if (pcData && Array.isArray(pcData.sections) && pcData.sections.length > 0) {
-          analysisData.sections = pcData.sections;
-        } else if (spData && Array.isArray(spData.sections) && spData.sections.length > 0) {
-          analysisData.sections = spData.sections;
-        }
-
-        // テキストブロック情報の探索とフォールバック
-        const getTextBlocks = (analysis) => {
-          if (!analysis) return null;
-
-          // 直接textBlocksが存在する場合
-          if (Array.isArray(analysis.textBlocks)) {
-            return analysis.textBlocks;
-          }
-
-          // 圧縮解析データのtext.blocksを探索
-          if (analysis.compressedAnalysis &&
-            analysis.compressedAnalysis.text &&
-            Array.isArray(analysis.compressedAnalysis.text.blocks)) {
-            return analysis.compressedAnalysis.text.blocks;
-          }
-
-          return null;
-        };
-
-        // テキストブロックを追加
-        const pcTextBlocks = getTextBlocks(pcData);
-        const spTextBlocks = getTextBlocks(spData);
-
-        if (pcTextBlocks) {
-          analysisData.textBlocks = pcTextBlocks;
-        } else if (spTextBlocks) {
-          analysisData.textBlocks = spTextBlocks;
-        }
-
-        // データ構造の検証
-        validateAndLogData(analysisData, '統合解析');
-      }
-
-      if (analysisData) {
-        console.log("解析データ確認:",
-          typeof analysisData === 'object' ?
-            Object.keys(analysisData).join(', ') : typeof analysisData);
-
-        // 重要なプロパティがあるか確認
-        const requiredProps = ['text', 'colors', 'layout'];
-        const missingProps = requiredProps.filter(prop => !analysisData.hasOwnProperty(prop));
-
-        if (missingProps.length > 0) {
-          console.warn("解析データに不足しているプロパティがあります:", missingProps.join(', '));
-          // 不足プロパティのフォールバック
-          missingProps.forEach(prop => {
-            switch (prop) {
-              case 'text':
-                analysisData.text = '';
-                break;
-              case 'colors':
-                analysisData.colors = [];
-                break;
-              case 'layout':
-                analysisData.layout = { width: 1200, height: 800, type: 'standard' };
-                break;
+        // SPデータがあれば統合
+        if (spData && Object.keys(spData).length > 0) {
+          // SPデータに存在するが、PCデータにないプロパティを追加
+          Object.keys(spData).forEach(key => {
+            if (!analysisData[key] && spData[key]) {
+              analysisData[key] = spData[key];
             }
           });
-        }
 
-        // 拡張プロンプト生成
+          // textBlocksに関してはSP用のプロパティとして追加
+          if (spData.textBlocks && Array.isArray(spData.textBlocks)) {
+            analysisData.spTextBlocks = spData.textBlocks;
+          }
+
+          // 両方のデータがある場合は'both'モードに設定
+          analysisData.responsiveMode = 'both';
+        }
+      } else if (spData && Object.keys(spData).length > 0) {
+        analysisData = {
+          ...spData,
+          responsiveMode: 'sp'
+        };
+      }
+
+      // データ検証
+      if (analysisData) {
+        console.log("解析データの準備完了:");
+
+        // aiBreakpointsとプロジェクト設定の追加
+        analysisData.aiBreakpoints = aiBreakpoints;
+        analysisData.settings = settings;
+
+        // buildBetterPromptを使用して拡張プロンプトを生成
         const enhancedPrompt = buildBetterPrompt(analysisData);
 
         if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
           console.log("拡張プロンプト生成に成功しました");
-          return enhancedPrompt; // 拡張プロンプトを使用
+          finalPrompt = enhancedPrompt;
         } else {
-          console.log("拡張プロンプト生成失敗 - 出力が短すぎるか空です:",
-            enhancedPrompt ? `長さ: ${enhancedPrompt.length}文字` : '出力なし');
+          console.log("拡張プロンプト生成失敗 - フォールバックを使用します");
+          finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
         }
       } else {
-        console.log("解析データが利用できません");
+        console.log("解析データが利用できません - フォールバックを使用します");
+        finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
       }
     } catch (error) {
       console.error("拡張プロンプト生成エラー:", error);
-      // エラー詳細をログ出力
-      if (error.stack) {
-        console.error("エラースタック:", error.stack);
-      }
-      // エラー時は通常のプロンプト生成にフォールバック
+      // エラー時はフォールバックプロンプト生成を使用
+      finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
     }
-
-    // 拡張プロンプトが生成できなかった場合は従来の方法でプロンプト生成
-    console.log("従来のプロンプト生成方法にフォールバックします");
-    finalPrompt = `
-# ウェブサイトデザイン実装タスク
-
-${prompt}
-
-${buildGuidelinesSection(responsiveMode)}
-
-${buildFinalInstructionsSection()}
-`;
 
     console.log('プロンプト生成が完了しました');
     return finalPrompt.trim();
@@ -2721,7 +2630,57 @@ ${buildFinalInstructionsSection()}
   }
 };
 
+// フォールバックプロンプトの構築（エラー時や拡張プロンプト生成失敗時に使用）
+const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpoints) => {
+  console.log("フォールバックプロンプト生成を開始");
 
+  // 基本プロンプト
+  let prompt = `
+# ウェブサイトデザイン実装タスク
+
+## 分析結果
+`;
+
+  // 1. 基本的な分析結果
+  prompt += buildAnalysisSection(pcData, spData);
+
+  // 2. 設定情報
+  prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
+
+  // 3. ガイドライン
+  prompt += `
+## 実装ガイドライン
+- セマンティックなHTML5とSCSSを使用してください
+- BEM手法に従ったクラス命名規則を適用してください
+- FLOCSSの構造に基づいたSCSSファイル構成を使用してください
+- ネスト構造を使わないフラットなセレクタ形式でSCSSを記述してください（&記号の使用禁止）
+- メディアクエリは@include mqを使用して各セレクタ内に記述してください
+- レスポンシブデザインを実装し、すべてのデバイスサイズで適切に動作するようにしてください
+- 間隔、配置、タイポグラフィに注意を払ってください
+- 必要なホバー状態とトランジションを含めてください
+`;
+
+  // 4. レスポンシブ戦略
+  const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
+  prompt += `
+## レスポンシブ設計
+- ブレークポイント: ${mdBreakpoint}px
+- アプローチ: ${responsiveMode === 'sp' ? 'モバイルファースト' : responsiveMode === 'pc' ? 'デスクトップファースト' : '両方対応'}
+${responsiveMode === 'sp'
+      ? '- モバイルファーストの場合: @include mq(md) { ... } を使用してデスクトップスタイルを記述'
+      : '- デスクトップファーストの場合: @include mq-down(md) { ... } を使用してモバイルスタイルを記述'}
+`;
+
+  // 5. 出力形式
+  prompt += `
+## 出力形式
+- 最初にHTML、次にSCSSを提供してください
+- 両方のコードを適切にフォーマットし、整理してください
+- 主要なセクションにはコメントを含めてください
+`;
+
+  return prompt;
+};
 
 /**
  * rawDataに基づいてより良いプロンプトを構築する
@@ -2736,16 +2695,45 @@ const buildBetterPrompt = (rawData) => {
       return null;
     }
 
-    // データ検証
-    if (!rawData.colors || !Array.isArray(rawData.colors) || rawData.colors.length === 0) {
-      console.warn("buildBetterPrompt: 色情報が不足しています");
-      // 色情報が無くても処理を続行する
+    // 解析データの集約
+    const analysisResults = {};
+
+    // 色彩分析結果の取得
+    if (rawData.enhancedColors) {
+      analysisResults.colors = rawData.enhancedColors;
+    } else if (rawData.colors && Array.isArray(rawData.colors)) {
+      // 必要に応じて色彩分析を実行
+      analysisResults.colors = AnalysisModules.color.analyzeColors(rawData.colors);
+    }
+
+    // レイアウト分析結果の取得
+    if (rawData.enhancedLayout) {
+      analysisResults.layout = rawData.enhancedLayout;
+    } else if (rawData.elements && rawData.elements.elements) {
+      // 必要に応じてレイアウト分析を実行
+      analysisResults.layout = AnalysisModules.layout.analyzeLayout(rawData, {
+        responsiveMode: rawData.responsiveMode || 'pc',
+        aiBreakpoints: rawData.aiBreakpoints || []
+      });
+    }
+
+    // テキスト分析結果の取得
+    if (rawData.enhancedText) {
+      analysisResults.text = rawData.enhancedText;
+    } else if (rawData.textBlocks && Array.isArray(rawData.textBlocks)) {
+      // 必要に応じてテキスト分析を実行
+      analysisResults.text = AnalysisModules.text.analyzeText(rawData, {
+        responsiveMode: rawData.responsiveMode || 'pc',
+        breakpoint: AnalysisModules.breakpoints.getMdValue({
+          aiBreakpoints: rawData.aiBreakpoints || []
+        })
+      });
     }
 
     // 色彩分析部分の構築
     let colorSection = "No color information available.";
-    if (rawData.enhancedColors) {
-      const colorData = rawData.enhancedColors;
+    if (analysisResults.colors) {
+      const colorData = analysisResults.colors;
       colorSection = `
 The design uses a color scheme based on ${colorData.palette ? colorData.palette.length : 0} colors:
 ${colorData.primary ? `- Primary: ${colorData.primary.hex}` : ''}
@@ -2760,46 +2748,61 @@ ${colorData.palette && colorData.palette.length > 0
 
     // レイアウト分析部分の構築
     let layoutSection = "No layout information available.";
-    if (rawData.enhancedLayout) {
-      const layoutData = rawData.enhancedLayout;
+    if (analysisResults.layout) {
+      const layoutData = analysisResults.layout;
 
-      let componentsText = "";
-      if (layoutData.componentDetection && layoutData.componentDetection.components) {
-        componentsText = `
+      // レイアウトモジュールのbuildLayoutSection関数を使用（存在する場合）
+      if (layoutData.buildLayoutSection) {
+        layoutSection = layoutData.buildLayoutSection(layoutData, {
+          responsiveMode: rawData.responsiveMode || 'pc',
+          breakpoint: AnalysisModules.breakpoints.getMdValue({
+            aiBreakpoints: rawData.aiBreakpoints || []
+          })
+        });
+      } else {
+        // 基本的なコンポーネント情報を構築
+        let componentsText = "";
+        if (layoutData.componentDetection && layoutData.componentDetection.components) {
+          componentsText = `
 The design includes the following components:
 ${layoutData.componentDetection.components.map(c => `- ${c.type}`).join('\n')}
 `;
-      }
+        }
 
-      let gridText = "";
-      if (layoutData.grid) {
-        gridText = `
+        // グリッドシステム情報
+        let gridText = "";
+        if (layoutData.grid) {
+          gridText = `
 Grid system: ${layoutData.grid.columns} columns
 ${layoutData.grid.recommendations ? layoutData.grid.recommendations : ''}
 `;
-      }
+        }
 
-      let spacingText = "";
-      if (layoutData.spacingSystem) {
-        spacingText = `
+        // 余白システム情報
+        let spacingText = "";
+        if (layoutData.spacingSystem) {
+          spacingText = `
 Spacing system: Uses a base unit of ${layoutData.spacingSystem.baseUnit}px
 `;
-      }
+        }
 
-      layoutSection = `${componentsText}\n${gridText}\n${spacingText}`.trim();
+        layoutSection = `${componentsText}\n${gridText}\n${spacingText}`.trim();
+      }
     }
 
     // テキスト分析部分の構築
     let textSection = "No typography information available.";
-    if (rawData.enhancedText && rawData.enhancedText.hasText) {
-      if (rawData.enhancedText.buildTextSection) {
-        // テキストモジュールのbuildTextSection関数を使用
-        textSection = rawData.enhancedText.buildTextSection(rawData.enhancedText, {
-          breakpoint: AnalysisModules.breakpoints.getMdValue()
+    if (analysisResults.text && analysisResults.text.hasText) {
+      // テキストモジュールのbuildTextSection関数を使用
+      if (analysisResults.text.buildTextSection) {
+        textSection = analysisResults.text.buildTextSection(analysisResults.text, {
+          breakpoint: AnalysisModules.breakpoints.getMdValue({
+            aiBreakpoints: rawData.aiBreakpoints || []
+          })
         });
       } else {
         // 基本的なテキスト情報のみを使用
-        const textData = rawData.enhancedText;
+        const textData = analysisResults.text;
         textSection = `
 ### Typography Analysis
 - Base font size: ${textData.fontProperties?.baseFontSize || 16}px
@@ -2808,6 +2811,22 @@ Spacing system: Uses a base unit of ${layoutData.spacingSystem.baseUnit}px
 `;
       }
     }
+
+    // レスポンシブ戦略の構築
+    const responsiveMode = rawData.responsiveMode || 'pc';
+    const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({
+      aiBreakpoints: rawData.aiBreakpoints || []
+    });
+
+    let responsiveSection = `
+### Responsive Strategy
+- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : responsiveMode === 'pc' ? 'Desktop-first' : 'Both mobile and desktop'}
+- Breakpoint: ${mdBreakpoint}px
+- Media Query Usage:
+  ${responsiveMode === 'sp'
+        ? '- Use `@include mq(md)` for desktop styles'
+        : '- Use `@include mq-down(md)` for mobile styles'}
+`;
 
     // 最終プロンプトを構築
     const prompt = `# ウェブサイトデザイン実装タスク
@@ -2824,6 +2843,8 @@ ${colorSection}
 ${layoutSection}
 
 ${textSection}
+
+${responsiveSection}
 
 ## 実装ガイドライン
 - セマンティックなHTML5とクリーンなSCSSを使用してください。
@@ -2846,4 +2867,117 @@ ${textSection}
     console.error("拡張プロンプト構築エラー:", error);
     return null;
   }
+};
+
+/**
+ * 基本的な分析セクションを構築する
+ * @param {Object} pcData - PC画像の分析データ
+ * @param {Object} spData - SP画像の分析データ
+ * @returns {string} 分析セクションの文字列
+ */
+const buildAnalysisSection = (pcData, spData) => {
+  let section = `\n### 分析結果\n`;
+
+  // 色彩分析の追加
+  if (pcData.enhancedColors || spData.enhancedColors) {
+    const colorData = pcData.enhancedColors || spData.enhancedColors;
+    section += `\n#### 色彩分析\n`;
+
+    if (colorData.primary) {
+      section += `- プライマリカラー: ${colorData.primary.hex}\n`;
+    }
+    if (colorData.secondary) {
+      section += `- セカンダリカラー: ${colorData.secondary.hex}\n`;
+    }
+    if (colorData.accent) {
+      section += `- アクセントカラー: ${colorData.accent.hex}\n`;
+    }
+
+    // パレット情報の追加
+    if (colorData.palette && colorData.palette.length > 0) {
+      section += `- カラーパレット: ${colorData.palette.map(c => c.hex).join(', ')}\n`;
+    }
+  }
+
+  // レイアウト分析の追加
+  if (pcData.enhancedLayout || spData.enhancedLayout) {
+    const layoutData = pcData.enhancedLayout || spData.enhancedLayout;
+    section += `\n#### レイアウト分析\n`;
+
+    if (layoutData.componentDetection && layoutData.componentDetection.components) {
+      const components = layoutData.componentDetection.components;
+      section += `- 検出コンポーネント: ${components.map(c => c.type).join(', ')}\n`;
+    }
+
+    if (layoutData.grid) {
+      section += `- グリッドシステム: ${layoutData.grid.columns} カラム\n`;
+    }
+
+    if (layoutData.spacingSystem) {
+      section += `- 余白設計: 基本単位 ${layoutData.spacingSystem.baseUnit}px\n`;
+    }
+  }
+
+  // テキスト分析の追加
+  if (pcData.enhancedText || spData.enhancedText) {
+    const textData = pcData.enhancedText || spData.enhancedText;
+
+    if (textData.hasText) {
+      section += textData.buildTextSection ? textData.buildTextSection(textData, {
+        breakpoint: AnalysisModules.breakpoints.getMdValue()
+      }) : '\n#### テキスト分析\nテキスト分析データは利用可能ですが、フォーマットできませんでした。';
+    }
+  }
+
+  return section;
+};
+
+/**
+ * 設定情報セクションを構築する
+ * @param {Object} settings - プロジェクト設定
+ * @param {Array} pcColors - PC画像の色情報
+ * @param {Array} spColors - SP画像の色情報
+ * @returns {string} 設定セクションの文字列
+ */
+const buildSettingsSection = (settings, pcColors, spColors) => {
+  if (!settings || Object.keys(settings).length === 0) {
+    return '';
+  }
+
+  let section = `\n### プロジェクト設定\n`;
+
+  // ブレークポイント情報
+  if (settings.breakpoints) {
+    section += `\n#### ブレークポイント\n`;
+    if (Array.isArray(settings.breakpoints)) {
+      settings.breakpoints.forEach(bp => {
+        section += `- ${bp.name}: ${bp.value}px\n`;
+      });
+    } else {
+      Object.entries(settings.breakpoints).forEach(([name, value]) => {
+        section += `- ${name}: ${value}px\n`;
+      });
+    }
+  }
+
+  // カラー設定
+  if (settings.colors && Object.keys(settings.colors).length > 0) {
+    section += `\n#### プロジェクトカラー\n`;
+    Object.entries(settings.colors).forEach(([name, value]) => {
+      section += `- ${name}: ${value}\n`;
+    });
+  }
+
+  // フォント設定
+  if (settings.fonts) {
+    section += `\n#### フォント設定\n`;
+    if (settings.fonts.heading) {
+      section += `- 見出し: ${settings.fonts.heading}\n`;
+    }
+    if (settings.fonts.body) {
+      section += `- 本文: ${settings.fonts.body}\n`;
+    }
+  }
+
+  return section;
 };
