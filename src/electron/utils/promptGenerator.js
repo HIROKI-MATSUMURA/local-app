@@ -1,5 +1,501 @@
 import { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
 
+// 分析モジュールの名前空間（第1段階：基盤作り）
+const AnalysisModules = {
+  color: {
+    // カラー分析メイン関数
+    analyzeColors(colors) {
+      try {
+        if (!Array.isArray(colors) || colors.length === 0) {
+          return {
+            palette: [],
+            primary: null,
+            secondary: null,
+            accent: null
+          };
+        }
+
+        // 使用頻度でソート
+        const sortedByUsage = [...colors].sort((a, b) => (b.ratio || 0) - (a.ratio || 0));
+
+        // 色相グループに分類
+        const hueGroups = this.groupColorsByHue(colors);
+
+        // カラーパレットを生成
+        const palette = this.generateColorPalette(colors);
+
+        // 主要色を選定
+        const keyColors = this.selectKeyColors(sortedByUsage, hueGroups);
+
+        // コントラスト比を計算
+        const contrastRatios = this.calculateContrastRatios(keyColors);
+
+        return {
+          palette,
+          ...keyColors,
+          groups: hueGroups.map(group => ({
+            name: group.name,
+            colors: group.colors.slice(0, 3).map(c => c.hex),
+            dominance: group.dominance
+          })),
+          colorCount: colors.length,
+          contrastRatios
+        };
+      } catch (error) {
+        console.error('色彩分析中にエラーが発生しました:', error);
+        return {
+          palette: [],
+          primary: null,
+          secondary: null,
+          accent: null
+        };
+      }
+    },
+
+    // 色を色相でグループ化
+    groupColorsByHue(colors) {
+      // 色相グループの定義
+      const hueGroups = [
+        { name: 'red', start: 355, end: 10, colors: [], dominance: 0 },
+        { name: 'orange', start: 10, end: 45, colors: [], dominance: 0 },
+        { name: 'yellow', start: 45, end: 80, colors: [], dominance: 0 },
+        { name: 'green', start: 80, end: 170, colors: [], dominance: 0 },
+        { name: 'cyan', start: 170, end: 200, colors: [], dominance: 0 },
+        { name: 'blue', start: 200, end: 260, colors: [], dominance: 0 },
+        { name: 'purple', start: 260, end: 310, colors: [], dominance: 0 },
+        { name: 'pink', start: 310, end: 355, colors: [], dominance: 0 },
+        { name: 'grey', start: 0, end: 360, colors: [], dominance: 0 } // 彩度の低い色用
+      ];
+
+      // 各色を適切なグループに分類
+      colors.forEach(color => {
+        const { h, s, l } = this.hexToHsl(color.hex);
+
+        // 彩度の低い色（グレー系）
+        if (s < 15 || (l < 10 || l > 95)) {
+          hueGroups[8].colors.push({ ...color, hsl: { h, s, l } });
+          hueGroups[8].dominance += color.ratio || 0;
+          return;
+        }
+
+        // 色相に基づいてグループ化
+        for (let i = 0; i < 8; i++) {
+          const group = hueGroups[i];
+          if (group.start <= group.end) {
+            if (h >= group.start && h < group.end) {
+              group.colors.push({ ...color, hsl: { h, s, l } });
+              group.dominance += color.ratio || 0;
+              return;
+            }
+          } else {
+            // 赤系の場合（355°〜10°）
+            if (h >= group.start || h < group.end) {
+              group.colors.push({ ...color, hsl: { h, s, l } });
+              group.dominance += color.ratio || 0;
+              return;
+            }
+          }
+        }
+      });
+
+      // 各グループの色を彩度と明度でソート
+      hueGroups.forEach(group => {
+        group.colors.sort((a, b) => {
+          // 彩度優先、次に明度
+          const aSaturation = a.hsl.s;
+          const bSaturation = b.hsl.s;
+          if (Math.abs(aSaturation - bSaturation) > 5) {
+            return bSaturation - aSaturation;
+          }
+          return b.hsl.l - a.hsl.l;
+        });
+      });
+
+      // 空のグループを除外して占有率順にソート
+      return hueGroups
+        .filter(group => group.colors.length > 0)
+        .sort((a, b) => b.dominance - a.dominance);
+    },
+
+    // カラーパレットを生成
+    generateColorPalette(colors) {
+      // 使用頻度順にソート
+      const sortedByUsage = [...colors]
+        .filter(color => color.hex && color.ratio > 0)
+        .sort((a, b) => b.ratio - a.ratio);
+
+      // 重複や類似色を除去したパレットを作成
+      const palette = [];
+      const addedHexValues = new Set();
+
+      sortedByUsage.forEach(color => {
+        // 既に追加済みの色は無視
+        if (addedHexValues.has(color.hex)) return;
+
+        // 類似色のチェック
+        const isSimilarToExisting = palette.some(existingColor => {
+          return this.calculateColorDifference(color.hex, existingColor.hex) < 15;
+        });
+
+        if (!isSimilarToExisting) {
+          palette.push({
+            hex: color.hex,
+            rgb: color.rgb || this.hexToRgb(color.hex),
+            ratio: color.ratio,
+            role: color.role || this.inferColorRole(color)
+          });
+          addedHexValues.add(color.hex);
+        }
+
+        // 最大8色まで
+        if (palette.length >= 8) return;
+      });
+
+      return palette;
+    },
+
+    // 主要色を選定
+    selectKeyColors(sortedColors, hueGroups) {
+      let primary = null;
+      let secondary = null;
+      let accent = null;
+      let background = null;
+      let text = null;
+
+      // 背景色候補（明るい色、使用頻度高）
+      const backgroundCandidates = sortedColors.filter(color => {
+        const { l } = this.hexToHsl(color.hex);
+        return l > 80 && color.ratio > 0.1;
+      });
+
+      // テキスト色候補（暗い色、使用頻度中〜高）
+      const textCandidates = sortedColors.filter(color => {
+        const { l } = this.hexToHsl(color.hex);
+        return l < 30 && color.ratio > 0.05;
+      });
+
+      // 背景色の選定
+      if (backgroundCandidates.length > 0) {
+        background = {
+          hex: backgroundCandidates[0].hex,
+          rgb: backgroundCandidates[0].rgb || this.hexToRgb(backgroundCandidates[0].hex)
+        };
+      } else {
+        // 背景候補がなければ最も明るい色
+        const brightestColor = [...sortedColors].sort((a, b) => {
+          const { l: aL } = this.hexToHsl(a.hex);
+          const { l: bL } = this.hexToHsl(b.hex);
+          return bL - aL;
+        })[0];
+
+        if (brightestColor) {
+          background = {
+            hex: brightestColor.hex,
+            rgb: brightestColor.rgb || this.hexToRgb(brightestColor.hex)
+          };
+        }
+      }
+
+      // テキスト色の選定
+      if (textCandidates.length > 0) {
+        text = {
+          hex: textCandidates[0].hex,
+          rgb: textCandidates[0].rgb || this.hexToRgb(textCandidates[0].hex)
+        };
+      } else {
+        // テキスト候補がなければ最も暗い色
+        const darkestColor = [...sortedColors].sort((a, b) => {
+          const { l: aL } = this.hexToHsl(a.hex);
+          const { l: bL } = this.hexToHsl(b.hex);
+          return aL - bL;
+        })[0];
+
+        if (darkestColor) {
+          text = {
+            hex: darkestColor.hex,
+            rgb: darkestColor.rgb || this.hexToRgb(darkestColor.hex)
+          };
+        }
+      }
+
+      // プライマリカラーの選定 - 最も使用頻度が高い彩度の高い色
+      const saturatedColors = sortedColors.filter(color => {
+        const { s } = this.hexToHsl(color.hex);
+        return s > 40; // 十分な彩度
+      });
+
+      if (saturatedColors.length > 0) {
+        primary = {
+          hex: saturatedColors[0].hex,
+          rgb: saturatedColors[0].rgb || this.hexToRgb(saturatedColors[0].hex)
+        };
+      } else if (sortedColors.length > 0) {
+        // 彩度の高い色がなければ最も使用頻度の高い色（背景・テキスト以外）
+        const candidates = sortedColors.filter(color => {
+          return color.hex !== background?.hex && color.hex !== text?.hex;
+        });
+
+        if (candidates.length > 0) {
+          primary = {
+            hex: candidates[0].hex,
+            rgb: candidates[0].rgb || this.hexToRgb(candidates[0].hex)
+          };
+        } else {
+          // 候補がなければ最初の色
+          primary = {
+            hex: sortedColors[0].hex,
+            rgb: sortedColors[0].rgb || this.hexToRgb(sortedColors[0].hex)
+          };
+        }
+      }
+
+      // セカンダリカラーの選定 - プライマリと色相が異なる色の中で最も使用頻度の高いもの
+      if (primary && hueGroups.length > 1) {
+        const primaryHue = this.hexToHsl(primary.hex).h;
+
+        // プライマリと異なる色相グループを探す
+        for (const group of hueGroups) {
+          // 最初の色のHSLを取得
+          if (group.colors.length === 0) continue;
+          const groupHue = group.colors[0].hsl.h;
+
+          // 色相の差が大きい（60度以上離れている）場合
+          if (Math.abs(groupHue - primaryHue) > 60 ||
+            Math.abs(groupHue - primaryHue) > 300) { // 赤と紫の場合
+
+            // このグループから最も彩度の高い色を選定
+            const candidate = group.colors.sort((a, b) => b.hsl.s - a.hsl.s)[0];
+            if (candidate && candidate.hex !== primary.hex) {
+              secondary = {
+                hex: candidate.hex,
+                rgb: candidate.rgb || this.hexToRgb(candidate.hex)
+              };
+              break;
+            }
+          }
+        }
+
+        // セカンダリが見つからなければ2番目に使用頻度の高い彩度のある色
+        if (!secondary && saturatedColors.length > 1) {
+          secondary = {
+            hex: saturatedColors[1].hex,
+            rgb: saturatedColors[1].rgb || this.hexToRgb(saturatedColors[1].hex)
+          };
+        }
+      }
+
+      // アクセントカラーの選定 - 最も彩度が高く、プライマリ・セカンダリと異なるもの
+      const accentCandidates = sortedColors.filter(color => {
+        const { s } = this.hexToHsl(color.hex);
+        return s > 60 && // 高彩度
+          color.hex !== primary?.hex && // プライマリではない
+          color.hex !== secondary?.hex; // セカンダリではない
+      });
+
+      if (accentCandidates.length > 0) {
+        accent = {
+          hex: accentCandidates[0].hex,
+          rgb: accentCandidates[0].rgb || this.hexToRgb(accentCandidates[0].hex)
+        };
+      } else if (sortedColors.length > 2) {
+        // 条件を満たす色がなければ使用頻度3位の色（あれば）
+        const thirdColor = sortedColors.filter(color =>
+          color.hex !== primary?.hex && color.hex !== secondary?.hex
+        )[0];
+
+        if (thirdColor) {
+          accent = {
+            hex: thirdColor.hex,
+            rgb: thirdColor.rgb || this.hexToRgb(thirdColor.hex)
+          };
+        }
+      }
+
+      return { primary, secondary, accent, background, text };
+    },
+
+    // コントラスト比を計算
+    calculateContrastRatios(keyColors) {
+      const contrastRatios = {};
+
+      if (keyColors.background && keyColors.text) {
+        contrastRatios.backgroundToText = this.calculateContrast(
+          keyColors.background.hex,
+          keyColors.text.hex
+        );
+      }
+
+      if (keyColors.background && keyColors.primary) {
+        contrastRatios.backgroundToPrimary = this.calculateContrast(
+          keyColors.background.hex,
+          keyColors.primary.hex
+        );
+      }
+
+      if (keyColors.background && keyColors.secondary) {
+        contrastRatios.backgroundToSecondary = this.calculateContrast(
+          keyColors.background.hex,
+          keyColors.secondary.hex
+        );
+      }
+
+      if (keyColors.background && keyColors.accent) {
+        contrastRatios.backgroundToAccent = this.calculateContrast(
+          keyColors.background.hex,
+          keyColors.accent.hex
+        );
+      }
+
+      return contrastRatios;
+    },
+
+    // 色の役割を推測
+    inferColorRole(color) {
+      if (!color) return 'general';
+
+      const hex = color.hex || '#000000';
+      const ratio = color.ratio || 0;
+
+      // 使用頻度が高い色は背景かベース
+      if (ratio > 0.3) {
+        return this.isLightColor(hex) ? 'background' : 'text';
+      }
+
+      // 鮮やかな色はアクセント
+      if (this.isVividColor(hex)) {
+        return 'accent';
+      }
+
+      return 'general';
+    },
+
+    // 明るい色かどうかを判定
+    isLightColor(hex) {
+      const rgb = this.hexToRgbObj(hex);
+      // 輝度計算（YIQ値）
+      const yiq = ((rgb.r * 299) + (rgb.g * 587) + (rgb.b * 114)) / 1000;
+      return yiq >= 128;
+    },
+
+    // 鮮やかな色かどうかを判定
+    isVividColor(hex) {
+      const rgb = this.hexToRgbObj(hex);
+      // 彩度の近似値を計算
+      const max = Math.max(rgb.r, rgb.g, rgb.b);
+      const min = Math.min(rgb.r, rgb.g, rgb.b);
+      // 彩度と明度で判定
+      return max > 180 && (max - min) > 50;
+    },
+
+    // HEX to HSL変換
+    hexToHsl(hex) {
+      const rgb = this.hexToRgbObj(hex);
+      const r = rgb.r / 255;
+      const g = rgb.g / 255;
+      const b = rgb.b / 255;
+
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      let h, s, l = (max + min) / 2;
+
+      if (max === min) {
+        h = s = 0; // achromatic
+      } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h = Math.round(h * 60);
+      }
+
+      s = Math.round(s * 100);
+      l = Math.round(l * 100);
+
+      return { h, s, l };
+    },
+
+    // HEX to RGB変換（文字列形式）
+    hexToRgb(hex) {
+      const rgb = this.hexToRgbObj(hex);
+      return `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+    },
+
+    // HEX to RGB変換（オブジェクト形式）
+    hexToRgbObj(hex) {
+      // #を削除
+      hex = hex.replace(/^#/, '');
+
+      // 短縮形式の場合は展開
+      if (hex.length === 3) {
+        hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+      }
+
+      const bigint = parseInt(hex, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+
+      return { r, g, b };
+    },
+
+    // 色の差を計算（CIEDE2000アルゴリズムの簡略版）
+    calculateColorDifference(hex1, hex2) {
+      const rgb1 = this.hexToRgbObj(hex1);
+      const rgb2 = this.hexToRgbObj(hex2);
+
+      // 単純なRGB空間での距離計算（簡略版）
+      const rDiff = rgb1.r - rgb2.r;
+      const gDiff = rgb1.g - rgb2.g;
+      const bDiff = rgb1.b - rgb2.b;
+
+      return Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
+    },
+
+    // コントラスト比を計算
+    calculateContrast(hex1, hex2) {
+      const rgb1 = this.hexToRgbObj(hex1);
+      const rgb2 = this.hexToRgbObj(hex2);
+
+      const luminance1 = this.calculateLuminance(rgb1);
+      const luminance2 = this.calculateLuminance(rgb2);
+
+      // コントラスト比の計算
+      const lighter = Math.max(luminance1, luminance2);
+      const darker = Math.min(luminance1, luminance2);
+
+      return parseFloat(((lighter + 0.05) / (darker + 0.05)).toFixed(2));
+    },
+
+    // 相対輝度を計算（WCAG 2.0定義）
+    calculateLuminance(rgb) {
+      // sRGB値を相対輝度に変換
+      const toLinear = (val) => {
+        const v = val / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+
+      const r = toLinear(rgb.r);
+      const g = toLinear(rgb.g);
+      const b = toLinear(rgb.b);
+
+      // 相対輝度の計算
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+  },
+  component: {
+    // componentDetector.jsから抽出予定
+  },
+  text: {
+    // textAnalyzer.jsから抽出予定
+  },
+  layout: {
+    // layoutAnalyzer.jsから抽出予定
+  }
+};
+
 // 共通のエラーハンドリング関数
 const handleAnalysisError = (operation, error, defaultValue) => {
   // エラーメッセージをより明確に表示するが、関数のシグネチャと動作は同じ
@@ -285,14 +781,13 @@ export const generatePrompt = async (options) => {
   console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
   console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
 
-  // ↓以下既存の処理
-
   try {
     // 画像解析を実行
     const [pcAnalysis, spAnalysis] = await Promise.all([
       pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
       spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
     ]);
+
     // 解析結果の検証
     if (!pcImage && !spImage) {
       console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
@@ -304,6 +799,47 @@ export const generatePrompt = async (options) => {
         console.error('SP画像の解析結果が空です。');
       }
     }
+
+    // 拡張分析を実行（既存のデータを拡張）
+    let enhancedPcAnalysis = null;
+    let enhancedSpAnalysis = null;
+
+    try {
+      if (pcAnalysis && pcAnalysis.colors && pcAnalysis.colors.length > 0) {
+        // 色彩分析の拡張
+        const colorAnalysis = AnalysisModules.color.analyzeColors(pcAnalysis.colors);
+
+        // 拡張データを追加
+        enhancedPcAnalysis = {
+          ...pcAnalysis,
+          enhancedColors: colorAnalysis
+        };
+
+        console.log('PC画像の拡張色彩分析が完了しました。',
+          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
+      }
+
+      // SPデータも同様に処理
+      if (spAnalysis && spAnalysis.colors && spAnalysis.colors.length > 0) {
+        const colorAnalysis = AnalysisModules.color.analyzeColors(spAnalysis.colors);
+
+        enhancedSpAnalysis = {
+          ...spAnalysis,
+          enhancedColors: colorAnalysis
+        };
+
+        console.log('SP画像の拡張色彩分析が完了しました。',
+          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
+      }
+
+    } catch (enhancementError) {
+      console.warn('拡張分析中にエラーが発生しました（基本分析は影響なし）:', enhancementError);
+      // 拡張分析が失敗しても基本分析は維持
+    }
+
+    // 以降は拡張されたデータがあれば使用、なければ元のデータを使用
+    const pcData = enhancedPcAnalysis || pcAnalysis;
+    const spData = enhancedSpAnalysis || spAnalysis;
 
     // プロジェクト設定を取得（非同期）
     console.log('プロジェクト設定を取得中...');
@@ -317,10 +853,10 @@ export const generatePrompt = async (options) => {
     let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
 
     // 2. 解析結果
-    prompt += buildAnalysisSection(pcAnalysis, spAnalysis);
+    prompt += buildAnalysisSection(pcData, spData);
 
     // 3. 設定情報
-    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
+    prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
 
     // 4. 要件
     prompt += `
@@ -351,13 +887,13 @@ export const generatePrompt = async (options) => {
       // compressedAnalysisがなければ画像解析結果を直接使用
       let analysisData = null;
 
-      if (pcAnalysis && pcAnalysis.compressedAnalysis) {
+      if (pcData && pcData.compressedAnalysis) {
         console.log("PC画像の圧縮解析データを使用");
-        analysisData = pcAnalysis.compressedAnalysis;
+        analysisData = pcData.compressedAnalysis;
         validateAndLogData(analysisData, 'PC圧縮解析');
-      } else if (spAnalysis && spAnalysis.compressedAnalysis) {
+      } else if (spData && spData.compressedAnalysis) {
         console.log("SP画像の圧縮解析データを使用");
-        analysisData = spAnalysis.compressedAnalysis;
+        analysisData = spData.compressedAnalysis;
         validateAndLogData(analysisData, 'SP圧縮解析');
       } else {
         // 圧縮解析データがない場合は、生の解析データから統合オブジェクトを作成
@@ -380,31 +916,31 @@ export const generatePrompt = async (options) => {
         };
 
         // テキスト情報を追加
-        if (pcAnalysis && typeof pcAnalysis.text === 'string' && pcAnalysis.text.trim()) {
-          analysisData.text = pcAnalysis.text;
-        } else if (spAnalysis && typeof spAnalysis.text === 'string' && spAnalysis.text.trim()) {
-          analysisData.text = spAnalysis.text;
+        if (pcData && typeof pcData.text === 'string' && pcData.text.trim()) {
+          analysisData.text = pcData.text;
+        } else if (spData && typeof spData.text === 'string' && spData.text.trim()) {
+          analysisData.text = spData.text;
         }
 
         // 色情報を追加
-        if (pcAnalysis && Array.isArray(pcAnalysis.colors) && pcAnalysis.colors.length > 0) {
-          analysisData.colors = pcAnalysis.colors;
-        } else if (spAnalysis && Array.isArray(spAnalysis.colors) && spAnalysis.colors.length > 0) {
-          analysisData.colors = spAnalysis.colors;
+        if (pcData && Array.isArray(pcData.colors) && pcData.colors.length > 0) {
+          analysisData.colors = pcData.colors;
+        } else if (spData && Array.isArray(spData.colors) && spData.colors.length > 0) {
+          analysisData.colors = spData.colors;
         }
 
         // 要素情報を追加
-        if (pcAnalysis && pcAnalysis.elements && pcAnalysis.elements.elements) {
-          analysisData.elements = pcAnalysis.elements;
-        } else if (spAnalysis && spAnalysis.elements && spAnalysis.elements.elements) {
-          analysisData.elements = spAnalysis.elements;
+        if (pcData && pcData.elements && pcData.elements.elements) {
+          analysisData.elements = pcData.elements;
+        } else if (spData && spData.elements && spData.elements.elements) {
+          analysisData.elements = spData.elements;
         }
 
         // セクション情報を追加
-        if (pcAnalysis && Array.isArray(pcAnalysis.sections) && pcAnalysis.sections.length > 0) {
-          analysisData.sections = pcAnalysis.sections;
-        } else if (spAnalysis && Array.isArray(spAnalysis.sections) && spAnalysis.sections.length > 0) {
-          analysisData.sections = spAnalysis.sections;
+        if (pcData && Array.isArray(pcData.sections) && pcData.sections.length > 0) {
+          analysisData.sections = pcData.sections;
+        } else if (spData && Array.isArray(spData.sections) && spData.sections.length > 0) {
+          analysisData.sections = spData.sections;
         }
 
         // テキストブロック情報の探索とフォールバック
@@ -427,8 +963,8 @@ export const generatePrompt = async (options) => {
         };
 
         // テキストブロックを追加
-        const pcTextBlocks = getTextBlocks(pcAnalysis);
-        const spTextBlocks = getTextBlocks(spAnalysis);
+        const pcTextBlocks = getTextBlocks(pcData);
+        const spTextBlocks = getTextBlocks(spData);
 
         if (pcTextBlocks) {
           analysisData.textBlocks = pcTextBlocks;
@@ -524,199 +1060,125 @@ ${aiBreakpoints && aiBreakpoints.length > 0 ? `- Breakpoints: ${aiBreakpoints.ma
 
 // 解析結果部分を構築する関数
 const buildAnalysisSection = (pcAnalysis, spAnalysis) => {
-  let section = `
-## Image Analysis Results
-`;
+  // 解析データがなければ空のセクションを返す
+  if (!pcAnalysis && !spAnalysis) {
+    return `\n## Design Analysis\nThe uploaded image could not be analyzed correctly. Please provide design specifications manually.\n\n`;
+  }
 
-  // 圧縮解析データが利用可能かチェック
-  const hasPcCompressedData = pcAnalysis && pcAnalysis.compressedAnalysis;
-  const hasSpCompressedData = spAnalysis && spAnalysis.compressedAnalysis;
+  let section = "\n## Design Analysis\n";
 
-  // 圧縮解析データが利用可能な場合は、それを優先的に使用する
-  if (hasPcCompressedData || hasSpCompressedData) {
-    section += `
-### Structured Analysis:
-`;
+  // 使用するデータソースを決定（PC優先）
+  const analysis = pcAnalysis || spAnalysis;
 
-    // PC画像の圧縮解析データ
-    if (hasPcCompressedData) {
-      const pcData = pcAnalysis.compressedAnalysis;
-      console.log("PC圧縮解析データの構造検証:", Object.keys(pcData).join(', '));
+  // 拡張色彩分析データがあればそれを使用
+  if (analysis.enhancedColors) {
+    const colors = analysis.enhancedColors;
 
-      // レイアウト情報
-      if (pcData.layout) {
-        const template = safeGetProperty(pcData, 'layout.template', 'unknown');
-        const aspectRatio = safeGetProperty(pcData, 'layout.aspectRatio', 'unknown');
-        const imagePosition = safeGetProperty(pcData, 'layout.imagePosition', 'N/A');
-        const textPosition = safeGetProperty(pcData, 'layout.textPosition', 'N/A');
+    section += "\n### Color Palette\n";
 
-        section += `
-#### PC Layout:
-- Template: ${template}
-- Aspect Ratio: ${aspectRatio}
-- Image Position: ${imagePosition}
-- Text Position: ${textPosition}
-`;
-      } else {
-        console.warn("PC圧縮解析データにレイアウト情報がありません");
-      }
-
-      // テキスト階層
-      const textHierarchy = safeGetProperty(pcData, 'text.hierarchy', []);
-      if (Array.isArray(textHierarchy) && textHierarchy.length > 0) {
-        section += `
-#### PC Text Hierarchy:
-`;
-        textHierarchy.forEach(item => {
-          if (item && typeof item === 'object') {
-            const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
-            section += `- ${levelName}: ${item.text || '不明なテキスト'}\n`;
-          }
-        });
-      } else {
-        console.warn("PC圧縮解析データにテキスト階層情報がないか、不正な形式です");
-      }
-
-      // 色情報
-      const colors = safeGetProperty(pcData, 'colors', []);
-      if (Array.isArray(colors) && colors.length > 0) {
-        section += `
-#### PC Colors:
-`;
-        colors.forEach(color => {
-          if (color && typeof color === 'object') {
-            section += `- ${color.role || 'Color'}: ${color.hex || ''} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
-          }
-        });
-      } else {
-        console.warn("PC圧縮解析データに色情報がないか、不正な形式です");
-      }
+    // プライマリカラー
+    if (colors.primary) {
+      section += `- Primary: ${colors.primary.hex} ${colors.primary.rgb}\n`;
     }
 
-    // SP画像の圧縮解析データ
-    if (hasSpCompressedData) {
-      const spData = spAnalysis.compressedAnalysis;
-      console.log("SP圧縮解析データの構造検証:", Object.keys(spData).join(', '));
-
-      // レイアウト情報
-      if (spData.layout) {
-        const template = safeGetProperty(spData, 'layout.template', 'unknown');
-        const aspectRatio = safeGetProperty(spData, 'layout.aspectRatio', 'unknown');
-        const imagePosition = safeGetProperty(spData, 'layout.imagePosition', 'N/A');
-        const textPosition = safeGetProperty(spData, 'layout.textPosition', 'N/A');
-
-        section += `
-#### SP Layout:
-- Template: ${template}
-- Aspect Ratio: ${aspectRatio}
-- Image Position: ${imagePosition}
-- Text Position: ${textPosition}
-`;
-      } else {
-        console.warn("SP圧縮解析データにレイアウト情報がありません");
-      }
-
-      // テキスト階層
-      const textHierarchy = safeGetProperty(spData, 'text.hierarchy', []);
-      if (Array.isArray(textHierarchy) && textHierarchy.length > 0) {
-        section += `
-#### SP Text Hierarchy:
-`;
-        textHierarchy.forEach(item => {
-          if (item && typeof item === 'object') {
-            const levelName = item.level === 1 ? 'Heading' : item.level === 2 ? 'Subheading' : 'Text';
-            section += `- ${levelName}: ${item.text || '不明なテキスト'}\n`;
-          }
-        });
-      } else {
-        console.warn("SP圧縮解析データにテキスト階層情報がないか、不正な形式です");
-      }
-
-      // 色情報
-      const colors = safeGetProperty(spData, 'colors', []);
-      if (Array.isArray(colors) && colors.length > 0) {
-        section += `
-#### SP Colors:
-`;
-        colors.forEach(color => {
-          if (color && typeof color === 'object') {
-            section += `- ${color.role || 'Color'}: ${color.hex || ''} ${color.ratio ? `(${Math.round(color.ratio * 100)}%)` : ''}\n`;
-          }
-        });
-      } else {
-        console.warn("SP圧縮解析データに色情報がないか、不正な形式です");
-      }
+    // セカンダリカラー
+    if (colors.secondary) {
+      section += `- Secondary: ${colors.secondary.hex} ${colors.secondary.rgb}\n`;
     }
 
-    // セマンティックタグ表現（高度なAIプロンプト生成用）
-    if (hasPcCompressedData) {
-      section += `
-### Semantic Tags (PC):
-\`\`\`
-${generateSemanticTags(pcAnalysis.compressedAnalysis)}
-\`\`\`
-`;
+    // アクセントカラー
+    if (colors.accent) {
+      section += `- Accent: ${colors.accent.hex} ${colors.accent.rgb}\n`;
     }
 
-    if (hasSpCompressedData) {
-      section += `
-### Semantic Tags (SP):
-\`\`\`
-${generateSemanticTags(spAnalysis.compressedAnalysis)}
-\`\`\`
-`;
+    // 背景色
+    if (colors.background) {
+      section += `- Background: ${colors.background.hex} ${colors.background.rgb}\n`;
     }
+
+    // テキスト色
+    if (colors.text) {
+      section += `- Text: ${colors.text.hex} ${colors.text.rgb}\n`;
+    }
+
+    // パレット全体
+    if (colors.palette && colors.palette.length > 0) {
+      section += "\nAdditional colors:\n";
+      colors.palette.forEach(color => {
+        if (color.role && color.role !== 'general') {
+          section += `- ${color.hex} (${color.role})\n`;
+        } else {
+          section += `- ${color.hex}\n`;
+        }
+      });
+    }
+
+    // コントラストチェック
+    if (colors.contrastRatios && Object.keys(colors.contrastRatios).length > 0) {
+      section += "\nContrast Ratios:\n";
+      Object.entries(colors.contrastRatios).forEach(([key, value]) => {
+        // キーを読みやすいラベルに変換
+        const label = key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase())
+          .replace('To', ' to ');
+
+        // コントラスト値に基づくWCAGレベル
+        let wcagLevel = '';
+        if (value >= 7) wcagLevel = '(AAA)';
+        else if (value >= 4.5) wcagLevel = '(AA)';
+        else if (value >= 3) wcagLevel = '(AA Large Text)';
+
+        section += `- ${label}: ${value} ${wcagLevel}\n`;
+      });
+    }
+
+    section += "\n";
   } else {
-    // 従来の方式で情報を表示（圧縮データがない場合のフォールバック）
-    console.warn("圧縮解析データが利用できないため、従来の方式でプロンプトを生成します");
-    // テキスト情報
-    if (pcAnalysis.text || spAnalysis.text) {
-      section += `
-### Detected Text:
-${pcAnalysis.text ? `#### PC Image Text:
-\`\`\`
-${pcAnalysis.text}
-\`\`\`` : ""}
-${spAnalysis.text ? `#### SP Image Text:
-\`\`\`
-${spAnalysis.text}
-\`\`\`` : ""}
+    // 通常の色彩分析（既存のコード）
+    if (analysis.colors && analysis.colors.length > 0) {
+      const colors = analysis.colors;
+      section += "\n### Color Palette\n";
 
-`;
+      // 色ごとに出力
+      colors.slice(0, 8).forEach(color => {
+        section += `- ${color.hex} ${color.rgb || ''}\n`;
+      });
+
+      section += "\n";
+    }
+  }
+
+  // 以下の既存コードはそのまま維持
+
+  // テキスト情報
+  if (analysis.text) {
+    section += "\n### Text Content\n";
+    section += `${analysis.text.substring(0, 300)}${analysis.text.length > 300 ? '...' : ''}\n\n`;
+  }
+
+  // レイアウト情報（もし存在する場合）
+  if (analysis.layout && Object.keys(analysis.layout).length > 0) {
+    section += "\n### Layout\n";
+
+    if (analysis.layout.layoutType) {
+      section += `- Layout Type: ${analysis.layout.layoutType}\n`;
     }
 
-    // 色情報
-    if ((pcAnalysis.colors && pcAnalysis.colors.length > 0) || (spAnalysis.colors && spAnalysis.colors.length > 0)) {
-      section += `
-### Detected Colors:
-${pcAnalysis.colors && pcAnalysis.colors.length > 0 ? `- PC Image Main Colors: ${pcAnalysis.colors.join(", ")}` : ""}
-${spAnalysis.colors && spAnalysis.colors.length > 0 ? `- SP Image Main Colors: ${spAnalysis.colors.join(", ")}` : ""}
-
-`;
+    if (analysis.layout.width && analysis.layout.height) {
+      section += `- Dimensions: ${analysis.layout.width}x${analysis.layout.height}\n`;
     }
 
-    // セクション情報 - null/undefinedチェックを追加
-    const pcSections = pcAnalysis.sections || [];
-    const spSections = spAnalysis.sections || [];
+    section += "\n";
+  }
 
-    if (pcSections.length > 0 || spSections.length > 0) {
-      section += `
-### Detected Section Structure:
-${pcSections.length > 0 ? `- PC Image: ${JSON.stringify(pcSections.map(section => ({
-        position: `section ${section.section} from top`,
-        dominantColor: section.dominantColor
-      })))}` : ""}
-${spSections.length > 0 ? `- SP Image: ${JSON.stringify(spSections.map(section => ({
-        position: `section ${section.section} from top`,
-        dominantColor: section.dominantColor
-      })))}` : ""}
-
-`;
-    }
-
-    // 要素情報 - null/undefinedのチェックを強化
-    const pcElements = pcAnalysis.elements?.elements || [];
-    const spElements = spAnalysis.elements?.elements || [];
+  // セクション情報
+  if (analysis.sections && analysis.sections.length > 0) {
+    section += "\n### Structure\n";
+    analysis.sections.forEach((sectionItem, index) => {
+      section += `- Section ${index + 1}: ${sectionItem.section_type || 'Content Section'}\n`;
+    });
+    section += "\n";
   }
 
   return section;
@@ -969,123 +1431,75 @@ const generateTemplateFormat = (data) => {
 
 // 設定セクションを構築する関数
 const buildSettingsSection = (settings, pcColors, spColors) => {
-  if (!settings.resetCSS && !settings.variableSettings && !settings.responsiveSettings) {
-    return '';
-  }
+  let settingsSection = "\n## CSS Settings\n";
 
-  let section = `
-## Project Settings
-`;
-
-  if (settings.resetCSS) {
-    section += `### Reset CSS:
-\`\`\`css
-${settings.resetCSS}
-\`\`\`
-
-`;
-  }
-
-  if (settings.variableSettings) {
-    section += `
-### Color Guidelines:
-- Use ONLY HEX color values directly in your CSS
-- DO NOT use CSS variables (like $primary-color, etc.)
-- Here is a recommended color palette based on the design:
-`;
-
-    // 変数からHEX値を抽出
-    const hexValues = extractHexValuesFromVariables(settings.variableSettings);
-
-    // 抽出した色を追加
-    if (hexValues.length > 0) {
-      section += `  ${hexValues.join(', ')}
-`;
-    }
-
-    // PC画像とSP画像から抽出した色も追加（null/undefinedチェックを追加）
-    const validPcColors = Array.isArray(pcColors) ? pcColors : [];
-    const validSpColors = Array.isArray(spColors) ? spColors : [];
-
-    if (validPcColors.length > 0 || validSpColors.length > 0) {
-      // 重複を除去してマージ
-      const allColors = [...validPcColors, ...validSpColors];
-      const uniqueColors = [...new Set(allColors)]; // Setを使用して重複を効率的に除去
-
-      section += `- Additional colors from the image:
-  ${uniqueColors.join(', ')}
-`;
-    }
-
-    section += `- Feel free to use variations of these colors where needed
-
-`;
+  // Reset CSSの設定
+  if (settings && settings.resetCSS) {
+    settingsSection += "### Reset CSS\nThe project uses a custom reset CSS.\n\n";
   } else {
-    // variableSettingsがない場合
-    section += `### CSS Variables:
-\`\`\`css
-${settings.variableSettings}
-\`\`\`
-
-`;
+    settingsSection += "### Reset CSS\nUse a standard CSS reset or normalize.css.\n\n";
   }
 
-  if (settings.responsiveSettings) {
-    // JSONオブジェクトの場合の処理
-    try {
-      let responsiveSettingsContent = '';
+  // 色変数の設定
+  settingsSection += "### Color Variables\n";
 
-      // レスポンシブモードの取得
-      const respMode = settings.responsiveSettings.responsiveMode || 'sp';
-      responsiveSettingsContent += `- Responsive Mode: ${respMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}\n`;
+  // 拡張色彩データがあればそれを使用（PCデータを優先）
+  const pcAnalysis = pcColors && pcColors.enhancedColors;
+  const spAnalysis = spColors && spColors.enhancedColors;
+  const colorAnalysis = pcAnalysis || spAnalysis;
 
-      // ブレークポイント情報の取得
-      if (settings.responsiveSettings.breakpoints && Array.isArray(settings.responsiveSettings.breakpoints)) {
-        const activeBreakpoints = settings.responsiveSettings.breakpoints
-          .filter(bp => bp.active)
-          .sort((a, b) => a.value - b.value);
+  if (colorAnalysis) {
+    // プライマリ、セカンダリ、アクセントカラーを変数として出力
+    let variables = [];
 
-        if (activeBreakpoints.length > 0) {
-          responsiveSettingsContent += '- Breakpoints:\n';
-          activeBreakpoints.forEach(bp => {
-            responsiveSettingsContent += `  * ${bp.name}: ${bp.value}px\n`;
-          });
-        }
-      }
-
-      // メディアクエリの使用例を追加
-      responsiveSettingsContent += `
-- Media Query Usage:
-\`\`\`scss
-// ${respMode === 'sp' ? 'Mobile-first approach' : 'Desktop-first approach'}
-.selector {
-  ${respMode === 'sp' ? '// Base style for mobile' : '// Base style for desktop'}
-
-  @include mq(md) {
-    ${respMode === 'sp' ? '// Style for desktop' : '// Style for mobile'}
-  }
-}
-\`\`\``;
-
-      section += `### Responsive Settings:
-${responsiveSettingsContent}
-
-`;
-    } catch (error) {
-      // エラーが発生した場合は単純に文字列として扱う
-      console.error('レスポンシブ設定の処理中にエラーが発生しました:', error);
-      section += `### Responsive Settings:
-\`\`\`
-${typeof settings.responsiveSettings === 'string'
-          ? settings.responsiveSettings
-          : JSON.stringify(settings.responsiveSettings, null, 2)}
-\`\`\`
-
-`;
+    if (colorAnalysis.primary) {
+      variables.push(`$primary-color: ${colorAnalysis.primary.hex};`);
     }
+
+    if (colorAnalysis.secondary) {
+      variables.push(`$secondary-color: ${colorAnalysis.secondary.hex};`);
+    }
+
+    if (colorAnalysis.accent) {
+      variables.push(`$accent-color: ${colorAnalysis.accent.hex};`);
+    }
+
+    if (colorAnalysis.background) {
+      variables.push(`$background-color: ${colorAnalysis.background.hex};`);
+    }
+
+    if (colorAnalysis.text) {
+      variables.push(`$text-color: ${colorAnalysis.text.hex};`);
+    }
+
+    // 色相グループがあれば追加
+    if (colorAnalysis.groups && colorAnalysis.groups.length > 0) {
+      colorAnalysis.groups.forEach(group => {
+        if (group.colors && group.colors.length > 0) {
+          variables.push(`$${group.name}-color: ${group.colors[0]};`);
+        }
+      });
+    }
+
+    settingsSection += "```scss\n" + variables.join("\n") + "\n```\n\n";
+  } else if (settings && settings.variableSettings) {
+    // プロジェクト設定の変数があれば使用
+    settingsSection += "```scss\n" + settings.variableSettings + "\n```\n\n";
+  } else {
+    // デフォルトの色変数
+    settingsSection += "Define color variables based on the color palette in the design.\n\n";
   }
 
-  return section;
+  // レスポンシブ設定
+  settingsSection += "### Responsive Settings\n";
+  if (settings && settings.responsiveSettings) {
+    settingsSection += "```scss\n" + settings.responsiveSettings + "\n```\n\n";
+  } else {
+    // デフォルトのブレークポイント
+    settingsSection += "```scss\n$breakpoints: (\n  sm: 576px,\n  md: 768px,\n  lg: 992px,\n  xl: 1200px\n);\n```\n\n";
+  }
+
+  return settingsSection;
 };
 
 // ガイドラインセクションを構築する関数
