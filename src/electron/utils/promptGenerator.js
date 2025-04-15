@@ -1230,6 +1230,213 @@ const AnalysisModules = {
   },
   text: {
     // textAnalyzer.jsから抽出予定
+    analyzeText(rawData, options = {}) {
+      console.log("Analyzing text data:", rawData.textBlocks?.length || 0, "text blocks");
+
+      // Default values for font properties
+      const defaultFontProperties = {
+        baseFontSize: 16,
+        headingSizes: {
+          primary: 32,
+          secondary: 24,
+          tertiary: 20
+        },
+        bodySizes: {
+          primary: 16,
+          secondary: 14
+        },
+        fontFamilies: {
+          heading: 'sans-serif',
+          body: 'sans-serif'
+        }
+      };
+
+      // Extract text blocks from raw data
+      const textBlocks = rawData.textBlocks || [];
+
+      // Initialize results
+      const result = {
+        hasText: textBlocks.length > 0,
+        fontProperties: { ...defaultFontProperties },
+        textStyles: [],
+
+        // Helper method to build text section for prompts
+        buildTextSection(data, options = {}) {
+          if (!data.hasText) {
+            return '';
+          }
+
+          let section = "\n### Typography Analysis\n";
+
+          // Font sizes
+          section += "#### Font Sizes\n";
+          section += `- Base font size: ${data.fontProperties.baseFontSize}px\n`;
+          section += `- Heading sizes: ${data.fontProperties.headingSizes.primary}px (h2), ${data.fontProperties.headingSizes.secondary}px (h3)\n`;
+          section += `- Body text: ${data.fontProperties.bodySizes.primary}px\n`;
+          if (data.fontProperties.bodySizes.secondary) {
+            section += `- Secondary text: ${data.fontProperties.bodySizes.secondary}px\n`;
+          }
+
+          // Font families
+          if (data.fontProperties.fontFamilies) {
+            section += "\n#### Font Families\n";
+            section += `- Headings: ${data.fontProperties.fontFamilies.heading}\n`;
+            section += `- Body: ${data.fontProperties.fontFamilies.body}\n`;
+          }
+
+          // Text styles
+          if (data.textStyles && data.textStyles.length > 0) {
+            section += "\n#### Text Styles\n";
+            data.textStyles.forEach(style => {
+              section += `- ${style.name}: ${style.properties.join(', ')}\n`;
+            });
+          }
+
+          // Responsive typography
+          const breakpoint = options.breakpoint || 768;
+          section += "\n#### Responsive Typography\n";
+          section += `- Below ${breakpoint}px: Reduce heading sizes by ~20-25%\n`;
+          section += `- Below ${breakpoint}px: Maintain body text size for readability\n`;
+
+          return section;
+        }
+      };
+
+      // Analyze text blocks if available
+      if (textBlocks.length > 0) {
+        // Extract font sizes from text blocks
+        const fontSizes = textBlocks
+          .filter(block => block.fontSize && !isNaN(parseFloat(block.fontSize)))
+          .map(block => parseFloat(block.fontSize));
+
+        // Extract font families from text blocks
+        const fontFamilies = textBlocks
+          .filter(block => block.fontFamily)
+          .map(block => block.fontFamily);
+
+        // If we have font sizes, analyze them
+        if (fontSizes.length > 0) {
+          // Sort font sizes
+          fontSizes.sort((a, b) => b - a);
+
+          // Extract largest sizes for headings
+          if (fontSizes.length >= 3) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+            result.fontProperties.headingSizes.secondary = fontSizes[1];
+            result.fontProperties.headingSizes.tertiary = fontSizes[2];
+          } else if (fontSizes.length >= 2) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+            result.fontProperties.headingSizes.secondary = fontSizes[1];
+          } else if (fontSizes.length >= 1) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+          }
+
+          // Find the most common font size for body text
+          const fontSizeCounts = {};
+          fontSizes.forEach(size => {
+            fontSizeCounts[size] = (fontSizeCounts[size] || 0) + 1;
+          });
+
+          let maxCount = 0;
+          let mostCommonSize = defaultFontProperties.bodySizes.primary;
+
+          Object.keys(fontSizeCounts).forEach(size => {
+            if (fontSizeCounts[size] > maxCount && parseFloat(size) < result.fontProperties.headingSizes.tertiary) {
+              maxCount = fontSizeCounts[size];
+              mostCommonSize = parseFloat(size);
+            }
+          });
+
+          result.fontProperties.bodySizes.primary = mostCommonSize;
+          result.fontProperties.baseFontSize = mostCommonSize;
+        }
+
+        // If we have font families, analyze them
+        if (fontFamilies.length > 0) {
+          // Count occurrences of each font family
+          const fontFamilyCounts = {};
+          fontFamilies.forEach(family => {
+            fontFamilyCounts[family] = (fontFamilyCounts[family] || 0) + 1;
+          });
+
+          // Find the most common font families
+          let maxHeadingCount = 0;
+          let maxBodyCount = 0;
+          let headingFont = defaultFontProperties.fontFamilies.heading;
+          let bodyFont = defaultFontProperties.fontFamilies.body;
+
+          Object.keys(fontFamilyCounts).forEach(family => {
+            // Check if this appears to be a heading font (larger sizes)
+            const isHeadingFont = textBlocks.some(block =>
+              block.fontFamily === family &&
+              parseFloat(block.fontSize) >= result.fontProperties.headingSizes.tertiary
+            );
+
+            if (isHeadingFont && fontFamilyCounts[family] > maxHeadingCount) {
+              maxHeadingCount = fontFamilyCounts[family];
+              headingFont = family;
+            } else if (!isHeadingFont && fontFamilyCounts[family] > maxBodyCount) {
+              maxBodyCount = fontFamilyCounts[family];
+              bodyFont = family;
+            }
+          });
+
+          result.fontProperties.fontFamilies.heading = headingFont;
+          result.fontProperties.fontFamilies.body = bodyFont;
+        }
+
+        // Create text styles from combinations of properties
+        const textStyles = [];
+
+        // Heading styles
+        textStyles.push({
+          name: 'Primary Heading (h2)',
+          properties: [
+            `font-size: ${result.fontProperties.headingSizes.primary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.heading}`,
+            'font-weight: bold',
+            'line-height: 1.2'
+          ]
+        });
+
+        textStyles.push({
+          name: 'Secondary Heading (h3)',
+          properties: [
+            `font-size: ${result.fontProperties.headingSizes.secondary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.heading}`,
+            'font-weight: bold',
+            'line-height: 1.3'
+          ]
+        });
+
+        // Body text style
+        textStyles.push({
+          name: 'Body Text',
+          properties: [
+            `font-size: ${result.fontProperties.bodySizes.primary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.body}`,
+            'font-weight: normal',
+            'line-height: 1.5'
+          ]
+        });
+
+        // Secondary/small text style
+        textStyles.push({
+          name: 'Small Text',
+          properties: [
+            `font-size: ${result.fontProperties.bodySizes.secondary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.body}`,
+            'font-weight: normal',
+            'line-height: 1.4'
+          ]
+        });
+
+        result.textStyles = textStyles;
+      }
+
+      console.log("Text analysis completed:", result.hasText ? "Text found" : "No text found");
+      return result;
+    }
   },
   layout: {
     // レイアウト分析メイン関数

@@ -1171,12 +1171,12 @@ const AnalysisModules = {
 
       // @include mqを使った共通のメディアクエリパターン
       const mediaQueryPattern =
-        `// 常にセレクタの中にメディアクエリを配置
+        `// Always place media queries inside selectors
 .selector {
-  // ${approach === "mobile-first" ? "モバイル" : "デスクトップ"}用基本スタイル
+  // ${approach === "mobile-first" ? "Mobile" : "Desktop"} base styles
 
   @include mq(${breakpointName}) {
-    // ${approach === "mobile-first" ? "デスクトップ" : "モバイル"}用スタイル
+    // ${approach === "mobile-first" ? "Desktop" : "Mobile"} specific styles
   }
 }`;
 
@@ -1228,6 +1228,213 @@ const AnalysisModules = {
   },
   text: {
     // textAnalyzer.jsから抽出予定
+    analyzeText(rawData, options = {}) {
+      console.log("Analyzing text data:", rawData.textBlocks?.length || 0, "text blocks");
+
+      // Default values for font properties
+      const defaultFontProperties = {
+        baseFontSize: 16,
+        headingSizes: {
+          primary: 32,
+          secondary: 24,
+          tertiary: 20
+        },
+        bodySizes: {
+          primary: 16,
+          secondary: 14
+        },
+        fontFamilies: {
+          heading: 'sans-serif',
+          body: 'sans-serif'
+        }
+      };
+
+      // Extract text blocks from raw data
+      const textBlocks = rawData.textBlocks || [];
+
+      // Initialize results
+      const result = {
+        hasText: textBlocks.length > 0,
+        fontProperties: { ...defaultFontProperties },
+        textStyles: [],
+
+        // Helper method to build text section for prompts
+        buildTextSection(data, options = {}) {
+          if (!data.hasText) {
+            return '';
+          }
+
+          let section = "\n### Typography Analysis\n";
+
+          // Font sizes
+          section += "#### Font Sizes\n";
+          section += `- Base font size: ${data.fontProperties.baseFontSize}px\n`;
+          section += `- Heading sizes: ${data.fontProperties.headingSizes.primary}px (h2), ${data.fontProperties.headingSizes.secondary}px (h3)\n`;
+          section += `- Body text: ${data.fontProperties.bodySizes.primary}px\n`;
+          if (data.fontProperties.bodySizes.secondary) {
+            section += `- Secondary text: ${data.fontProperties.bodySizes.secondary}px\n`;
+          }
+
+          // Font families
+          if (data.fontProperties.fontFamilies) {
+            section += "\n#### Font Families\n";
+            section += `- Headings: ${data.fontProperties.fontFamilies.heading}\n`;
+            section += `- Body: ${data.fontProperties.fontFamilies.body}\n`;
+          }
+
+          // Text styles
+          if (data.textStyles && data.textStyles.length > 0) {
+            section += "\n#### Text Styles\n";
+            data.textStyles.forEach(style => {
+              section += `- ${style.name}: ${style.properties.join(', ')}\n`;
+            });
+          }
+
+          // Responsive typography
+          const breakpoint = options.breakpoint || 768;
+          section += "\n#### Responsive Typography\n";
+          section += `- Below ${breakpoint}px: Reduce heading sizes by ~20-25%\n`;
+          section += `- Below ${breakpoint}px: Maintain body text size for readability\n`;
+
+          return section;
+        }
+      };
+
+      // Analyze text blocks if available
+      if (textBlocks.length > 0) {
+        // Extract font sizes from text blocks
+        const fontSizes = textBlocks
+          .filter(block => block.fontSize && !isNaN(parseFloat(block.fontSize)))
+          .map(block => parseFloat(block.fontSize));
+
+        // Extract font families from text blocks
+        const fontFamilies = textBlocks
+          .filter(block => block.fontFamily)
+          .map(block => block.fontFamily);
+
+        // If we have font sizes, analyze them
+        if (fontSizes.length > 0) {
+          // Sort font sizes
+          fontSizes.sort((a, b) => b - a);
+
+          // Extract largest sizes for headings
+          if (fontSizes.length >= 3) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+            result.fontProperties.headingSizes.secondary = fontSizes[1];
+            result.fontProperties.headingSizes.tertiary = fontSizes[2];
+          } else if (fontSizes.length >= 2) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+            result.fontProperties.headingSizes.secondary = fontSizes[1];
+          } else if (fontSizes.length >= 1) {
+            result.fontProperties.headingSizes.primary = fontSizes[0];
+          }
+
+          // Find the most common font size for body text
+          const fontSizeCounts = {};
+          fontSizes.forEach(size => {
+            fontSizeCounts[size] = (fontSizeCounts[size] || 0) + 1;
+          });
+
+          let maxCount = 0;
+          let mostCommonSize = defaultFontProperties.bodySizes.primary;
+
+          Object.keys(fontSizeCounts).forEach(size => {
+            if (fontSizeCounts[size] > maxCount && parseFloat(size) < result.fontProperties.headingSizes.tertiary) {
+              maxCount = fontSizeCounts[size];
+              mostCommonSize = parseFloat(size);
+            }
+          });
+
+          result.fontProperties.bodySizes.primary = mostCommonSize;
+          result.fontProperties.baseFontSize = mostCommonSize;
+        }
+
+        // If we have font families, analyze them
+        if (fontFamilies.length > 0) {
+          // Count occurrences of each font family
+          const fontFamilyCounts = {};
+          fontFamilies.forEach(family => {
+            fontFamilyCounts[family] = (fontFamilyCounts[family] || 0) + 1;
+          });
+
+          // Find the most common font families
+          let maxHeadingCount = 0;
+          let maxBodyCount = 0;
+          let headingFont = defaultFontProperties.fontFamilies.heading;
+          let bodyFont = defaultFontProperties.fontFamilies.body;
+
+          Object.keys(fontFamilyCounts).forEach(family => {
+            // Check if this appears to be a heading font (larger sizes)
+            const isHeadingFont = textBlocks.some(block =>
+              block.fontFamily === family &&
+              parseFloat(block.fontSize) >= result.fontProperties.headingSizes.tertiary
+            );
+
+            if (isHeadingFont && fontFamilyCounts[family] > maxHeadingCount) {
+              maxHeadingCount = fontFamilyCounts[family];
+              headingFont = family;
+            } else if (!isHeadingFont && fontFamilyCounts[family] > maxBodyCount) {
+              maxBodyCount = fontFamilyCounts[family];
+              bodyFont = family;
+            }
+          });
+
+          result.fontProperties.fontFamilies.heading = headingFont;
+          result.fontProperties.fontFamilies.body = bodyFont;
+        }
+
+        // Create text styles from combinations of properties
+        const textStyles = [];
+
+        // Heading styles
+        textStyles.push({
+          name: 'Primary Heading (h2)',
+          properties: [
+            `font-size: ${result.fontProperties.headingSizes.primary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.heading}`,
+            'font-weight: bold',
+            'line-height: 1.2'
+          ]
+        });
+
+        textStyles.push({
+          name: 'Secondary Heading (h3)',
+          properties: [
+            `font-size: ${result.fontProperties.headingSizes.secondary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.heading}`,
+            'font-weight: bold',
+            'line-height: 1.3'
+          ]
+        });
+
+        // Body text style
+        textStyles.push({
+          name: 'Body Text',
+          properties: [
+            `font-size: ${result.fontProperties.bodySizes.primary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.body}`,
+            'font-weight: normal',
+            'line-height: 1.5'
+          ]
+        });
+
+        // Secondary/small text style
+        textStyles.push({
+          name: 'Small Text',
+          properties: [
+            `font-size: ${result.fontProperties.bodySizes.secondary}px`,
+            `font-family: ${result.fontProperties.fontFamilies.body}`,
+            'font-weight: normal',
+            'line-height: 1.4'
+          ]
+        });
+
+        result.textStyles = textStyles;
+      }
+
+      console.log("Text analysis completed:", result.hasText ? "Text found" : "No text found");
+      return result;
+    }
   },
   layout: {
     // レイアウト分析メイン関数
@@ -2097,19 +2304,15 @@ const AnalysisModules = {
         const mdBreakpoint = analysis.breakpoint || AnalysisModules.breakpoints.defaults.md;
         const responsiveMode = analysis.responsiveMode || 'pc';
 
-        // 一般的なフォントサイズ変数
-        let scss = `// タイポグラフィ変数
-$font-base-size: ${analysis.baseFontSize || 16}px;
-$font-heading-primary: ${analysis.headingSizes?.primary || 32}px;
-$font-heading-secondary: ${analysis.headingSizes?.secondary || 24}px;
-$font-text-body: ${analysis.bodySizes?.primary || 16}px;
-$font-text-small: ${analysis.bodySizes?.small || 14}px;
+        // 直接数値を使用する
+        const baseFontSize = analysis.baseFontSize || 16;
+        const headingPrimary = analysis.headingSizes?.primary || 32;
+        const headingSecondary = analysis.headingSizes?.secondary || 24;
+        const textBody = analysis.bodySizes?.primary || 16;
+        const textSmall = analysis.bodySizes?.small || 14;
 
-// レスポンシブ設定
-$breakpoint-md: ${mdBreakpoint}px;
-
-// Project: セクション固有のスタイル
-`;
+        // SCSSコード生成開始（変数定義なし）
+        let scss = `// Project: セクション固有のスタイル\n`;
 
         // 各セクションのタイポグラフィを構築
         if (analysis.sections && analysis.sections.length > 0) {
@@ -2121,23 +2324,23 @@ $breakpoint-md: ${mdBreakpoint}px;
 
             if (responsiveMode === 'sp') {
               // スマホファースト
-              scss += `  font-size: $font-text-body;\n`;
+              scss += `  font-size: ${textBody}px;\n`;
               scss += `  font-weight: ${section.headingWeight || 700};\n`;
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
-              scss += `  margin-bottom: 20px;\n`;
+              scss += `  margin-top: 20px;\n`;
               scss += `\n`;
               scss += `  @include mq(md) {\n`;
-              scss += `    font-size: $font-heading-primary;\n`;
+              scss += `    font-size: ${headingPrimary}px;\n`;
               scss += `  }\n`;
             } else {
               // PCファースト
-              scss += `  font-size: $font-heading-primary;\n`;
+              scss += `  font-size: ${headingPrimary}px;\n`;
               scss += `  font-weight: ${section.headingWeight || 700};\n`;
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
-              scss += `  margin-bottom: 20px;\n`;
+              scss += `  margin-top: 20px;\n`;
               scss += `\n`;
               scss += `  @include mq-down(md) {\n`;
-              scss += `    font-size: $font-text-body;\n`;
+              scss += `    font-size: ${textBody}px;\n`;
               scss += `  }\n`;
             }
 
@@ -2148,23 +2351,23 @@ $breakpoint-md: ${mdBreakpoint}px;
 
             if (responsiveMode === 'sp') {
               // スマホファースト
-              scss += `  font-size: $font-text-small;\n`;
+              scss += `  font-size: ${textSmall}px;\n`;
               scss += `  font-weight: ${section.headingWeight - 100 || 600};\n`;
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
-              scss += `  margin-bottom: 15px;\n`;
+              scss += `  margin-top: 15px;\n`;
               scss += `\n`;
               scss += `  @include mq(md) {\n`;
-              scss += `    font-size: $font-heading-secondary;\n`;
+              scss += `    font-size: ${headingSecondary}px;\n`;
               scss += `  }\n`;
             } else {
               // PCファースト
-              scss += `  font-size: $font-heading-secondary;\n`;
+              scss += `  font-size: ${headingSecondary}px;\n`;
               scss += `  font-weight: ${section.headingWeight - 100 || 600};\n`;
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
-              scss += `  margin-bottom: 15px;\n`;
+              scss += `  margin-top: 15px;\n`;
               scss += `\n`;
               scss += `  @include mq-down(md) {\n`;
-              scss += `    font-size: $font-text-small;\n`;
+              scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
 
@@ -2175,19 +2378,19 @@ $breakpoint-md: ${mdBreakpoint}px;
 
             if (responsiveMode === 'sp') {
               // スマホファースト
-              scss += `  font-size: $font-text-small;\n`;
+              scss += `  font-size: ${textSmall}px;\n`;
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
               scss += `\n`;
               scss += `  @include mq(md) {\n`;
-              scss += `    font-size: $font-text-body;\n`;
+              scss += `    font-size: ${textBody}px;\n`;
               scss += `  }\n`;
             } else {
               // PCファースト
-              scss += `  font-size: $font-text-body;\n`;
+              scss += `  font-size: ${textBody}px;\n`;
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
               scss += `\n`;
               scss += `  @include mq-down(md) {\n`;
-              scss += `    font-size: $font-text-small;\n`;
+              scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
 
@@ -2198,21 +2401,21 @@ $breakpoint-md: ${mdBreakpoint}px;
 
             if (responsiveMode === 'sp') {
               // スマホファースト
-              scss += `  font-size: $font-text-small;\n`;
+              scss += `  font-size: ${textSmall}px;\n`;
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
-              scss += `  margin-bottom: 30px;\n`;
+              scss += `  margin-top: 30px;\n`;
               scss += `\n`;
               scss += `  @include mq(md) {\n`;
-              scss += `    font-size: $font-text-body;\n`;
+              scss += `    font-size: ${textBody}px;\n`;
               scss += `  }\n`;
             } else {
               // PCファースト
-              scss += `  font-size: $font-text-body;\n`;
+              scss += `  font-size: ${textBody}px;\n`;
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
-              scss += `  margin-bottom: 30px;\n`;
+              scss += `  margin-top: 30px;\n`;
               scss += `\n`;
               scss += `  @include mq-down(md) {\n`;
-              scss += `    font-size: $font-text-small;\n`;
+              scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
 
@@ -2224,23 +2427,23 @@ $breakpoint-md: ${mdBreakpoint}px;
 
           if (responsiveMode === 'sp') {
             // スマホファースト
-            scss += `  font-size: $font-text-body;\n`;
+            scss += `  font-size: ${textBody}px;\n`;
             scss += `  font-weight: 700;\n`;
             scss += `  line-height: 1.4;\n`;
-            scss += `  margin-bottom: 20px;\n`;
+            scss += `  margin-top: 20px;\n`;
             scss += `\n`;
             scss += `  @include mq(md) {\n`;
-            scss += `    font-size: $font-heading-primary;\n`;
+            scss += `    font-size: ${headingPrimary}px;\n`;
             scss += `  }\n`;
           } else {
             // PCファースト
-            scss += `  font-size: $font-heading-primary;\n`;
+            scss += `  font-size: ${headingPrimary}px;\n`;
             scss += `  font-weight: 700;\n`;
             scss += `  line-height: 1.4;\n`;
-            scss += `  margin-bottom: 20px;\n`;
+            scss += `  margin-top: 20px;\n`;
             scss += `\n`;
             scss += `  @include mq-down(md) {\n`;
-            scss += `    font-size: $font-text-body;\n`;
+            scss += `    font-size: ${textBody}px;\n`;
             scss += `  }\n`;
           }
 
@@ -2250,19 +2453,21 @@ $breakpoint-md: ${mdBreakpoint}px;
 
           if (responsiveMode === 'sp') {
             // スマホファースト
-            scss += `  font-size: $font-text-small;\n`;
+            scss += `  font-size: ${textSmall}px;\n`;
             scss += `  line-height: 1.6;\n`;
+            scss += `  margin-top: 15px;\n`;
             scss += `\n`;
             scss += `  @include mq(md) {\n`;
-            scss += `    font-size: $font-text-body;\n`;
+            scss += `    font-size: ${textBody}px;\n`;
             scss += `  }\n`;
           } else {
             // PCファースト
-            scss += `  font-size: $font-text-body;\n`;
+            scss += `  font-size: ${textBody}px;\n`;
             scss += `  line-height: 1.6;\n`;
+            scss += `  margin-top: 15px;\n`;
             scss += `\n`;
             scss += `  @include mq-down(md) {\n`;
-            scss += `    font-size: $font-text-small;\n`;
+            scss += `    font-size: ${textSmall}px;\n`;
             scss += `  }\n`;
           }
 
@@ -2272,34 +2477,25 @@ $breakpoint-md: ${mdBreakpoint}px;
         return scss;
       } catch (error) {
         console.error('SCSS生成中にエラーが発生しました:', error);
-        return `// タイポグラフィ変数
-$font-base-size: 16px;
-$font-heading-primary: 32px;
-$font-heading-secondary: 24px;
-$font-text-body: 16px;
-$font-text-small: 14px;
-
-// レスポンシブ設定
-$breakpoint-md: ${AnalysisModules.breakpoints.defaults.md}px;
-
-// Project: セクション固有のスタイル
+        return `// エラーが発生しました - デフォルト値を使用
 .p-section__title {
-  font-size: $font-text-body;
+  font-size: 32px;
   font-weight: 700;
   line-height: 1.4;
-  margin-bottom: 20px;
+  margin-top: 20px;
 
-  @include mq(md) {
-    font-size: $font-heading-primary;
+  @include mq-down(md) {
+    font-size: 16px;
   }
 }
 
 .p-section__text {
-  font-size: $font-text-small;
+  font-size: 16px;
   line-height: 1.6;
+  margin-top: 15px;
 
-  @include mq(md) {
-    font-size: $font-text-body;
+  @include mq-down(md) {
+    font-size: 14px;
   }
 }`;
       }
@@ -2404,229 +2600,6 @@ $breakpoint-md: ${AnalysisModules.breakpoints.defaults.md}px;
         };
       }
     }
-  }
-};
-// メイン関数を修正して新機能を統合
-export const generatePrompt = async (options) => {
-  console.log('プロンプト生成処理を開始');
-  const {
-    pcImage, spImage,
-    responsiveMode = "pc",
-    aiBreakpoints = []
-  } = options;
-  console.log("🔥 generatePrompt 開始");
-
-  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
-  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
-
-  try {
-    // 画像解析を実行
-    const [pcAnalysis, spAnalysis] = await Promise.all([
-      pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
-      spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
-    ]);
-
-    // 解析結果の検証
-    if (!pcImage && !spImage) {
-      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
-    } else {
-      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
-        console.error('PC画像の解析結果が空です。');
-      }
-      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
-        console.error('SP画像の解析結果が空です。');
-      }
-    }
-
-    // 拡張分析を実行（既存のデータを拡張）
-    let enhancedPcAnalysis = null;
-    let enhancedSpAnalysis = null;
-
-    try {
-      if (pcAnalysis && pcAnalysis.colors && pcAnalysis.colors.length > 0) {
-        // 色彩分析の拡張
-        const colorAnalysis = AnalysisModules.color.analyzeColors(pcAnalysis.colors);
-
-        // レイアウト分析の実行
-        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(pcAnalysis, {
-          responsiveMode: 'pc',
-          aiBreakpoints
-        });
-
-        // テキスト分析の実行
-        const textAnalysis = AnalysisModules.text.analyzeText(pcAnalysis, {
-          responsiveMode: 'pc',
-          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
-        });
-
-        // 拡張データを追加
-        enhancedPcAnalysis = {
-          ...pcAnalysis,
-          enhancedColors: colorAnalysis,
-          enhancedLayout: layoutAnalysis,
-          enhancedText: textAnalysis
-        };
-
-        console.log('PC画像の拡張色彩分析が完了しました。',
-          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
-        console.log('PC画像のレイアウト分析が完了しました。',
-          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
-        console.log('PC画像のテキスト分析が完了しました。',
-          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
-      }
-
-      // SPデータも同様に処理
-      if (spAnalysis && spAnalysis.colors && spAnalysis.colors.length > 0) {
-        const colorAnalysis = AnalysisModules.color.analyzeColors(spAnalysis.colors);
-
-        // レイアウト分析の実行
-        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(spAnalysis, {
-          responsiveMode: 'sp',
-          aiBreakpoints
-        });
-
-        // テキスト分析の実行
-        const textAnalysis = AnalysisModules.text.analyzeText(spAnalysis, {
-          responsiveMode: 'sp',
-          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
-        });
-
-        enhancedSpAnalysis = {
-          ...spAnalysis,
-          enhancedColors: colorAnalysis,
-          enhancedLayout: layoutAnalysis,
-          enhancedText: textAnalysis
-        };
-        console.log('SP画像の拡張色彩分析が完了しました。',
-          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
-        console.log('SP画像のレイアウト分析が完了しました。',
-          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
-        console.log('SP画像のテキスト分析が完了しました。',
-          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
-      }
-
-    } catch (enhancementError) {
-      console.warn('拡張分析中にエラーが発生しました（基本分析は影響なし）:', enhancementError);
-      // 拡張分析が失敗しても基本分析は維持
-    }
-
-    // 以降は拡張されたデータがあれば使用、なければ元のデータを使用
-    const pcData = enhancedPcAnalysis || pcAnalysis;
-    const spData = enhancedSpAnalysis || spAnalysis;
-
-    // プロジェクト設定を取得（非同期）
-    console.log('プロジェクト設定を取得中...');
-    const settings = await getSettingsFromActiveProject();
-    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
-
-    // プロンプトの構築を開始
-    console.log('プロンプトの構築を開始');
-
-    // 1. コアプロンプト
-    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
-
-    // 2. 解析結果
-    prompt += buildAnalysisSection(pcData, spData);
-
-    // 3. 設定情報
-    prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
-
-    // 4. 要件
-    prompt += `
-## Requirements
-- Create clean, semantic HTML5 and SCSS
-- Use BEM methodology for class naming
-- Ensure the design is responsive and works well across all device sizes
-- Pay attention to spacing, alignment, and typography
-- Include all necessary hover states and transitions
-`;
-
-    // 5. 出力形式
-    prompt += `
-## Output Format
-- Provide the HTML code first, followed by the SCSS code
-- Make sure both codes are properly formatted and organized
-- Include comments for major sections
-`;
-
-    // 最終プロンプトを生成
-    let finalPrompt = '';
-
-    // 拡張された分析機能を使用
-    try {
-      // 画像解析結果に応じて高度なプロンプト生成を試みる
-      console.log("拡張プロンプト生成を試みます...");
-
-      // 統合データオブジェクトの構築
-      let analysisData = null;
-
-      // PCデータ優先、ただし存在しなければSPデータを使用
-      if (pcData && Object.keys(pcData).length > 0) {
-        analysisData = {
-          ...pcData,
-          responsiveMode
-        };
-
-        // SPデータがあれば統合
-        if (spData && Object.keys(spData).length > 0) {
-          // SPデータに存在するが、PCデータにないプロパティを追加
-          Object.keys(spData).forEach(key => {
-            if (!analysisData[key] && spData[key]) {
-              analysisData[key] = spData[key];
-            }
-          });
-
-          // textBlocksに関してはSP用のプロパティとして追加
-          if (spData.textBlocks && Array.isArray(spData.textBlocks)) {
-            analysisData.spTextBlocks = spData.textBlocks;
-          }
-
-          // 両方のデータがある場合は'both'モードに設定
-          analysisData.responsiveMode = 'both';
-        }
-      } else if (spData && Object.keys(spData).length > 0) {
-        analysisData = {
-          ...spData,
-          responsiveMode: 'sp'
-        };
-      }
-
-      // データ検証
-      if (analysisData) {
-        console.log("解析データの準備完了:");
-
-        // aiBreakpointsとプロジェクト設定の追加
-        analysisData.aiBreakpoints = aiBreakpoints;
-        analysisData.settings = settings;
-
-        // buildBetterPromptを使用して拡張プロンプトを生成
-        const enhancedPrompt = buildBetterPrompt(analysisData);
-
-        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
-          console.log("拡張プロンプト生成に成功しました");
-          finalPrompt = enhancedPrompt;
-        } else {
-          console.log("拡張プロンプト生成失敗 - フォールバックを使用します");
-          finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
-        }
-      } else {
-        console.log("解析データが利用できません - フォールバックを使用します");
-        finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
-      }
-    } catch (error) {
-      console.error("拡張プロンプト生成エラー:", error);
-      // エラー時はフォールバックプロンプト生成を使用
-      finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
-    }
-
-    console.log('プロンプト生成が完了しました');
-    return finalPrompt.trim();
-  } catch (error) {
-    console.error('プロンプト生成エラー:', error);
-    if (error.stack) {
-      console.error("エラースタック:", error.stack);
-    }
-    return 'プロンプト生成中にエラーが発生しました。再試行してください。';
   }
 };
 
@@ -2960,12 +2933,82 @@ const buildSettingsSection = (settings, pcColors, spColors) => {
     }
   }
 
-  // カラー設定
-  if (settings.colors && Object.keys(settings.colors).length > 0) {
+  // CSS変数の取得と色情報との照合
+  const colorVariables = {};
+
+  if (settings.cssVariables && typeof settings.cssVariables === 'object') {
+    // CSS変数からカラー変数を抽出
+    Object.entries(settings.cssVariables).forEach(([key, value]) => {
+      // カラーコードを表す正規表現パターン
+      const hexPattern = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+
+      if (typeof value === 'string' && hexPattern.test(value)) {
+        colorVariables[key] = {
+          name: key,
+          hex: value.toLowerCase()
+        };
+      }
+    });
+
+    // 分析で検出された色とCSS変数内の色を照合
+    const detectedColors = [];
+    if (pcColors && Array.isArray(pcColors)) {
+      detectedColors.push(...pcColors.map(c => ({ ...c, source: 'pc' })));
+    }
+    if (spColors && Array.isArray(spColors)) {
+      detectedColors.push(...spColors.map(c => ({ ...c, source: 'sp' })));
+    }
+
+    // 色の照合（近い色のある変数を検出）
+    const matchedColors = [];
+    detectedColors.forEach(color => {
+      if (!color.hex) return;
+
+      // 最も近いCSS変数の色を探す
+      let closestVariable = null;
+      let closestDistance = 30; // 閾値（この値以下なら類似と判断）
+
+      Object.values(colorVariables).forEach(variable => {
+        if (variable.hex && color.hex) {
+          const distance = AnalysisModules.color.calculateColorDifference(color.hex, variable.hex);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestVariable = variable;
+          }
+        }
+      });
+
+      if (closestVariable) {
+        matchedColors.push({
+          detectedColor: color,
+          cssVariable: closestVariable,
+          distance: closestDistance
+        });
+      }
+    });
+
+    if (matchedColors.length > 0) {
+      section += `\n#### カラー変数マッピング\n`;
+      section += `以下のカラー変数を使用して実装してください。検出された色が変数と一致しています：\n`;
+
+      matchedColors.forEach(match => {
+        section += `- ${match.detectedColor.source === 'pc' ? '[PC]' : '[SP]'} 検出色: ${match.detectedColor.hex} → CSS変数: ${match.cssVariable.name} (${match.cssVariable.hex})\n`;
+      });
+    }
+  }
+
+  // プロジェクトのカラー設定（変数マッピングがない場合）
+  if (settings.colors && Object.keys(settings.colors).length > 0 && Object.keys(colorVariables).length === 0) {
     section += `\n#### プロジェクトカラー\n`;
     Object.entries(settings.colors).forEach(([name, value]) => {
       section += `- ${name}: ${value}\n`;
     });
+  }
+
+  // リセットCSSの設定
+  if (settings.resetCSS) {
+    section += `\n#### リセットCSS\n`;
+    section += `- 使用リセット: ${settings.resetCSS}\n`;
   }
 
   // フォント設定
@@ -2980,4 +3023,608 @@ const buildSettingsSection = (settings, pcColors, spColors) => {
   }
 
   return section;
+};
+
+/**
+ * ガイドラインセクションを構築する関数
+ * @param {string} responsiveMode - レスポンシブモード（'pc', 'sp', 'both'のいずれか）
+ * @param {Object} options - オプション
+ * @returns {string} ガイドラインセクション
+ */
+const buildGuidelinesSection = (responsiveMode, options = {}) => {
+  // mdブレークポイント値を取得
+  const mdBreakpoint = AnalysisModules.breakpoints.getMdValue(options);
+
+  return `
+## コーディングガイドライン
+
+プロフェッショナルなフロントエンド開発者としてSCSSとHTMLを使用してください。
+
+### 重要要件:
+- **❗❗最も重要: デザインカンプを忠実に再現する❗❗** - レイアウト、間隔、サイズ、視覚的な詳細を正確に一致させる
+- **提出前に出力と提供された画像を比較する** - デザインの詳細に正確に合わせるよう調整
+- **画像に表示されている要素だけをコーディングする** - 想定や追加要素は不要
+- **デザインに忠実である** - 色、間隔、レイアウトを正確に
+- **FLOCSS手法**を使用する
+- **❗常にCSS GRIDレイアウトを使用する❗** - Gridでは絶対に不可能な場合を除き、**決して**Flexboxを使用しない
+- コンテナ要素を作成しない（外側の要素の幅を固定しない）
+- **SCSSのネスティングなし** - フラットなSCSS構造を書く
+- **すべての画像のアスペクト比を維持する** - aspect-ratioプロパティなどのモダンなCSS技術を使用
+- **固定幅の値を避ける** - パーセンテージ、max-width、または相対単位を使用
+- **高さプロパティの使用を最小限に抑える** - デザイン上絶対に必要な場合のみ
+- **画像実装の最適化**:
+  - レイアウトシフトを防ぐために、img タグには常に width と height 属性を含める
+  - 適切な遅延読み込みを実装する: フォールド以下の画像には \`loading="lazy"\` を使用
+  - コンテンツタイプに基づいて適切な画像形式を使用（写真はJPEG、透明のあるグラフィックはPNG、可能な場合はWebP）
+  - 背景画像に対しては、異なるブレークポイントでのサイズ調整のためにメディアクエリを使用
+
+### HTMLガイドライン:
+- セマンティックでアクセシブルなHTMLを作成
+- 各ブロックにクラス名を追加
+- 子要素は要素表記を使用すべき
+- FLOCSSの適切な命名規則を使用
+- **見出しタグはh2から始める** - コンポーネントではh1タグを使用しない
+- **<a>タグにコンポーネントクラスを直接使用する** - c-buttonなどのコンポーネントクラスを<a>タグに直接適用し、不要なdivラッパーを作成しない
+- **正しいボタン例**: \`<div class="p-hoge__button"><a href="#" class="c-button">詳細を見る →</a></div>\`
+- **間違ったボタン例**: \`<div class="p-hoge__button"><div class="c-button"><a href="#" class="c-button__link">詳細を見る →</a></div></div>\`
+- **<header>や<main>タグを使用しない** - 代わりに適切なクラスを持つdivを使用
+- デザインを分析し、デザイン機能を反映した**具体的で説明的なクラス名**を割り当てる
+- **アクセシビリティの考慮事項**:
+  - インタラクティブ要素に適切なARIA属性を使用
+  - 十分な色のコントラスト（通常のテキストの場合、最低4.5:1）を確保
+  - **すべての画像に日本語のalt属性を追加**:
+    - 説明的な日本語テキストを使用（例: alt="企業ロゴ"ではなく、alt="株式会社〇〇のロゴ"）
+    - 装飾的な画像には空のalt属性を使用（alt=""）
+    - 説明を簡潔に保つ（5〜15文字程度）
+    - alt属性が画像の目的を伝えているか確認
+  - インタラクティブ要素のキーボードナビゲーションが機能することを確認
+
+### FLOCSSコンポーネント構造ガイドライン:
+- **Project (p-)**:　ページ/レイアウト特有のコンポーネント
+  - 例: \`.p-hero\`, \`.p-footer\`, \`.p-news-section\`
+  - ページの大きな特徴的なセクションに使用
+
+- **Layout (l-)**: 構造とグリッドコンポーネント
+  - 例: \`.l-container\`, \`.l-grid\`, \`.l-row\`
+  - コンテンツを整理するレイアウト構造に使用
+
+- **Component (c-)**: 再利用可能なUI要素
+  - 例: \`.c-button\`, \`.c-card\`, \`.c-form\`
+  - 複数のコンテキストで表示される独立した再利用可能な要素
+
+- **Utility (u-)**: 単一目的のユーティリティクラス
+  - 例: \`.u-text-center\`, \`.u-margin-top\`
+  - 通常、1つの特定のプロパティを変更する
+
+### SCSSガイドライン:
+- ${responsiveMode === "both" ? "レスポンシブアプローチに従う" : `${responsiveMode === "pc" ? "デスクトップファースト" : "モバイルファースト"}アプローチに従う`}
+- **❗❗重要: メディアクエリはセレクタ内に配置する必要があり、*唯一許可されているネスティング*です❗❗** - このように:
+\`\`\`scss
+.p-hoge__content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: center;
+
+  @include mq(md) {
+    grid-template-columns: 1fr;
+  }
+}
+\`\`\`
+
+- **❌ &記号を使用したSCSSのネスティングを使用しない** - 以下は行ってはいけないこと:
+\`\`\`scss
+// これは間違い - 絶対にしないでください
+.p-hoge {
+  background-color: #e9f5f9;
+
+  &__title {  // 間違い - &__を使用しない
+    font-size: 2rem;
+  }
+
+  &__content {  // 間違い - &__を使用しない
+    display: grid;
+  }
+}
+\`\`\`
+
+- **✅ 正しい方法 - フラットなセレクタを使用する** - 常にこのように書く:
+\`\`\`scss
+// これが正しい - 常にこのようにする
+.p-hoge {
+  background-color: #e9f5f9;
+}
+
+.p-hoge__title {  // 正しい - フラットなセレクタ
+  font-size: 2rem;
+}
+
+.p-hoge__content {  // 正しい - フラットなセレクタ
+  display: grid;
+}
+\`\`\`
+
+- **❌ メディアクエリを次のように書かない** (間違い！やらないで！):
+\`\`\`scss
+.p-hoge__content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: center;
+}
+
+@include mq(md) {
+  .p-hoge__content {
+    grid-template-columns: 1fr;
+  }
+}
+\`\`\`
+
+### パフォーマンス最適化ガイドライン:
+- パフォーマンスが重要なアニメーションにはモダンなCSSプロパティ（will-change、containなど）を使用
+- レンダリングの複雑さを減らすために不要なDOMのネスティングを避ける
+- CSS Gridを効率的に使用して読み込み中のレイアウトシフトを最小限に抑える
+- フォールド以下の画像にはloading="lazy"属性を使用した遅延読み込みを検討
+- レイアウトシフトを減らすためにシステムフォントや最適化されたウェブフォントを優先
+
+### アニメーションと遷移ガイドライン:
+- **アニメーションは控えめで目的を持ったものにする**:
+  - ホバー/フォーカス状態には遷移を使用（常に0.3秒の持続時間を使用）
+  - 幅、高さ、位置よりもtransformとopacityの変更を優先
+  - アニメーションのアクセシビリティを考慮
+  \`\`\`
+  // 適切なアニメーションの例:
+  .c-button {
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+
+  .c-button:hover {  // 正しい: ホバー状態用のフラットなセレクタ
+    transform: translateY(-2px);
+    opacity: 0.9;
+  }
+  \`\`\`
+- **パフォーマンスの考慮事項**:
+  - 可能な場合は、transformとopacityプロパティのみをアニメーション
+  - will-changeは必要な場合のみ使用し、アニメーション後に削除
+  - 大きな要素や複数の要素の同時アニメーションを避ける
+
+### 間隔とレイアウトのガイドライン:
+- **一貫した間隔システムを使用**:
+  - 変数や明確なシステム（例: 8pxの増分）で間隔を定義
+  - **すべての垂直方向の間隔には一貫してmargin-topを使用**
+  - **margin-bottomは使用せず、すべての垂直マージンはmargin-topで統一**
+  - 可能な場合はGrid/Flexboxレイアウトでgapプロパティを使用
+- **コンポーネントの間隔階層**:
+  - 親コンポーネント（p-プレフィックス）は外部間隔（margin）を制御すべき
+  - 子要素は内部間隔（padding）を制御すべき
+  - レイアウトにmarginの相殺を頼らない
+- **マジックナンバーを避ける**:
+  - margin-top: 37pxのような任意の値を使用しない
+  - レイアウト全体で一貫した間隔値を使用
+- **モバイルの間隔の考慮事項**:
+  - モバイルビューでは間隔を比例的に減らす（一般的にデスクトップ値の50-70%）
+  - メディアクエリで間隔の変更を制御
+
+### フォント指定ガイドライン:
+- **すべてのフォントサイズはpxで直接指定**:
+  - 見出し (h2): 32pxから24px
+  - サブ見出し (h3): 24pxから20px
+  - 本文テキスト: 16px
+  - 小さいテキスト: 14px
+- **レスポンシブフォントサイズ**:
+  - メディアクエリ内で異なるフォントサイズを直接指定
+  - 例: font-size: 32px; @include mq-down(md) { font-size: 24px; }
+
+## 出力形式:
+\`\`\`html
+<!-- HTMLコードをここに -->
+\`\`\`
+
+\`\`\`scss
+// SCSSコードをここに（メディアクエリ以外はネスト禁止、フラット構造で）
+\`\`\`
+
+画像の構造とレイアウトを詳細に分析し、画像に表示されているもののみを正確に反映した正確なHTMLとSCSSを作成してください。
+`;
+};
+
+/**
+ * 最終指示セクションを構築する関数
+ * @returns {string} 最終指示セクション
+ */
+const buildFinalInstructionsSection = () => {
+  return `
+## 最終重要指示事項 - SCSS構造
+- **❌❌❌ いかなる状況でも&演算子を使用したネストされたSCSSを出力しないでください ❌❌❌**
+- **&__element や &:hover 表記を含むコードは厳密に禁止されています**
+- **&記号を使用したSCSSのネスティングがあるコードは拒否します**
+- **常にフラットなセレクタを書く必要があります** 例えば .p-hero__title や .c-card__title （.p-hero { &__title } や .c-card { &__title } ではない）
+
+## 避けるべき一般的なミス - 実際の例
+
+### ❌ SCSSの一般的なミス:
+\`\`\`scss
+    // ❌ 間違い: ネストされたセレクタ
+    .p-hoge {
+    background: #fff;
+
+  &__title {  // 絶対にやらないでください
+      font-size: 24px;
+    }
+
+  &__content {  // 絶対にやらないでください
+      margin-top: 16px;
+    }
+  }
+
+// ❌ 間違い: ネストされたホバー状態
+.p-hoge__link {
+  color: blue;
+
+  &:hover {  // 絶対にやらないでください
+    color: darkblue;
+  }
+}
+
+// ❌ 間違い: 不適切なメディアクエリの配置
+.p-hoge__title {
+  font-size: 24px;
+}
+
+@include mq(md) {  // セレクタの外にメディアクエリを配置しないでください
+  .p-hoge__title {
+    font-size: 18px;
+  }
+}
+
+// ❌ 間違い: 単一の要素に複数のプレフィックスが混在
+.c-button.p-hoge__button {  // プレフィックスを混在させないでください
+  display: inline-block;
+}
+\`\`\`
+
+### ✅ SCSSの正しい実装:
+\`\`\`scss
+  // ✅ 正しい: フラット構造
+  .p-hoge {
+  background: #fff;
+}
+
+.p-hoge__title {
+  font-size: 24px;
+
+  @include mq(md) {  // 正しい: セレクタ内のメディアクエリ
+    font-size: 18px;
+  }
+}
+
+.p-hoge__content {
+  margin-top: 16px;
+}
+
+// ✅ 正しい: フラットなホバー状態
+.p-hoge__link {
+  color: blue;
+}
+
+.p-hoge__link:hover {  // 正しい: ホバー用のフラットなセレクタ
+  color: darkblue;
+}
+
+// ✅ 正しい: ボタンの実装
+.p-hoge__button {  // 位置決めのためのコンテナ
+  margin-top: 24px;
+  text-align: center;
+}
+
+// ボタン自体はc-プレフィックスを持つ別の要素で、
+// HTMLではp-プレフィックスを持つコンテナ内にある
+\`\`\`
+- **セレクタ内にネストされるのはメディアクエリ @include mq() のみ許可されています**
+- **各要素タイプに適切なプレフィックスを使用してください**:
+  - p- はヒーロー、ヘッダー、フッター、メインセクションなどのページ/プロジェクト固有のコンポーネント用
+  - l- はコンテナ、グリッド、ラッパーなどのレイアウトコンポーネント用
+  - c- はボタン、カード、フォーム、ナビゲーションメニューなどの共通の再利用可能なUIコンポーネント用
+  - u- はユーティリティクラス用
+- **同じ要素に複数の異なるプレフィックスを使用しないでください** - 要素ごとに1つのプレフィックスタイプを選択
+- **間違い: \`<a class="c-button p-hoge__button">もっと見る</a>\`**
+- **正しい: \`<a class="c-button">もっと見る</a>\`** コンテキストに基づく
+- **提出前に出力を確認してください:** SCSSに&記号が見つかったら、すべてをフラットなセレクタで書き直してください
+- **これはゼロトレランス要件です:** ネストされたSCSSコードは自動的に拒否されます
+
+## 自己検証チェックリスト
+コードを提出する前に、以下の各点を確認してください:
+
+### HTML検証:
+- [ ] ネストされたコンポーネントがない（不必要にdivの中にdivがある）
+- [ ] すべての画像に日本語の適切なalt属性がある
+- [ ] すべての画像にwidth属性とheight属性がある
+- [ ] 見出し階層が適切である（h1ではなくh2から始まる）
+- [ ] 同じ要素にプレフィックスの混在がない（例：\`class="c-button p-card__button"\`がない）
+- [ ] 不要なラッパー要素がない
+- [ ] ボタンの実装が正しいパターンに従っている
+- [ ] すべてのインタラクティブ要素がアクセシブルである（フォーカス状態、適切なロール）
+
+### SCSS検証:
+- [ ] メディアクエリを除き、ネスティングが全くない
+- [ ] コード内に&記号が全くない
+- [ ] すべての疑似クラス（hover、focus、active）がフラットなセレクタとして書かれている
+- [ ] すべてのメディアクエリがセレクタ内にある
+- [ ] 一貫した間隔システムが使用されている
+- [ ] 垂直方向の間隔はmargin-topのみを使用している（margin-bottomは使用しない）
+- [ ] すべてのセレクタが適切なプレフィックス（p-、l-、c-、u-）を使用している
+- [ ] 可能な場合はflexboxの代わりにグリッドレイアウトが使用されている
+- [ ] 不必要な固定幅が使用されていない
+- [ ] 可能な限り高さプロパティを避けている
+- [ ] すべての遷移が0.3秒の持続時間に設定されている
+
+### 最終品質チェックプロセス:
+1. **オリジナルデザインとの比較**:
+   - コードがデザインカンプと一致するか視覚的に確認
+   - 間隔、配置、比率を確認
+   - 色の正確さを検証
+
+2. **コード構造レビュー**:
+   - すべてのSCSSを&記号がないかスキャン（見つかった場合は即座に拒否）
+   - すべてのクラス名がFLOCSS命名規則に従っているか確認
+   - ボタンが指定された正確なパターンに従っているか検証
+
+3. **問題のあるコードをリファクタリング**:
+   - 混在したプレフィックスのインスタンスを別々の要素に置き換え
+   - メディアクエリではないネストされたSCSSを修正
+   - すべてのコンポーネント階層が正しいことを確認
+
+4. **特定のパターン検証**:
+   - ボタン: \`<div class="p-section__button"><a href="#" class="c-button">テキスト</a></div>\`
+   - カード: p-プレフィックスを持つ親、適切な要素名を持つコンテンツ
+   - 画像: 適切な属性とレスポンシブな扱い
+
+このチェックリストを確認した後、HTMLとSCSSがデザインカンプの画像を正確に再現し、すべてのガイドラインに従っていることを確認してください。問題が見つかった場合は、提出前に修正してください。
+`;
+};
+
+/**
+ * コアプロンプトを構築する関数
+ * @param {string} responsiveMode - レスポンシブモード ('pc', 'sp', 'both')
+ * @param {Array} aiBreakpoints - ブレークポイント設定
+ * @returns {string} コアプロンプト
+ */
+const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
+  // ブレークポイント値の取得
+  const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
+
+  let prompt = `# ウェブデザイン実装要件
+
+## 概要情報
+- **レスポンシブタイプ**: ${responsiveMode === 'pc' ? 'デスクトップファースト' : responsiveMode === 'sp' ? 'モバイルファースト' : '両方対応'}
+- **ブレークポイント**: ${mdBreakpoint}px
+- **メディアクエリ表記**: ${responsiveMode === 'sp' ? '@include mq(md)' : '@include mq-down(md)'}
+
+`;
+
+  return prompt;
+};
+
+// メイン関数を修正して新機能を統合
+export const generatePrompt = async (options) => {
+  console.log('プロンプト生成処理を開始');
+  const {
+    pcImage, spImage,
+    responsiveMode = "pc",
+    aiBreakpoints = []
+  } = options;
+  console.log("🔥 generatePrompt 開始");
+
+  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
+  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
+
+  try {
+    // 画像解析を実行
+    const [pcAnalysis, spAnalysis] = await Promise.all([
+      pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
+      spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
+    ]);
+
+    // 解析結果の検証
+    if (!pcImage && !spImage) {
+      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
+    } else {
+      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
+        console.error('PC画像の解析結果が空です。');
+      }
+      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
+        console.error('SP画像の解析結果が空です。');
+      }
+    }
+
+    // 拡張分析を実行（既存のデータを拡張）
+    let enhancedPcAnalysis = null;
+    let enhancedSpAnalysis = null;
+
+    try {
+      if (pcAnalysis && pcAnalysis.colors && pcAnalysis.colors.length > 0) {
+        // 色彩分析の拡張
+        const colorAnalysis = AnalysisModules.color.analyzeColors(pcAnalysis.colors);
+
+        // レイアウト分析の実行
+        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(pcAnalysis, {
+          responsiveMode: 'pc',
+          aiBreakpoints
+        });
+
+        // テキスト分析の実行
+        const textAnalysis = AnalysisModules.text.analyzeText(pcAnalysis, {
+          responsiveMode: 'pc',
+          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
+        });
+
+        // 拡張データを追加
+        enhancedPcAnalysis = {
+          ...pcAnalysis,
+          enhancedColors: colorAnalysis,
+          enhancedLayout: layoutAnalysis,
+          enhancedText: textAnalysis
+        };
+
+        console.log('PC画像の拡張色彩分析が完了しました。',
+          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
+        console.log('PC画像のレイアウト分析が完了しました。',
+          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
+        console.log('PC画像のテキスト分析が完了しました。',
+          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
+      }
+
+      // SPデータも同様に処理
+      if (spAnalysis && spAnalysis.colors && spAnalysis.colors.length > 0) {
+        const colorAnalysis = AnalysisModules.color.analyzeColors(spAnalysis.colors);
+
+        // レイアウト分析の実行
+        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(spAnalysis, {
+          responsiveMode: 'sp',
+          aiBreakpoints
+        });
+
+        // テキスト分析の実行
+        const textAnalysis = AnalysisModules.text.analyzeText(spAnalysis, {
+          responsiveMode: 'sp',
+          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
+        });
+
+        enhancedSpAnalysis = {
+          ...spAnalysis,
+          enhancedColors: colorAnalysis,
+          enhancedLayout: layoutAnalysis,
+          enhancedText: textAnalysis
+        };
+        console.log('SP画像の拡張色彩分析が完了しました。',
+          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
+        console.log('SP画像のレイアウト分析が完了しました。',
+          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
+        console.log('SP画像のテキスト分析が完了しました。',
+          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
+      }
+
+    } catch (enhancementError) {
+      console.warn('拡張分析中にエラーが発生しました（基本分析は影響なし）:', enhancementError);
+      // 拡張分析が失敗しても基本分析は維持
+    }
+
+    // 以降は拡張されたデータがあれば使用、なければ元のデータを使用
+    const pcData = enhancedPcAnalysis || pcAnalysis;
+    const spData = enhancedSpAnalysis || spAnalysis;
+
+    // プロジェクト設定を取得（非同期）
+    console.log('プロジェクト設定を取得中...');
+    const settings = await getSettingsFromActiveProject();
+    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
+
+    // プロンプトの構築を開始
+    console.log('プロンプトの構築を開始');
+
+    // 1. コアプロンプト
+    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
+
+    // 2. 解析結果
+    prompt += buildAnalysisSection(pcData, spData);
+
+    // 3. 設定情報
+    prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
+
+    // 4. 要件
+    prompt += `
+## Requirements
+- Create clean, semantic HTML5 and SCSS
+- Use BEM methodology for class naming
+- Ensure the design is responsive and works well across all device sizes
+- Pay attention to spacing, alignment, and typography
+- Include all necessary hover states and transitions
+`;
+
+    // 5. 出力形式
+    prompt += `
+## Output Format
+- Provide the HTML code first, followed by the SCSS code
+- Make sure both codes are properly formatted and organized
+- Include comments for major sections
+`;
+
+    // 最終プロンプトを生成
+    let finalPrompt = '';
+
+    // 拡張された分析機能を使用
+    try {
+      // 画像解析結果に応じて高度なプロンプト生成を試みる
+      console.log("拡張プロンプト生成を試みます...");
+
+      // 統合データオブジェクトの構築
+      let analysisData = null;
+
+      // PCデータ優先、ただし存在しなければSPデータを使用
+      if (pcData && Object.keys(pcData).length > 0) {
+        analysisData = {
+          ...pcData,
+          responsiveMode
+        };
+
+        // SPデータがあれば統合
+        if (spData && Object.keys(spData).length > 0) {
+          // SPデータに存在するが、PCデータにないプロパティを追加
+          Object.keys(spData).forEach(key => {
+            if (!analysisData[key] && spData[key]) {
+              analysisData[key] = spData[key];
+            }
+          });
+
+          // textBlocksに関してはSP用のプロパティとして追加
+          if (spData.textBlocks && Array.isArray(spData.textBlocks)) {
+            analysisData.spTextBlocks = spData.textBlocks;
+          }
+
+          // 両方のデータがある場合は'both'モードに設定
+          analysisData.responsiveMode = 'both';
+        }
+      } else if (spData && Object.keys(spData).length > 0) {
+        analysisData = {
+          ...spData,
+          responsiveMode: 'sp'
+        };
+      }
+
+      // データ検証
+      if (analysisData) {
+        console.log("解析データの準備完了:");
+
+        // aiBreakpointsとプロジェクト設定の追加
+        analysisData.aiBreakpoints = aiBreakpoints;
+        analysisData.settings = settings;
+
+        // buildBetterPromptを使用して拡張プロンプトを生成
+        const enhancedPrompt = buildBetterPrompt(analysisData);
+
+        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
+          console.log("拡張プロンプト生成に成功しました");
+          finalPrompt = enhancedPrompt;
+        } else {
+          console.log("拡張プロンプト生成失敗 - フォールバックを使用します");
+          finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+        }
+      } else {
+        console.log("解析データが利用できません - フォールバックを使用します");
+        finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+      }
+    } catch (error) {
+      console.error("拡張プロンプト生成エラー:", error);
+      // エラー時はフォールバックプロンプト生成を使用
+      finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+    }
+
+    console.log('プロンプト生成が完了しました');
+    return finalPrompt.trim();
+  } catch (error) {
+    console.error('プロンプト生成エラー:', error);
+    if (error.stack) {
+      console.error("エラースタック:", error.stack);
+    }
+    return 'プロンプト生成中にエラーが発生しました。再試行してください。';
+  }
 };
