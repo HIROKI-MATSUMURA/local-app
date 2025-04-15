@@ -486,7 +486,697 @@ const AnalysisModules = {
     }
   },
   component: {
-    // componentDetector.jsから抽出予定
+    // レイアウトユーティリティ関数
+    layoutUtils: {
+      // 水平グループの検出
+      findHorizontalGroups(elements, threshold = 20) {
+        if (!Array.isArray(elements)) return [];
+
+        const groups = [];
+        const used = new Set();
+
+        for (let i = 0; i < elements.length; i++) {
+          if (used.has(i)) continue;
+
+          const base = elements[i];
+          const group = [base];
+          used.add(i);
+
+          for (let j = i + 1; j < elements.length; j++) {
+            if (used.has(j)) continue;
+
+            const target = elements[j];
+
+            // 位置情報の取得（異なる構造に対応）
+            const basePosition = base.position || {};
+            const targetPosition = target.position || {};
+            const baseX = basePosition.x !== undefined ? basePosition.x : (base.x || 0);
+            const baseY = basePosition.y !== undefined ? basePosition.y : (base.y || 0);
+            const baseWidth = basePosition.width !== undefined ? basePosition.width : (base.width || 0);
+            const targetX = targetPosition.x !== undefined ? targetPosition.x : (target.x || 0);
+            const targetY = targetPosition.y !== undefined ? targetPosition.y : (target.y || 0);
+
+            const isSameRow = Math.abs(baseY - targetY) < threshold;
+            const isHorizontallyClose = Math.abs(baseX + baseWidth - targetX) < threshold * 2;
+
+            if (isSameRow && isHorizontallyClose) {
+              group.push(target);
+              used.add(j);
+            }
+          }
+
+          if (group.length >= 2) {
+            groups.push(group);
+          }
+        }
+
+        return groups;
+      },
+
+      // 垂直グループの検出
+      findVerticalGroups(elements, threshold = 20) {
+        if (!Array.isArray(elements)) return [];
+
+        const groups = [];
+        const used = new Set();
+
+        for (let i = 0; i < elements.length; i++) {
+          if (used.has(i)) continue;
+
+          const base = elements[i];
+          const group = [base];
+          used.add(i);
+
+          for (let j = i + 1; j < elements.length; j++) {
+            if (used.has(j)) continue;
+
+            const target = elements[j];
+
+            // 位置情報の取得（異なる構造に対応）
+            const basePosition = base.position || {};
+            const targetPosition = target.position || {};
+            const baseX = basePosition.x !== undefined ? basePosition.x : (base.x || 0);
+            const baseY = basePosition.y !== undefined ? basePosition.y : (base.y || 0);
+            const baseHeight = basePosition.height !== undefined ? basePosition.height : (base.height || 0);
+            const targetX = targetPosition.x !== undefined ? targetPosition.x : (target.x || 0);
+            const targetY = targetPosition.y !== undefined ? targetPosition.y : (target.y || 0);
+
+            const isSameColumn = Math.abs(baseX - targetX) < threshold;
+            const isVerticallyClose = Math.abs(baseY + baseHeight - targetY) < threshold * 2;
+
+            if (isSameColumn && isVerticallyClose) {
+              group.push(target);
+              used.add(j);
+            }
+          }
+
+          if (group.length >= 2) {
+            groups.push(group);
+          }
+        }
+
+        return groups;
+      },
+
+      // バウンディングボックスの計算
+      getBoundingBox(group) {
+        if (!Array.isArray(group) || group.length === 0) {
+          return { x: 0, y: 0, width: 0, height: 0 };
+        }
+
+        // 位置情報を安全に取得する関数
+        const getPosition = (item) => {
+          const pos = item.position || {};
+          return {
+            x: pos.x !== undefined ? pos.x : (item.x || 0),
+            y: pos.y !== undefined ? pos.y : (item.y || 0),
+            width: pos.width !== undefined ? pos.width : (item.width || 0),
+            height: pos.height !== undefined ? pos.height : (item.height || 0)
+          };
+        };
+
+        // 各要素の位置情報を取得
+        const positions = group.map(getPosition);
+
+        const x1 = Math.min(...positions.map(pos => pos.x));
+        const y1 = Math.min(...positions.map(pos => pos.y));
+        const x2 = Math.max(...positions.map(pos => pos.x + pos.width));
+        const y2 = Math.max(...positions.map(pos => pos.y + pos.height));
+
+        return {
+          x: x1,
+          y: y1,
+          width: x2 - x1,
+          height: y2 - y1
+        };
+      },
+
+      // 要素が重なっているかどうかの判定
+      isOverlapping(pos1, pos2) {
+        // 位置情報が不正な場合はfalseを返す
+        if (!pos1 || !pos2) return false;
+
+        // 位置情報を安全に取得
+        const p1 = {
+          x: pos1.x !== undefined ? pos1.x : 0,
+          y: pos1.y !== undefined ? pos1.y : 0,
+          width: pos1.width !== undefined ? pos1.width : 0,
+          height: pos1.height !== undefined ? pos1.height : 0
+        };
+
+        const p2 = {
+          x: pos2.x !== undefined ? pos2.x : 0,
+          y: pos2.y !== undefined ? pos2.y : 0,
+          width: pos2.width !== undefined ? pos2.width : 0,
+          height: pos2.height !== undefined ? pos2.height : 0
+        };
+
+        return !(
+          p1.x + p1.width < p2.x ||
+          p2.x + p2.width < p1.x ||
+          p1.y + p1.height < p2.y ||
+          p2.y + p2.height < p1.y
+        );
+      },
+
+      // 要素間の距離を計算
+      getDistance(pos1, pos2) {
+        // 中心点を計算
+        const center1 = {
+          x: pos1.x + pos1.width / 2,
+          y: pos1.y + pos1.height / 2
+        };
+
+        const center2 = {
+          x: pos2.x + pos2.width / 2,
+          y: pos2.y + pos2.height / 2
+        };
+
+        // ユークリッド距離を計算
+        const dx = center1.x - center2.x;
+        const dy = center1.y - center2.y;
+
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+    },
+
+    // カードグループの検出
+    detectCards(elements, options = {}) {
+      try {
+        const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+        // 位置情報のあるelementsのみフィルタリング
+        const validElements = elements.filter(el => {
+          const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+          return hasPosition && (el.position?.width || el.width) > 0 && (el.position?.height || el.height) > 0;
+        });
+
+        if (validElements.length < 2) return [];
+
+        const horizontalGroups = this.layoutUtils.findHorizontalGroups(validElements);
+
+        const isMobileFirst = responsiveMode === "sp" || responsiveMode === "both";
+        const breakpointName = aiBreakpoints && aiBreakpoints.length > 0 ?
+          aiBreakpoints[0].name || 'md' : 'md';
+
+        const detected = [];
+
+        horizontalGroups.forEach((group, index) => {
+          const layoutType = 'grid'; // 横並びなら基本はグリッド想定
+          const groupBounds = this.layoutUtils.getBoundingBox(group);
+
+          // カード要素を判定
+          const cardItems = group.map(el => {
+            const pos = el.position || {};
+            return {
+              type: 'card',
+              position: {
+                x: pos.x !== undefined ? pos.x : (el.x || 0),
+                y: pos.y !== undefined ? pos.y : (el.y || 0),
+                width: pos.width !== undefined ? pos.width : (el.width || 0),
+                height: pos.height !== undefined ? pos.height : (el.height || 0)
+              }
+            };
+          });
+
+          detected.push({
+            type: 'card_group',
+            count: group.length,
+            layout: layoutType,
+            position: groupBounds,
+            items: cardItems,
+            responsiveRecommendation: {
+              description: `カードグループにはグリッドレイアウトを使用し、小さい画面では縦に並べます。`,
+              cssExample: isMobileFirst ?
+                `.card-group {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: repeat(${group.length}, 1fr);
+    gap: 2rem;
+  }
+}` :
+                `.card-group {
+  display: grid;
+  grid-template-columns: repeat(${group.length}, 1fr);
+  gap: 2rem;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}`
+            }
+          });
+        });
+
+        return detected;
+      } catch (error) {
+        console.error('カード検出中にエラーが発生しました:', error);
+        return [];
+      }
+    },
+
+    // ヒーローセクションの検出
+    detectHero(elements, textBlocks = [], options = {}) {
+      try {
+        const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+        // 位置情報のあるelementsのみフィルタリング
+        const validElements = elements.filter(el => {
+          const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+          return hasPosition;
+        });
+
+        if (validElements.length === 0) return null;
+
+        // 見出しとなる大きなテキストを探す
+        const headingCandidates = validElements.filter(el => {
+          const position = el.position || {};
+          const y = position.y !== undefined ? position.y : (el.y || 0);
+          return (
+            (el.type === 'text' || el.tag === 'h1' || el.tag === 'h2') &&
+            ((el.fontSize && el.fontSize >= 28) || el.tag === 'h1' || el.tag === 'h2') &&
+            y < 400
+          );
+        });
+
+        // サポートするテキストブロックがあれば追加で検索
+        if (Array.isArray(textBlocks) && textBlocks.length > 0) {
+          // textBlocksから大きなフォントのものを抽出
+          const largeTextBlocks = textBlocks.filter(block =>
+            block.fontSize >= 28 && block.position && block.position.y < 400
+          );
+
+          if (largeTextBlocks.length > 0) {
+            headingCandidates.push(...largeTextBlocks);
+          }
+        }
+
+        const hasLargeHeading = headingCandidates.length > 0;
+
+        // ヒーロー画像を探す
+        const heroImage = validElements.find(el => {
+          const position = el.position || {};
+          const y = position.y !== undefined ? position.y : (el.y || 0);
+          const height = position.height !== undefined ? position.height : (el.height || 0);
+
+          return (
+            el.type === 'image' &&
+            y < 500 &&
+            height > 200
+          );
+        });
+
+        // ヒーローセクションの条件を満たすか確認
+        if (hasLargeHeading || heroImage) {
+          const elementsToCheck = [...(hasLargeHeading ? headingCandidates : [])];
+          if (heroImage) elementsToCheck.push(heroImage);
+
+          const isMobileFirst = responsiveMode === "sp" || responsiveMode === "both";
+          const breakpointName = aiBreakpoints && aiBreakpoints.length > 0 ?
+            aiBreakpoints[0].name || 'md' : 'md';
+
+          return {
+            type: 'hero',
+            confidence: heroImage && hasLargeHeading ? 0.9 : 0.7,
+            position: this.layoutUtils.getBoundingBox(elementsToCheck),
+            hasHeading: hasLargeHeading,
+            imageElement: heroImage,
+            responsiveRecommendation: {
+              description: 'フルワイドのレイアウトで見出しとサポート画像を使用し、モバイルでは縦に積み重ねます。',
+              cssExample: isMobileFirst ?
+                `.hero {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+
+  @include mq(${breakpointName}) {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+  }
+}` :
+                `.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  @include mq(${breakpointName}) {
+    flex-direction: column;
+    text-align: center;
+  }
+}`
+            }
+          };
+        }
+
+        return null;
+      } catch (error) {
+        console.error('ヒーロー検出中にエラーが発生しました:', error);
+        return null;
+      }
+    },
+
+    // ナビゲーションバーの検出
+    detectNavbar(elements, options = {}) {
+      try {
+        const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+        // 位置情報のあるelementsのみフィルタリング
+        const validElements = elements.filter(el => {
+          const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+          return hasPosition;
+        });
+
+        if (validElements.length < 3) return null;
+
+        // リンク要素を探す
+        const linkElements = validElements.filter(el => {
+          const position = el.position || {};
+          const y = position.y !== undefined ? position.y : (el.y || 0);
+
+          return (
+            (el.type === 'link' || el.tag === 'a') &&
+            y < 150
+          );
+        });
+
+        // 十分な数のリンクがあるか確認
+        if (linkElements.length >= 3) {
+          // 同じ行にあるか確認
+          const firstElement = linkElements[0];
+          const firstY = firstElement.position ? firstElement.position.y : (firstElement.y || 0);
+
+          const sameLine = linkElements.every(el => {
+            const elY = el.position ? el.position.y : (el.y || 0);
+            return Math.abs(elY - firstY) < 15;
+          });
+
+          if (sameLine) {
+            const isMobileFirst = responsiveMode === "sp" || responsiveMode === "both";
+            const breakpointName = aiBreakpoints && aiBreakpoints.length > 0 ?
+              aiBreakpoints[0].name || 'md' : 'md';
+
+            return {
+              type: 'navbar',
+              confidence: 0.95,
+              links: linkElements.length,
+              position: this.layoutUtils.getBoundingBox(linkElements),
+              responsiveRecommendation: {
+                description: 'PC向けは水平ナビゲーション、モバイルではハンバーガーメニューに変換します。',
+                cssExample: isMobileFirst ?
+                  `.navbar {
+  display: flex;
+  flex-direction: column;
+
+  @include mq(${breakpointName}) {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}` :
+                  `.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  @include mq(${breakpointName}) {
+    flex-direction: column;
+  }
+}`
+              }
+            };
+          }
+        }
+
+        return null;
+      } catch (error) {
+        console.error('ナビゲーション検出中にエラーが発生しました:', error);
+        return null;
+      }
+    },
+
+    // フィーチャーリストの検出 (アイコン + テキストの繰り返し)
+    detectFeatureList(elements, options = {}) {
+      try {
+        const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+        // 位置情報のあるelementsのみフィルタリング
+        const validElements = elements.filter(el => {
+          const hasPosition = el.position || (el.x !== undefined && el.y !== undefined);
+          return hasPosition;
+        });
+
+        if (validElements.length < 4) return null; // 最低4要素（アイコン2つ+テキスト2つ）
+
+        // アイコン要素を見つける
+        const iconElements = validElements.filter(el => {
+          const position = el.position || {};
+          const width = position.width !== undefined ? position.width : (el.width || 0);
+          const height = position.height !== undefined ? position.height : (el.height || 0);
+
+          return (
+            el.type === 'icon' ||
+            (el.type === 'image' && width < 80 && height < 80)
+          );
+        });
+
+        if (iconElements.length < 2) return null;
+
+        // 各アイコンの近くにテキストがあるか確認
+        const featureItems = [];
+
+        iconElements.forEach(icon => {
+          const iconPosition = icon.position || {
+            x: icon.x || 0,
+            y: icon.y || 0,
+            width: icon.width || 0,
+            height: icon.height || 0
+          };
+
+          const nearbyTexts = validElements.filter(el => {
+            if (el.type !== 'text') return false;
+
+            const elPosition = el.position || {
+              x: el.x || 0,
+              y: el.y || 0,
+              width: el.width || 0,
+              height: el.height || 0
+            };
+
+            return (
+              Math.abs(elPosition.x - iconPosition.x) < 100 &&
+              Math.abs(elPosition.y - iconPosition.y) < 100
+            );
+          });
+
+          if (nearbyTexts.length > 0) {
+            featureItems.push({
+              icon,
+              texts: nearbyTexts,
+              position: this.layoutUtils.getBoundingBox([icon, ...nearbyTexts])
+            });
+          }
+        });
+
+        if (featureItems.length >= 2) {
+          const isMobileFirst = responsiveMode === "sp" || responsiveMode === "both";
+          const breakpointName = aiBreakpoints && aiBreakpoints.length > 0 ?
+            aiBreakpoints[0].name || 'md' : 'md';
+
+          // 横並びか縦並びか判定
+          const item0 = featureItems[0].position;
+          const item1 = featureItems[1].position;
+          const isHorizontal = Math.abs(item0.y - item1.y) < 50;
+
+          return {
+            type: 'feature_list',
+            count: featureItems.length,
+            layout: isHorizontal ? 'horizontal' : 'vertical',
+            position: this.layoutUtils.getBoundingBox(featureItems.map(item => item.position)),
+            items: featureItems,
+            responsiveRecommendation: {
+              description: `${isHorizontal ? '特徴リストを横並びグリッドで配置し' : '特徴リストを縦に積み重ね'}、適切な間隔を設定します。`,
+              cssExample: isMobileFirst ?
+                `.feature-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: repeat(${Math.min(featureItems.length, 3)}, 1fr);
+  }
+}
+
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}` :
+                `.feature-list {
+  display: grid;
+  grid-template-columns: repeat(${Math.min(featureItems.length, 3)}, 1fr);
+  gap: 2rem;
+
+  @include mq(${breakpointName}) {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}`
+            }
+          };
+        }
+
+        return null;
+      } catch (error) {
+        console.error('フィーチャーリスト検出中にエラーが発生しました:', error);
+        return null;
+      }
+    },
+
+    // メインのコンポーネント検出関数
+    detectComponents(data, options = {}) {
+      try {
+        if (!data) {
+          return { hasComponents: false };
+        }
+
+        // elementsの取得 (異なる構造に対応)
+        let elements = [];
+        if (data.elements) {
+          elements = Array.isArray(data.elements) ? data.elements :
+            (data.elements.elements && Array.isArray(data.elements.elements) ?
+              data.elements.elements : []);
+        }
+
+        // テキストブロックの取得
+        const textBlocks = Array.isArray(data.textBlocks) ? data.textBlocks : [];
+
+        const result = {
+          hasComponents: elements.length > 0,
+          components: []
+        };
+
+        // 各コンポーネントの検出
+        // ヒーローセクション
+        const hero = this.detectHero(elements, textBlocks, options);
+        if (hero) {
+          result.hasHero = hero;
+          result.components.push(hero);
+        }
+
+        // ナビゲーションバー
+        const navbar = this.detectNavbar(elements, options);
+        if (navbar) {
+          result.hasNavbar = navbar;
+          result.components.push(navbar);
+        }
+
+        // カードグループ
+        const cards = this.detectCards(elements, options);
+        if (cards && cards.length > 0) {
+          result.hasCards = cards;
+          result.components.push(...cards);
+        }
+
+        // フィーチャーリスト
+        const featureList = this.detectFeatureList(elements, options);
+        if (featureList) {
+          result.hasFeatureList = featureList;
+          result.components.push(featureList);
+        }
+
+        // レスポンシブ戦略の推論
+        if (result.components.length > 0) {
+          result.responsiveStrategy = this.inferResponsiveStrategy(result.components, options);
+        }
+
+        return result;
+      } catch (error) {
+        console.error('コンポーネント検出中にエラーが発生しました:', error);
+        return { hasComponents: false };
+      }
+    },
+
+    // レスポンシブ戦略を推論する関数
+    inferResponsiveStrategy(components, options = {}) {
+      const { responsiveMode = "pc", aiBreakpoints = [] } = options;
+
+      // アプローチを決定
+      const approach = responsiveMode === "sp"
+        ? "mobile-first"
+        : (responsiveMode === "pc" ? "desktop-first" : "responsive-both");
+
+      // ブレークポイント名を特定
+      const breakpointName = aiBreakpoints && aiBreakpoints.length > 0
+        ? (aiBreakpoints[0].name || 'md') : 'md';
+
+      // @include mqを使った共通のメディアクエリパターン
+      const mediaQueryPattern =
+        `// 常にセレクタの中にメディアクエリを配置
+.selector {
+  // ${approach === "mobile-first" ? "モバイル" : "デスクトップ"}用基本スタイル
+
+  @include mq(${breakpointName}) {
+    // ${approach === "mobile-first" ? "デスクトップ" : "モバイル"}用スタイル
+  }
+}`;
+
+      return {
+        approach,
+        breakpointName,
+        mediaQueryPattern,
+        generalGuidance: `${approach === "mobile-first" ? "モバイルファースト" : "デスクトップファースト"}アプローチを使用し、@include mq(${breakpointName})でレスポンシブスタイルを適用します。`
+      };
+    },
+
+    // コンポーネント分析結果からプロンプトセクションを生成
+    buildComponentSection(componentAnalysis, options = {}) {
+      if (!componentAnalysis || !componentAnalysis.hasComponents) {
+        return '';
+      }
+
+      const { responsiveMode, aiBreakpoints } = options;
+
+      let section = "\n## コンポーネント構造と実装\n\n";
+
+      // コンポーネント構造の説明
+      section += "### 検出されたコンポーネント\n";
+      componentAnalysis.components.forEach(comp => {
+        section += `- **${comp.type}**${comp.count ? ` (${comp.count}アイテム)` : ''}: ${comp.confidence ? `確度${Math.round(comp.confidence * 100)}%` : ''}\n`;
+      });
+
+      // レスポンシブ実装ガイド
+      if (componentAnalysis.responsiveStrategy) {
+        section += "\n### レスポンシブ実装ガイド\n";
+        section += `${componentAnalysis.responsiveStrategy.generalGuidance}\n\n`;
+
+        // コンポーネント別の実装例
+        componentAnalysis.components.forEach(comp => {
+          if (comp.responsiveRecommendation) {
+            section += `#### ${comp.type}コンポーネント\n`;
+            section += `${comp.responsiveRecommendation.description}\n\n`;
+            section += "```scss\n" + comp.responsiveRecommendation.cssExample + "\n```\n\n";
+          }
+        });
+
+        // メディアクエリの使用方法について強調
+        section += "**重要: @include mq()は必ずセレクタの内側に配置してください:**\n";
+        section += "```scss\n" + componentAnalysis.responsiveStrategy.mediaQueryPattern + "\n```\n\n";
+      }
+
+      return section;
+    }
   },
   text: {
     // textAnalyzer.jsから抽出予定
