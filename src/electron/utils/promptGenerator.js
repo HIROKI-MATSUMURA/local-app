@@ -3011,37 +3011,41 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
   // 2. Configuration information
   prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
 
-  // 3. Guidelines
-  prompt += `
-## Implementation Guidelines
-- Use semantic HTML5 and SCSS
-- Apply BEM methodology for class naming conventions
-- Use SCSS file structure based on FLOCSS architecture
-- Write SCSS with flat selector format without nested structures (no & symbol usage)
-- Write media queries inside each selector using @include mq
-- Implement responsive design to function properly on all device sizes
-- Pay attention to spacing, alignment, and typography
-- Include necessary hover states and transitions
-`;
-
-  // 4. Responsive strategy
+  // 3. Layout analysis with correct parameters
+  const layoutData = pcData.enhancedLayout || spData.enhancedLayout || {};
   const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
-  prompt += `
+  prompt += buildLayoutSection(layoutData, {
+    responsiveMode: responsiveMode,
+    breakpoint: mdBreakpoint
+  });
+
+  // 4. Guidelines
+  prompt += buildGuidelinesSection(responsiveMode, { aiBreakpoints });
+
+  // 5. Responsive strategy
+  if (!prompt.includes("Responsive")) {
+    prompt += `
 ## Responsive Design
 - Breakpoint: ${mdBreakpoint}px
 - Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : responsiveMode === 'pc' ? 'Desktop-first' : 'Both supported'}
 ${responsiveMode === 'sp'
-      ? '- For mobile-first: Use @include mq(md) { ... } to write desktop styles'
-      : '- For desktop-first: Use @include mq-down(md) { ... } to write mobile styles'}
+        ? '- For mobile-first: Use @include mq(md) { ... } to write desktop styles'
+        : '- For desktop-first: Use @include mq-down(md) { ... } to write mobile styles'}
 `;
+  }
 
-  // 5. Output format
-  prompt += `
+  // 6. Output format
+  if (!prompt.includes("Output Format")) {
+    prompt += `
 ## Output Format
 - Provide HTML first, then SCSS
 - Format and organize both codes properly
 - Include comments for main sections
 `;
+  }
+
+  // 7. Final instructions
+  prompt += buildFinalInstructionsSection();
 
   return prompt;
 };
@@ -3211,19 +3215,14 @@ ${textSection}
 ${responsiveSection}
 
 ## Implementation Guidelines
-- Use semantic HTML5 and clean SCSS.
-- Apply BEM methodology for class naming.
-- Use SCSS file structure based on FLOCSS architecture.
-- Write SCSS with flat selector format without nested structures (no & symbol usage).
-- Write media queries inside each selector using @include mq.
-- Design with responsive behavior in mind to function properly on all device sizes.
-- Set spacing, alignment, and typography appropriately.
-- Include necessary hover states and transitions.
+${buildGuidelinesSection(responsiveMode, { aiBreakpoints: rawData.aiBreakpoints || [] })}
 
 ## Output Format
 - Provide HTML first, then SCSS.
 - Format and organize both codes properly.
-- Include comments for main sections.`;
+- Include comments for main sections.
+
+${buildFinalInstructionsSection()}`;
 
     console.log("Enhanced prompt construction completed: character count=" + prompt.length);
     return prompt;
