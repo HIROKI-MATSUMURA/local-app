@@ -3200,7 +3200,7 @@ const generateSemanticTags = (data) => {
 
 
 // フォールバックプロンプトの構築（エラー時や拡張プロンプト生成失敗時に使用）
-const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpoints) => {
+const buildFallbackPrompt = (pcData, spData, settings, activeResponsiveMode, aiBreakpoints) => {
   console.log("Starting fallback prompt generation");
 
   // Basic prompt
@@ -3237,7 +3237,7 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
       gaps: { horizontal: 20, vertical: 30 }
     };
     layoutData.recommendations = {
-      strategy: `${responsiveMode === 'sp' ? 'モバイルファースト' : 'デスクトップファースト'}アプローチでレスポンシブグリッドシステムを使用します。`,
+      strategy: `${activeResponsiveMode === 'sp' ? 'モバイルファースト' : 'デスクトップファースト'}アプローチでレスポンシブグリッドシステムを使用します。`,
       examples: {
         grid: `.grid {\n  display: grid;\n  grid-template-columns: repeat(12, 1fr);\n  gap: 20px;\n}`,
         alignment: "",
@@ -3247,20 +3247,20 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
   }
 
   prompt += AnalysisModules.layout.buildLayoutSection(layoutData, {
-    responsiveMode: responsiveMode,
+    responsiveMode: activeResponsiveMode,
     breakpoint: mdBreakpoint
   });
 
   // 4. ガイドライン
-  prompt += buildGuidelinesSection(responsiveMode, { aiBreakpoints });
+  prompt += buildGuidelinesSection(activeResponsiveMode, { aiBreakpoints });
 
   // 5. レスポンシブ戦略
   if (!prompt.includes("Responsive")) {
     prompt += `
 ## Responsive Strategy
 - Breakpoint: ${mdBreakpoint}px
-- Approach: ${responsiveMode === 'sp' ? 'Mobile First' : 'Desktop First'}
-${responsiveMode === 'sp'
+- Approach: ${activeResponsiveMode === 'sp' ? 'Mobile First' : 'Desktop First'}
+${activeResponsiveMode === 'sp'
         ? '- Mobile First: Use @include mq(md) { ... } to write desktop styles'
         : '- Desktop First: Use @include mq(md) { ... } to write mobile styles'}
 `;
@@ -3393,7 +3393,11 @@ ${colorData.palette && colorData.palette.length > 0
     }
 
     // Build responsive section
+    // プロジェクト設定からのresponsiveModeを優先使用（デフォルトはpc）
     const responsiveMode = rawData.responsiveMode || 'pc';
+    console.log(`buildBetterPrompt: レスポンシブモード ${responsiveMode} を使用します。このモードはユーザー設定から取得された値です`);
+    console.log(`rawDataの内容確認: responsiveMode=${rawData.responsiveMode}, aiBreakpoints=${JSON.stringify(rawData.aiBreakpoints || [])}`);
+
     const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({
       aiBreakpoints: rawData.aiBreakpoints || []
     });
@@ -3403,9 +3407,37 @@ ${colorData.palette && colorData.palette.length > 0
 - Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}
 - Breakpoint: ${mdBreakpoint}px
 - Media Query Usage:
-  ${responsiveMode === 'sp'
-        ? '- Use `@include mq(md)` for desktop styles'
-        : '- Use `@include mq(md)` for mobile styles'}`;
+${responsiveMode === 'sp' ? `
+  - Write default styles for mobile (below ${mdBreakpoint}px)
+  - Use \`@include mq(md)\` only to override styles for desktop (≥ ${mdBreakpoint}px)
+  - ✅ **Always write default styles for mobile first (below 768px)**
+  - ✅ **Use \`@include mq(md)\` ONLY to add or override styles for desktop screens (768px and above)**
+  - ❌ **Do NOT write desktop styles outside \`@include mq()\`**
+  - ❌ **Do NOT put mobile styles inside \`@include mq()\`**
+  - ✅ Example:
+\`\`\`scss
+.example {
+  font-size: 14px; // Mobile default
+
+  @include mq(md) {
+    font-size: 18px; // Desktop override
+  }
+}
+\`\`\`` : `
+  - Write default styles for desktop (≥ ${mdBreakpoint}px)
+  - Use \`@include mq(md)\` only to override styles for mobile (below ${mdBreakpoint}px)
+  - ✅ Example:
+\`\`\`scss
+.example {
+  font-size: 18px; // Desktop default
+
+  @include mq(md) {
+    font-size: 14px; // Mobile override
+  }
+}
+\`\`\``}
+`;
+
 
     // Final prompt
     const prompt = `# Website Design Implementation Task
@@ -3909,6 +3941,8 @@ const buildFinalInstructionsSection = () => {
 - **Code containing &__element or &:hover notation is strictly prohibited**
 - **SCSS nesting using the & symbol will be rejected**
 - **Always write flat selectors** e.g. .p-hero__title or .c-card__title (NOT .p-hero { &__title } or .c-card { &__title })
+- Do **not** output any lines like \`#xxxxxx: $variable;\`
+- Do **not** write color-to-variable mappings as code
 
 ## Common Mistakes to Avoid - Real Examples
 
@@ -4188,11 +4222,55 @@ export const generatePrompt = async (options) => {
     const settings = await getSettingsFromActiveProject();
     console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
 
+    // プロジェクト設定からresponsiveModeを取得（UIの設定を優先）
+    let activeResponsiveMode = responsiveMode;
+
+    try {
+      // responsiveSettingsをパース
+      if (settings && settings.responsiveSettings) {
+        let parsedSettings;
+        if (typeof settings.responsiveSettings === 'string') {
+          try {
+            parsedSettings = JSON.parse(settings.responsiveSettings);
+            console.log('responsiveSettings(パース済み):', parsedSettings);
+          } catch (e) {
+            console.warn('responsiveSettingsのパースに失敗しました:', e);
+          }
+        } else {
+          parsedSettings = settings.responsiveSettings;
+          console.log('responsiveSettings(オブジェクト):', parsedSettings);
+        }
+
+        // パース成功後、responsiveModeを取得
+        if (parsedSettings && parsedSettings.responsiveMode) {
+          console.log(`レスポンシブモードを変更: ${responsiveMode} → ${parsedSettings.responsiveMode}`);
+          activeResponsiveMode = parsedSettings.responsiveMode;
+          console.log(`プロジェクト設定からresponsiveModeを取得: ${activeResponsiveMode}`);
+
+          // ブレークポイント情報も取得
+          if (parsedSettings.breakpoints && Array.isArray(parsedSettings.breakpoints) && parsedSettings.breakpoints.length > 0) {
+            // 既存のブレークポイント設定がなければ、設定から取得したものを使用
+            if (!aiBreakpoints || aiBreakpoints.length === 0) {
+              const activeBreakpoints = parsedSettings.breakpoints.filter(bp => bp.active);
+              if (activeBreakpoints.length > 0) {
+                console.log(`プロジェクト設定からブレークポイントを取得:`, activeBreakpoints);
+                aiBreakpoints = activeBreakpoints;
+              }
+            }
+          }
+        }
+      } else {
+        console.log('responsiveSettings設定なし、デフォルトのレスポンシブモードを使用:', activeResponsiveMode);
+      }
+    } catch (error) {
+      console.warn('responsiveMode設定の解析中にエラーが発生しました:', error);
+    }
+
     // プロンプトの構築を開始
-    console.log('プロンプトの構築を開始');
+    console.log(`プロンプトの構築を開始 (レスポンシブモード: ${activeResponsiveMode}, ブレークポイント: ${AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })}px)`);
 
     // 1. コアプロンプト
-    let prompt = buildCorePrompt(responsiveMode, aiBreakpoints);
+    let prompt = buildCorePrompt(activeResponsiveMode, aiBreakpoints);
 
     // 2. 解析結果
     prompt += buildAnalysisSection(pcData, spData);
@@ -4230,11 +4308,12 @@ export const generatePrompt = async (options) => {
       // 統合データオブジェクトの構築
       let analysisData = null;
 
-      // PCデータ優先、ただし存在しなければSPデータを使用
+      // PCデータ優先、ただしPCデータがなければSPデータを使用
       if (pcData && Object.keys(pcData).length > 0) {
+        // 重要：レスポンシブモードは常に設定から取得した値を使用
         analysisData = {
           ...pcData,
-          responsiveMode
+          responsiveMode: activeResponsiveMode // 画像データの値を上書き
         };
 
         // SPデータがあれば統合
@@ -4251,19 +4330,22 @@ export const generatePrompt = async (options) => {
             analysisData.spTextBlocks = spData.textBlocks;
           }
 
-          // 両方のデータがある場合は'both'モードに設定
-          analysisData.responsiveMode = 'both';
+          // 重要：レスポンシブモードを上書きされないようにする
+          // PCとSP両方のデータがある場合でも、レスポンシブモードは設定に従う
+          console.log(`PCとSPの両方のデータがありますが、設定に従いレスポンシブモード: ${activeResponsiveMode} を使用します`);
         }
       } else if (spData && Object.keys(spData).length > 0) {
+        // SPデータのみの場合も同様に設定を優先
         analysisData = {
           ...spData,
-          responsiveMode: 'sp'
+          responsiveMode: activeResponsiveMode // 必ず設定値を使用
         };
+        console.log(`SPデータのみですが、設定に従いレスポンシブモード: ${activeResponsiveMode} を使用します`);
       }
 
       // データ検証
       if (analysisData) {
-        console.log("解析データの準備完了:");
+        console.log("解析データの準備完了（レスポンシブモード: " + analysisData.responsiveMode + "）");
 
         // aiBreakpointsとプロジェクト設定の追加
         analysisData.aiBreakpoints = aiBreakpoints;
@@ -4277,16 +4359,16 @@ export const generatePrompt = async (options) => {
           finalPrompt = enhancedPrompt;
         } else {
           console.log("拡張プロンプト生成失敗 - フォールバックを使用します");
-          finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+          finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
         }
       } else {
         console.log("解析データが利用できません - フォールバックを使用します");
-        finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+        finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
       }
     } catch (error) {
       console.error("拡張プロンプト生成エラー:", error);
       // エラー時はフォールバックプロンプト生成を使用
-      finalPrompt = buildFallbackPrompt(pcData, spData, settings, responsiveMode, aiBreakpoints);
+      finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
     }
 
     console.log('プロンプト生成が完了しました');

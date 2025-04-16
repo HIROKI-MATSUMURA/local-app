@@ -3,102 +3,141 @@
  * @param {string} scss - 平坦化するSCSSコード
  * @returns {string} 平坦化されたSCSSコード
  */
+/**
+ * SCSSのネスト構造をフラットに変換
+ * &:hover や &::before のような疑似セレクタも対応
+ * ネストされた &:hover もすべて処理対象
+ */
 const flattenSCSS = (scss) => {
   if (!scss) return scss;
 
-  // 結果を格納する配列
   const lines = scss.split('\n');
   const result = [];
+  const extraSelectors = [];
+  const stack = [];
 
-  // 現在の親セレクタとインデントレベルを追跡
-  let parentSelector = null;
-  let currentIndent = 0;
   let inComment = false;
-  let inMediaQuery = false;
-  let mediaQueryBlock = '';
-  let mediaQueryIndent = 0;
+  let inMQ = false;
+  let mqBuffer = [];
 
-  // 各行を処理
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmedLine = line.trim();
+  const processBlock = (blockLines, parentSelector) => {
+    const localResult = [];
+    const nestedExtras = [];
 
-    // コメント処理
-    if (trimmedLine.startsWith('/*')) inComment = true;
-    if (trimmedLine.endsWith('*/')) {
-      inComment = false;
-      result.push(line);
-      continue;
-    }
-    if (inComment) {
-      result.push(line);
-      continue;
-    }
+    let currentSelector = parentSelector;
 
-    // 空行の場合はそのまま追加
-    if (trimmedLine === '') {
-      result.push('');
-      continue;
-    }
+    for (let i = 0; i < blockLines.length; i++) {
+      let line = blockLines[i];
+      const trimmed = line.trim();
 
-    // インデントレベルを計算
-    const indentMatch = line.match(/^(\s+)/);
-    const indent = indentMatch ? indentMatch[1].length : 0;
-
-    // メディアクエリ処理
-    if (trimmedLine.startsWith('@include mq(') && !inMediaQuery) {
-      inMediaQuery = true;
-      mediaQueryBlock = line;
-      mediaQueryIndent = indent;
-      continue;
-    }
-
-    if (inMediaQuery) {
-      mediaQueryBlock += '\n' + line;
-      if (trimmedLine === '}') {
-        inMediaQuery = false;
-        result.push(mediaQueryBlock);
-        mediaQueryBlock = '';
-      }
-      continue;
-    }
-
-    // セレクタ行の検出
-    if (trimmedLine.includes('{') && !trimmedLine.includes('}')) {
-      // インデントレベルが下がった場合、親セレクタをリセット
-      if (indent <= currentIndent) {
-        parentSelector = null;
+      // コメント
+      if (trimmed.startsWith('/*')) inComment = true;
+      if (inComment) {
+        localResult.push(line);
+        if (trimmed.endsWith('*/')) inComment = false;
+        continue;
       }
 
-      // 親セレクタを記録
-      parentSelector = trimmedLine.split('{')[0].trim();
-      currentIndent = indent;
-      result.push(line);
-    }
-    // ネストされたセレクタの検出 (&__)
-    else if (trimmedLine.startsWith('&') && parentSelector) {
-      const nestedPart = trimmedLine.split('{')[0].trim();
-      // &__title { のようなパターンを.parent__titleに変換
-      if (nestedPart.startsWith('&__')) {
-        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
-        // インデントを親と同じレベルに調整
-        const spaces = ' '.repeat(currentIndent);
-        result.push(`${spaces}${newSelector}`);
+      if (trimmed === '') {
+        localResult.push('');
+        continue;
       }
-      // &:hover { のようなパターンを.parent:hoverに変換
-      else if (nestedPart.startsWith('&:')) {
-        const newSelector = `${parentSelector}${nestedPart.substring(1)} {`;
-        const spaces = ' '.repeat(currentIndent);
-        result.push(`${spaces}${newSelector}`);
+
+      // 💡 無効なカラー変数マッピング行をスキップ
+      if (/^#[0-9a-fA-F]{6}:\s*\$?[\w-]+;/.test(trimmed)) {
+        continue;
       }
+
+      const openBrace = trimmed.endsWith('{');
+      const closeBrace = trimmed === '}';
+
+      // スコープ終了
+      if (closeBrace) {
+        localResult.push(line);
+        continue;
+      }
+
+      // スコープ開始
+      if (openBrace) {
+        const selector = trimmed.slice(0, -1).trim();
+
+        // ネスト疑似セレクタ
+        // ネスト疑似セレクタ
+        if (selector.startsWith('&:') || selector.startsWith('&::')) {
+          const flatSelector = selector.replace(/^&/, parentSelector);
+          const nestedBlock = [];
+
+          // ネストブロック収集
+          let depth = 1;
+          while (++i < blockLines.length) {
+            const l = blockLines[i].trim();
+            if (l.endsWith('{')) depth++;
+            else if (l === '}') depth--;
+            if (depth === 0) break;
+            nestedBlock.push(blockLines[i]);
+          }
+
+          // 💡 再帰的に処理するよう修正
+          const processed = processBlock(nestedBlock, flatSelector);
+          nestedExtras.push(`${flatSelector} {\n${processed.main.join('\n')}\n}`);
+          nestedExtras.push(...processed.extra);
+          continue;
+        }
+
+
+        // メディアクエリ (@include mq)
+        if (selector.startsWith('@include')) {
+          const mqBlock = [line];
+          let depth = 1;
+          while (++i < blockLines.length) {
+            const l = blockLines[i].trim();
+            mqBlock.push(blockLines[i]);
+            if (l.endsWith('{')) depth++;
+            else if (l === '}') depth--;
+            if (depth === 0) break;
+          }
+          localResult.push(...mqBlock);
+          continue;
+        }
+
+        // 通常のネストセレクタ
+        if (selector.startsWith('&')) {
+          const newSelector = selector.replace(/^&/, parentSelector).trim();
+          const nestedBlock = [];
+
+          let depth = 1;
+          while (++i < blockLines.length) {
+            const l = blockLines[i].trim();
+            if (l.endsWith('{')) depth++;
+            else if (l === '}') depth--;
+            if (depth === 0) break;
+            nestedBlock.push(blockLines[i]);
+          }
+
+          const flat = processBlock(nestedBlock, newSelector);
+          localResult.push(`${newSelector} {`, ...flat.main, '}');
+          nestedExtras.push(...flat.extra);
+          continue;
+        }
+
+        // 通常のネスト（.child など）→無視（今回は対応しない）
+        localResult.push(line);
+        continue;
+      }
+
+      // 通常のスタイル行
+      localResult.push(line);
     }
-    // 通常の行はそのまま追加
-    else {
-      result.push(line);
-    }
-  }
+
+    return { main: localResult, extra: nestedExtras };
+  };
+
+  const { main, extra } = processBlock(lines, '');
+
+  result.push(...main, '', ...extra);
 
   return result.join('\n');
 };
+
 
 export default flattenSCSS;

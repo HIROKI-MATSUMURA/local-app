@@ -661,39 +661,51 @@ const AICodeGenerator = () => {
                 let variableSettingsResult;
                 try {
                   variableSettingsResult = await window.api.loadProjectData(projectId, 'variableSettings');
-                } catch (err) {
-                  console.error('CSS変数データの取得に失敗しました:', err);
-                  definedVars.set('$primary-color', '#DDF0F1');
-                  definedVars.set('$blue', '#408F95');
-                  console.table(Object.fromEntries(definedVars));
-                  console.groupEnd();
-                  return definedVars;
-                }
+                  console.log('取得した変数設定:', variableSettingsResult);
 
-                const variableSettings = variableSettingsResult?.data || '';
+                  // 新形式（カスタムカラー配列）の場合
+                  if (variableSettingsResult?.data?.customColors || variableSettingsResult?.customColors) {
+                    const customColors = variableSettingsResult?.data?.customColors || variableSettingsResult?.customColors || [];
+                    console.log('カスタムカラー配列:', customColors);
 
-                // 変数の抽出
-                const varRegex = /\$([\w-]+):\s*([^;]+);/g;
-                let match;
-                let count = 0;
+                    customColors.forEach(item => {
+                      if (item?.name && item?.color) {
+                        defaultColors[item.name] = item.color;
+                        console.log(`変数マッピング: ${item.name} => ${item.color}`);
+                      }
+                    });
+                  }
+                  // 旧形式（文字列）の場合
+                  else {
+                    const variableSettings = variableSettingsResult?.data || variableSettingsResult || '';
 
-                console.log('変数抽出を開始...');
+                    // 変数の抽出
+                    const varRegex = /\$([\w-]+):\s*([^;]+);/g;
+                    let match;
+                    let count = 0;
 
-                try {
-                  while ((match = varRegex.exec(variableSettings)) !== null) {
-                    if (match && match.length >= 3) {
-                      const [fullMatch, varName, varValue] = match;
-                      const variableWithDollar = `$${varName}`;
-                      definedVars.set(variableWithDollar, varValue.trim());
-                      console.log(`抽出: ${fullMatch} → 変数名: ${variableWithDollar}, 値: ${varValue.trim()}`);
-                      count++;
+                    console.log('変数抽出を開始...');
+
+                    try {
+                      while ((match = varRegex.exec(variableSettings)) !== null) {
+                        if (match && match.length >= 3) {
+                          const [fullMatch, varName, varValue] = match;
+                          const variableWithDollar = `$${varName}`;
+                          defaultColors[variableWithDollar] = varValue.trim();
+                          console.log(`抽出: ${fullMatch} → 変数名: ${variableWithDollar}, 値: ${varValue.trim()}`);
+                          count++;
+                        }
+                      }
+                    } catch (err) {
+                      console.error('正規表現での変数抽出中にエラーが発生しました:', err);
                     }
                   }
-                } catch (err) {
-                  console.error('正規表現での変数抽出中にエラーが発生しました:', err);
-                }
 
-                console.log(`プロジェクトID ${projectId} から色変数を取得しました`);
+                  console.log(`プロジェクトID ${projectId} から色変数を取得しました`);
+                  console.log('抽出された変数:', defaultColors);
+                } catch (err) {
+                  console.error('CSS変数データの取得に失敗しました:', err);
+                }
               } else {
                 console.warn('アクティブプロジェクトが見つかりません。デフォルト値を使用します。');
               }
@@ -705,6 +717,7 @@ const AICodeGenerator = () => {
             if (Object.keys(defaultColors).length === 0) {
               defaultColors['$primary-color'] = '#DDF0F1';
               defaultColors['$blue'] = '#408F95';
+              console.log('デフォルト値を使用します:', defaultColors);
             }
 
             // 色値を使用してCSSを処理 - グローバル変数に代入
@@ -826,13 +839,28 @@ const AICodeGenerator = () => {
               }
             });
 
-            // メディアクエリのパターンを修正
-            const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]+)}/g;
+            // メディアクエリのパターンを修正 - s修飾子を追加して複数行に対応
+            const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]*)}/gs;
             let processedCss = css;
             let match;
 
+            console.log('メディアクエリの変換を開始します');
+            console.log('現在のブレークポイント設定:', bpMap);
+
+            // 文字列をクローンして検索
+            const cssClone = css.toString();
+            const matches = Array.from(cssClone.matchAll(mqBlockPattern));
+            console.log(`検出されたメディアクエリ: ${matches.length}個`);
+
+            if (matches.length === 0) {
+              console.log('CSS内にメディアクエリが見つかりませんでした');
+              return css;
+            }
+
             while ((match = mqBlockPattern.exec(css)) !== null) {
               const [fullMatch, bpName, content] = match;
+              console.log(`メディアクエリを検出: @include mq(${bpName})`);
+
               // 設定されているブレークポイントのみを処理
               if (bpMap[bpName]) {
                 const mediaQueryStart = responsiveMode === "sp"
@@ -2369,14 +2397,22 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         while ((match = varRegex.exec(scssCode)) !== null) {
           const varName = `$${match[1]}`;
-          usedVars.add(varName);
+          // 明らかに変数ではないパターンを除外
+          if (!varName.startsWith('$#') && !varName.match(/^\$\d/)) {
+            usedVars.add(varName);
+          }
         }
 
         // 未定義の変数をフィルタリング
         const undefinedVars = Array.from(usedVars).filter(v => !definedVars.includes(v));
+        // HEX値のパターンに一致する変数を除外
+        const filteredUndefinedVars = undefinedVars.filter(v => {
+          // #で始まる16進数のパターンを除外
+          return !v.match(/^\$#[0-9a-fA-F]{3,6}$/);
+        });
 
         // 変数のカウントと表示
-        const uniqueUndefinedVars = [...new Set(undefinedVars)];
+        const uniqueUndefinedVars = [...new Set(filteredUndefinedVars)];
 
         if (uniqueUndefinedVars.length > 0) {
           uniqueUndefinedVars.forEach(v => {

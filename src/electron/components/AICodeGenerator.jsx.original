@@ -2382,7 +2382,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           // #で始まる16進数のパターンを除外
           return !v.match(/^\$#[0-9a-fA-F]{3,6}$/);
           // 変数のカウントと表示
-          const uniqueUndefinedVars = [...new Set(undefinedVars)];
+          const uniqueUndefinedVars = [...new Set(filteredUndefinedVars)];
 
           if (uniqueUndefinedVars.length > 0) {
             uniqueUndefinedVars.forEach(v => {
@@ -2435,7 +2435,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         console.groupEnd();
         return { modifiedCode: scssCode, replacedVars: [] };
       }
-    };
+  };
 
 
     // コード保存関数
