@@ -3257,12 +3257,12 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
   // 5. レスポンシブ戦略
   if (!prompt.includes("Responsive")) {
     prompt += `
-## レスポンシブ設計
-- ブレークポイント: ${mdBreakpoint}px
-- アプローチ: ${responsiveMode === 'sp' ? 'モバイルファースト' : responsiveMode === 'pc' ? 'デスクトップファースト' : '両方対応'}
+## Responsive Strategy
+- Breakpoint: ${mdBreakpoint}px
+- Approach: ${responsiveMode === 'sp' ? 'Mobile First' : 'Desktop First'}
 ${responsiveMode === 'sp'
-        ? '- For mobile-first: Use @include mq(md) { ... } to write desktop styles'
-        : '- For desktop-first: Use @include mq(md) { ... } to write mobile styles'}
+        ? '- Mobile First: Use @include mq(md) { ... } to write desktop styles'
+        : '- Desktop First: Use @include mq(md) { ... } to write mobile styles'}
 `;
   }
 
@@ -3400,7 +3400,7 @@ ${colorData.palette && colorData.palette.length > 0
 
     const responsiveSection = `
 ### Responsive Strategy
-- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : responsiveMode === 'pc' ? 'Desktop-first' : 'Both mobile and desktop'}
+- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}
 - Breakpoint: ${mdBreakpoint}px
 - Media Query Usage:
   ${responsiveMode === 'sp'
@@ -4066,9 +4066,9 @@ const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
   let prompt = `# Web Design Implementation Requirements
 
 ## Overview
-- **Responsive Type**: ${responsiveMode === 'pc' ? 'Desktop First' : responsiveMode === 'sp' ? 'Mobile First' : 'Both Mobile and Desktop'}
+- **Responsive Type**: ${responsiveMode === 'pc' ? 'Desktop First' : 'Mobile First'}
 - **Breakpoint**: ${mdBreakpoint}px
-- **Media Query Syntax**: ${responsiveMode === 'sp' ? '@include mq(md)' : '@include mq(md)'}
+- **Media Query Syntax**: @include mq(md)
 
 `;
 
