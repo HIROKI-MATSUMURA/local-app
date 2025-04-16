@@ -1989,10 +1989,10 @@ const AnalysisModules = {
 }`;
       }
 
-      // 総合的なレイアウト戦略
+      // Overall layout strategy
       const layoutStrategy = isMobileFirst ?
-        `モバイルファーストアプローチで、縦に積み重ねたレイアウトから始めて、大きな画面では${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}カラムの` : ''}グリッドレイアウトに拡張します。` :
-        `デスクトップファーストアプローチで、${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}カラムの` : ''}グリッドレイアウトから始めて、小さな画面では縦に積み重ねたレイアウトに縮小します。`;
+        `Using a mobile-first approach, start with a stacked layout and expand to a ${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}-column` : ''} grid layout for larger screens.` :
+        `Using a desktop-first approach, start with a ${analysis.gridSystem?.detected ? `${analysis.gridSystem.columns}-column` : ''} grid layout and reduce to a stacked layout for smaller screens.`;
 
       return {
         strategy: layoutStrategy,
@@ -2004,82 +2004,98 @@ const AnalysisModules = {
       };
     },
 
-    // プロンプト用レイアウトセクションの構築
+    /**
+     * Build layout analysis section
+     * @param {Object} analysis - Layout analysis data
+     * @param {Object} options - Additional options
+     * @returns {string} Layout analysis section
+     */
     buildLayoutSection(analysis, options = {}) {
-      if (!analysis || !analysis.hasLayout) {
-        return '';
+      if (!analysis) {
+        console.log("No layout data provided for section building");
+        return "";
       }
 
-      let section = "\n## レイアウト構造とグリッドシステム\n\n";
+      // Add debug logs to check layout data
+      console.log("Layout data for section building:", analysis);
+      console.log("Layout data hasLayout:", analysis.hasLayout);
 
-      // グリッドシステムの情報
+      // Safety check for layout data
+      if (!analysis.hasLayout && !analysis.gridSystem && !analysis.componentDetection) {
+        console.log("Layout data appears invalid, adding minimal content");
+        return "\n### Layout Analysis\n\nLayout uses a standard grid system.\n";
+      }
+
+      let section = "\n### Layout Analysis\n\n";
+
+      // Grid system information
       if (analysis.gridSystem && analysis.gridSystem.detected) {
-        section += `### グリッドシステム\n`;
-        section += `- **カラム数**: ${analysis.gridSystem.columns}\n`;
-        section += `- **水平間隔**: ${analysis.gridSystem.gaps.horizontal}px\n`;
-        section += `- **垂直間隔**: ${analysis.gridSystem.gaps.vertical}px\n\n`;
+        section += `#### Grid System\n`;
+        section += `- **Columns**: ${analysis.gridSystem.columns}\n`;
+        section += `- **Horizontal Gap**: ${analysis.gridSystem.gaps.horizontal}px\n`;
+        section += `- **Vertical Gap**: ${analysis.gridSystem.gaps.vertical}px\n\n`;
       }
 
-      // 配置パターン
+      // Alignment patterns
       if (analysis.alignmentPatterns && analysis.alignmentPatterns.detected) {
-        section += `### 配置パターン\n`;
-        section += `- **主要な配置**: ${analysis.alignmentPatterns.dominantAlignment === 'left' ? '左揃え' : analysis.alignmentPatterns.dominantAlignment === 'right' ? '右揃え' : '中央揃え'}\n`;
+        section += `#### Alignment Patterns\n`;
+        section += `- **Dominant Alignment**: ${analysis.alignmentPatterns.dominantAlignment === 'left' ? 'Left aligned' : analysis.alignmentPatterns.dominantAlignment === 'right' ? 'Right aligned' : 'Center aligned'}\n`;
         if (analysis.alignmentPatterns.symmetrical) {
-          section += `- **対称性**: 対称的なレイアウト\n\n`;
+          section += `- **Symmetry**: Symmetrical layout\n\n`;
         } else {
-          section += `- **対称性**: 非対称的なレイアウト\n\n`;
+          section += `- **Symmetry**: Asymmetrical layout\n\n`;
         }
       }
 
-      // 間隔パターン
+      // Spacing patterns
       if (analysis.spacingPatterns && analysis.spacingPatterns.detected) {
-        section += `### 間隔パターン\n`;
+        section += `#### Spacing Patterns\n`;
         if (analysis.spacingPatterns.horizontal && analysis.spacingPatterns.horizontal.length > 0) {
-          section += `- **水平間隔**: ${analysis.spacingPatterns.horizontal.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
+          section += `- **Horizontal Spacing**: ${analysis.spacingPatterns.horizontal.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
         }
         if (analysis.spacingPatterns.vertical && analysis.spacingPatterns.vertical.length > 0) {
-          section += `- **垂直間隔**: ${analysis.spacingPatterns.vertical.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
+          section += `- **Vertical Spacing**: ${analysis.spacingPatterns.vertical.map(p => `${p.value}px (${Math.round(p.frequency * 100)}%)`).join(', ')}\n`;
         }
         section += '\n';
       }
 
-      // アスペクト比
+      // Aspect ratios
       if (analysis.aspectRatios && analysis.aspectRatios.detected) {
-        section += `### アスペクト比\n`;
+        section += `#### Aspect Ratios\n`;
         analysis.aspectRatios.ratios.forEach(ratio => {
           section += `- **${ratio.name}**: ${ratio.ratio}${ratio.isCommon ? ` (${ratio.isCommon})` : ''}\n`;
         });
         section += '\n';
       }
 
-      // レイアウト推奨事項
+      // Layout recommendations
       if (analysis.recommendations) {
-        section += `### レイアウト実装ガイド\n`;
+        section += `#### Layout Implementation Guide\n`;
         section += `${analysis.recommendations.strategy}\n\n`;
 
-        if (analysis.recommendations.examples.grid) {
-          section += `#### グリッドレイアウト\n`;
+        if (analysis.recommendations.examples && analysis.recommendations.examples.grid) {
+          section += `**Grid Layout**\n`;
           section += "```scss\n" + analysis.recommendations.examples.grid + "\n```\n\n";
         }
 
-        if (analysis.recommendations.examples.alignment) {
-          section += `#### 配置パターン\n`;
+        if (analysis.recommendations.examples && analysis.recommendations.examples.alignment) {
+          section += `**Alignment Patterns**\n`;
           section += "```scss\n" + analysis.recommendations.examples.alignment + "\n```\n\n";
         }
 
-        if (analysis.recommendations.examples.spacing) {
-          section += `#### 間隔の統一\n`;
+        if (analysis.recommendations.examples && analysis.recommendations.examples.spacing) {
+          section += `**Consistent Spacing**\n`;
           section += "```scss\n" + analysis.recommendations.examples.spacing + "\n```\n\n";
         }
       }
 
-      // テキスト分析の追加
-      if (pcData.enhancedText || spData.enhancedText) {
-        const textData = pcData.enhancedText || spData.enhancedText;
+      // Add text analysis if provided
+      if (analysis.text) {
+        const textData = analysis.text;
 
         if (textData.hasText) {
           section += textData.buildTextSection ? textData.buildTextSection(textData, {
-            breakpoint: AnalysisModules.breakpoints.getMdValue()
+            breakpoint: options.breakpoint || 768
           }) : '\n### Text Analysis\nText analysis data is available but could not be formatted.';
         }
       }
@@ -2620,37 +2636,67 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
   // 2. 設定情報
   prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
 
-  // 3. ガイドライン
-  prompt += `
-## 実装ガイドライン
-- セマンティックなHTML5とSCSSを使用してください
-- BEM手法に従ったクラス命名規則を適用してください
-- FLOCSSの構造に基づいたSCSSファイル構成を使用してください
-- ネスト構造を使わないフラットなセレクタ形式でSCSSを記述してください（&記号の使用禁止）
-- メディアクエリは@include mqを使用して各セレクタ内に記述してください
-- レスポンシブデザインを実装し、すべてのデバイスサイズで適切に動作するようにしてください
-- 間隔、配置、タイポグラフィに注意を払ってください
-- 必要なホバー状態とトランジションを含めてください
-`;
-
-  // 4. レスポンシブ戦略
+  // 3. レイアウト分析（パラメータを正しく設定）
+  const layoutData = pcData.enhancedLayout || spData.enhancedLayout || {};
   const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
-  prompt += `
+
+  // layoutDataのデバッグログ
+  console.log("Layout data structure:", Object.keys(layoutData));
+  console.log("Layout data hasLayout:", layoutData.hasLayout);
+  console.log("Layout data gridSystem:", layoutData.gridSystem ? "exists" : "missing");
+  console.log("Layout data recommendations:", layoutData.recommendations ? "exists" : "missing");
+
+  // 必要なプロパティが存在しない場合は最小限のプロパティを追加
+  if (!layoutData.hasLayout && !layoutData.gridSystem && !layoutData.recommendations) {
+    console.log("Adding minimum required layout properties");
+    layoutData.hasLayout = true;
+    layoutData.gridSystem = {
+      detected: true,
+      columns: 12,
+      gaps: { horizontal: 20, vertical: 30 }
+    };
+    layoutData.recommendations = {
+      strategy: `${responsiveMode === 'sp' ? 'モバイルファースト' : 'デスクトップファースト'}アプローチでレスポンシブグリッドシステムを使用します。`,
+      examples: {
+        grid: `.grid {\n  display: grid;\n  grid-template-columns: repeat(12, 1fr);\n  gap: 20px;\n}`,
+        alignment: "",
+        spacing: ""
+      }
+    };
+  }
+
+  prompt += AnalysisModules.layout.buildLayoutSection(layoutData, {
+    responsiveMode: responsiveMode,
+    breakpoint: mdBreakpoint
+  });
+
+  // 4. ガイドライン
+  prompt += buildGuidelinesSection(responsiveMode, { aiBreakpoints });
+
+  // 5. レスポンシブ戦略
+  if (!prompt.includes("Responsive")) {
+    prompt += `
 ## レスポンシブ設計
 - ブレークポイント: ${mdBreakpoint}px
 - アプローチ: ${responsiveMode === 'sp' ? 'モバイルファースト' : responsiveMode === 'pc' ? 'デスクトップファースト' : '両方対応'}
 ${responsiveMode === 'sp'
-      ? '- モバイルファーストの場合: @include mq(md) { ... } を使用してデスクトップスタイルを記述'
-      : '- デスクトップファーストの場合: @include mq-down(md) { ... } を使用してモバイルスタイルを記述'}
+        ? '- モバイルファーストの場合: @include mq(md) { ... } を使用してデスクトップスタイルを記述'
+        : '- デスクトップファーストの場合: @include mq-down(md) { ... } を使用してモバイルスタイルを記述'}
 `;
+  }
 
-  // 5. 出力形式
-  prompt += `
+  // 6. 出力形式
+  if (!prompt.includes("出力形式")) {
+    prompt += `
 ## 出力形式
 - 最初にHTML、次にSCSSを提供してください
 - 両方のコードを適切にフォーマットし、整理してください
 - 主要なセクションにはコメントを含めてください
 `;
+  }
+
+  // 7. 最終指示
+  prompt += buildFinalInstructionsSection();
 
   return prompt;
 };

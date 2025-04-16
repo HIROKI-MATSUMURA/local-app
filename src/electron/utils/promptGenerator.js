@@ -42,7 +42,7 @@ const AnalysisModules = {
         return `@include mq(md) {\n    ${cssContent.replace(/\n/g, '\n    ')}\n  }`;
       } else {
         // PCファースト（max-width）
-        return `@include mq-down(md) {\n    ${cssContent.replace(/\n/g, '\n    ')}\n  }`;
+        return `@include mq(md) {\n    ${cssContent.replace(/\n/g, '\n    ')}\n  }`;
       }
     },
 
@@ -1500,6 +1500,176 @@ const AnalysisModules = {
       }
     },
 
+    // レイアウトデータの標準化関数（Claudeからの提案を追加）
+    normalizeLayoutData(rawData) {
+      try {
+        // 基本構造を準備
+        const normalized = {
+          hasLayout: true,
+          gridSystem: null,
+          spacingPatterns: null,
+          alignmentPatterns: null,
+          aspectRatios: null,
+          recommendations: null
+        };
+
+        // sectionsデータが存在する場合は処理
+        if (rawData.sections && Array.isArray(rawData.sections)) {
+          // アスペクト比の計算
+          normalized.aspectRatios = {
+            detected: true,
+            ratios: rawData.sections.map(section => {
+              const width = section.position?.width || 0;
+              const height = section.position?.height || 0;
+              const ratio = width / height;
+              return {
+                name: section.section_type || 'section',
+                ratio: parseFloat(ratio.toFixed(2)),
+                width,
+                height,
+                isCommon: this.isCommonRatio(ratio)
+              };
+            }).filter(r => r.width > 0 && r.height > 0)
+          };
+        }
+
+        // レイアウト情報が存在する場合
+        if (rawData.layout) {
+          // レイアウトタイプを取得
+          const layoutType = rawData.layout.layoutType || 'unknown';
+
+          // グリッドシステムの推定（layoutTypeがgridならグリッドと判断）
+          normalized.gridSystem = {
+            detected: layoutType === 'grid',
+            columns: 12, // デフォルト値
+            gaps: {
+              horizontal: 20,
+              vertical: 30
+            },
+            confidence: rawData.layout.confidence || 0.7
+          };
+
+          // 配置パターンの設定
+          normalized.alignmentPatterns = {
+            detected: true,
+            patterns: [{ type: 'center', strength: 0.8 }],
+            dominantAlignment: 'center',
+            symmetrical: true
+          };
+
+          // 間隔パターンの設定
+          normalized.spacingPatterns = {
+            detected: true,
+            patternType: 'vertical',
+            vertical: [{ value: 35, frequency: 0.9 }],
+            horizontal: []
+          };
+        }
+
+        // レコメンデーションの生成
+        normalized.recommendations = this.generateLayoutRecommendations(normalized, {
+          responsiveMode: "pc",
+          aiBreakpoints: []
+        });
+
+        return normalized;
+      } catch (error) {
+        console.error('データ正規化中にエラーが発生しました:', error);
+        return { hasLayout: false };
+      }
+    },
+
+    // セクションの垂直構造を分析する関数（Claudeからの提案を追加）
+    analyzeVerticalStructure(sections) {
+      if (!sections || !Array.isArray(sections) || sections.length < 2) {
+        return {
+          hasStructure: false,
+          pattern: 'unknown'
+        };
+      }
+
+      // セクションを上から下へソート
+      const sortedSections = [...sections].sort((a, b) => {
+        const aTop = a.position?.top || 0;
+        const bTop = b.position?.top || 0;
+        return aTop - bTop;
+      });
+
+      // セクション間の間隔を計算
+      const gaps = [];
+      for (let i = 1; i < sortedSections.length; i++) {
+        const prevSection = sortedSections[i - 1];
+        const currSection = sortedSections[i];
+
+        const prevBottom = (prevSection.position?.top || 0) + (prevSection.position?.height || 0);
+        const currTop = currSection.position?.top || 0;
+
+        const gap = currTop - prevBottom;
+        if (gap >= 0) {
+          gaps.push(gap);
+        }
+      }
+
+      // 間隔の一貫性を分析
+      let hasConsistentGaps = false;
+      let avgGap = 0;
+
+      if (gaps.length > 0) {
+        avgGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+
+        // 標準偏差を計算して一貫性をチェック
+        const variance = gaps.reduce((sum, gap) => sum + Math.pow(gap - avgGap, 2), 0) / gaps.length;
+        const stdDev = Math.sqrt(variance);
+
+        // 変動係数が0.3未満なら一貫していると判断
+        hasConsistentGaps = (stdDev / avgGap) < 0.3;
+      }
+
+      // セクションタイプの分布を分析
+      const typeCount = {};
+      sortedSections.forEach(section => {
+        const type = section.section_type || 'content';
+        typeCount[type] = (typeCount[type] || 0) + 1;
+      });
+
+      // 最も多いセクションタイプを特定
+      let dominantType = 'content';
+      let maxCount = 0;
+
+      Object.entries(typeCount).forEach(([type, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          dominantType = type;
+        }
+      });
+
+      // セクション構造のパターンを特定
+      let pattern = 'vertical-stack';
+
+      // ヘッダーがあるか確認
+      const hasHeader = sortedSections.some(s => s.section_type === 'header');
+
+      // フッターがあるか確認
+      const hasFooter = sortedSections.some(s => s.section_type === 'footer');
+
+      if (hasHeader && hasFooter) {
+        pattern = 'header-content-footer';
+      } else if (hasHeader) {
+        pattern = 'header-content';
+      }
+
+      return {
+        hasStructure: true,
+        pattern,
+        sections: sortedSections.length,
+        dominantType,
+        spacing: {
+          avgGap: Math.round(avgGap),
+          consistent: hasConsistentGaps
+        }
+      };
+    },
+
     // グリッドシステムの検出
     detectGridSystem(elements, options = {}) {
       const { responsiveMode = "pc" } = options;
@@ -2341,7 +2511,7 @@ const AnalysisModules = {
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
               scss += `  margin-top: 20px;\n`;
               scss += `\n`;
-              scss += `  @include mq-down(md) {\n`;
+              scss += `  @include mq(md) {\n`;
               scss += `    font-size: ${textBody}px;\n`;
               scss += `  }\n`;
             }
@@ -2368,7 +2538,7 @@ const AnalysisModules = {
               scss += `  line-height: ${section.headingLineHeight || 1.4};\n`;
               scss += `  margin-top: 15px;\n`;
               scss += `\n`;
-              scss += `  @include mq-down(md) {\n`;
+              scss += `  @include mq(md) {\n`;
               scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
@@ -2391,7 +2561,7 @@ const AnalysisModules = {
               scss += `  font-size: ${textBody}px;\n`;
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
               scss += `\n`;
-              scss += `  @include mq-down(md) {\n`;
+              scss += `  @include mq(md) {\n`;
               scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
@@ -2416,7 +2586,7 @@ const AnalysisModules = {
               scss += `  line-height: ${section.textLineHeight || 1.6};\n`;
               scss += `  margin-top: 30px;\n`;
               scss += `\n`;
-              scss += `  @include mq-down(md) {\n`;
+              scss += `  @include mq(md) {\n`;
               scss += `    font-size: ${textSmall}px;\n`;
               scss += `  }\n`;
             }
@@ -2444,7 +2614,7 @@ const AnalysisModules = {
             scss += `  line-height: 1.4;\n`;
             scss += `  margin-top: 20px;\n`;
             scss += `\n`;
-            scss += `  @include mq-down(md) {\n`;
+            scss += `  @include mq(md) {\n`;
             scss += `    font-size: ${textBody}px;\n`;
             scss += `  }\n`;
           }
@@ -2468,7 +2638,7 @@ const AnalysisModules = {
             scss += `  line-height: 1.6;\n`;
             scss += `  margin-top: 15px;\n`;
             scss += `\n`;
-            scss += `  @include mq-down(md) {\n`;
+            scss += `  @include mq(md) {\n`;
             scss += `    font-size: ${textSmall}px;\n`;
             scss += `  }\n`;
           }
@@ -2486,7 +2656,7 @@ const AnalysisModules = {
   line-height: 1.4;
   margin-top: 20px;
 
-  @include mq-down(md) {
+  @include mq(md) {
     font-size: 16px;
   }
 }
@@ -2496,7 +2666,7 @@ const AnalysisModules = {
   line-height: 1.6;
   margin-top: 15px;
 
-  @include mq-down(md) {
+  @include mq(md) {
     font-size: 14px;
   }
 }`;
@@ -2604,6 +2774,40 @@ const AnalysisModules = {
     }
   }
 };
+
+AnalysisModules.layout.enhancedBuildLayoutSection = function (analysis, options = {}) {
+  if (!analysis || !analysis.hasLayout) return '';
+
+  let section = `### Layout Analysis\n`;
+
+  if (analysis.aspectRatios?.detected) {
+    section += `- **Content Structure**: ${analysis.aspectRatios.ratios.length} sections\n`;
+    analysis.aspectRatios.ratios.slice(0, 3).forEach((r, i) => {
+      section += `  - Section ${i + 1}: ${r.width}x${r.height}px (ratio ${r.ratio})\n`;
+    });
+  }
+
+  if (analysis.gridSystem?.detected) {
+    section += `- **Grid System**: ${analysis.gridSystem.columns} columns\n`;
+    section += `- **Grid Gaps**: Horizontal ${analysis.gridSystem.gaps.horizontal}px, Vertical ${analysis.gridSystem.gaps.vertical}px\n`;
+  }
+
+  if (analysis.spacingPatterns?.detected) {
+    section += `- **Spacing Pattern**: ${analysis.spacingPatterns.patternType}\n`;
+    section += `  - Vertical: ${analysis.spacingPatterns.vertical.map(v => `${v.value}px`).join(', ')}\n`;
+  }
+
+  if (analysis.alignmentPatterns?.detected) {
+    section += `- **Alignment**: ${analysis.alignmentPatterns.dominantAlignment || 'N/A'}\n`;
+  }
+
+  if (analysis.recommendations?.examples?.grid) {
+    section += `\n**Example Grid Layout:**\n\`\`\`scss\n${analysis.recommendations.examples.grid}\n\`\`\`\n`;
+  }
+
+  return section;
+};
+
 
 // 共通のエラーハンドリング関数
 const handleAnalysisError = (operation, error, defaultValue) => {
@@ -2879,6 +3083,7 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
 
 
 
+
 /**
  * 解析データからセマンティックHTMLタグの提案を生成
  * @param {Object} data - 正規化された分析データ
@@ -3012,25 +3217,52 @@ const buildFallbackPrompt = (pcData, spData, settings, responsiveMode, aiBreakpo
   prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
 
   // 3. Layout analysis with correct parameters
+  // 3. レイアウト分析（パラメータを正しく設定）
   const layoutData = pcData.enhancedLayout || spData.enhancedLayout || {};
   const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
-  prompt += buildLayoutSection(layoutData, {
+
+  // layoutDataのデバッグログ
+  console.log("Layout data structure:", Object.keys(layoutData));
+  console.log("Layout data hasLayout:", layoutData.hasLayout);
+  console.log("Layout data gridSystem:", layoutData.gridSystem ? "exists" : "missing");
+  console.log("Layout data recommendations:", layoutData.recommendations ? "exists" : "missing");
+
+  // 必要なプロパティが存在しない場合は最小限のプロパティを追加
+  if (!layoutData.hasLayout && !layoutData.gridSystem && !layoutData.recommendations) {
+    console.log("Adding minimum required layout properties");
+    layoutData.hasLayout = true;
+    layoutData.gridSystem = {
+      detected: true,
+      columns: 12,
+      gaps: { horizontal: 20, vertical: 30 }
+    };
+    layoutData.recommendations = {
+      strategy: `${responsiveMode === 'sp' ? 'モバイルファースト' : 'デスクトップファースト'}アプローチでレスポンシブグリッドシステムを使用します。`,
+      examples: {
+        grid: `.grid {\n  display: grid;\n  grid-template-columns: repeat(12, 1fr);\n  gap: 20px;\n}`,
+        alignment: "",
+        spacing: ""
+      }
+    };
+  }
+
+  prompt += AnalysisModules.layout.buildLayoutSection(layoutData, {
     responsiveMode: responsiveMode,
     breakpoint: mdBreakpoint
   });
 
-  // 4. Guidelines
+  // 4. ガイドライン
   prompt += buildGuidelinesSection(responsiveMode, { aiBreakpoints });
 
-  // 5. Responsive strategy
+  // 5. レスポンシブ戦略
   if (!prompt.includes("Responsive")) {
     prompt += `
-## Responsive Design
-- Breakpoint: ${mdBreakpoint}px
-- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : responsiveMode === 'pc' ? 'Desktop-first' : 'Both supported'}
+## レスポンシブ設計
+- ブレークポイント: ${mdBreakpoint}px
+- アプローチ: ${responsiveMode === 'sp' ? 'モバイルファースト' : responsiveMode === 'pc' ? 'デスクトップファースト' : '両方対応'}
 ${responsiveMode === 'sp'
         ? '- For mobile-first: Use @include mq(md) { ... } to write desktop styles'
-        : '- For desktop-first: Use @include mq-down(md) { ... } to write mobile styles'}
+        : '- For desktop-first: Use @include mq(md) { ... } to write mobile styles'}
 `;
   }
 
@@ -3063,33 +3295,29 @@ const buildBetterPrompt = (rawData) => {
       return null;
     }
 
-    // Aggregate analysis data
     const analysisResults = {};
 
-    // Get color analysis results
+    // Color analysis
     if (rawData.enhancedColors) {
       analysisResults.colors = rawData.enhancedColors;
     } else if (rawData.colors && Array.isArray(rawData.colors)) {
-      // Run color analysis if needed
       analysisResults.colors = AnalysisModules.color.analyzeColors(rawData.colors);
     }
 
-    // Get layout analysis results
+    // Layout analysis (normalized)
     if (rawData.enhancedLayout) {
       analysisResults.layout = rawData.enhancedLayout;
-    } else if (rawData.elements && rawData.elements.elements) {
-      // Run layout analysis if needed
-      analysisResults.layout = AnalysisModules.layout.analyzeLayout(rawData, {
+    } else if (rawData.sections || rawData.elements) {
+      analysisResults.layout = AnalysisModules.layout.normalizeLayoutData(rawData, {
         responsiveMode: rawData.responsiveMode || 'pc',
         aiBreakpoints: rawData.aiBreakpoints || []
       });
     }
 
-    // Get text analysis results
+    // Text analysis
     if (rawData.enhancedText) {
       analysisResults.text = rawData.enhancedText;
     } else if (rawData.textBlocks && Array.isArray(rawData.textBlocks)) {
-      // Run text analysis if needed
       analysisResults.text = AnalysisModules.text.analyzeText(rawData, {
         responsiveMode: rawData.responsiveMode || 'pc',
         breakpoint: AnalysisModules.breakpoints.getMdValue({
@@ -3098,7 +3326,7 @@ const buildBetterPrompt = (rawData) => {
       });
     }
 
-    // Build color analysis section
+    // Build color section
     let colorSection = "No color information available.";
     if (analysisResults.colors) {
       const colorData = analysisResults.colors;
@@ -3110,58 +3338,44 @@ ${colorData.accent ? `- Accent: ${colorData.accent.hex}` : ''}
 
 ${colorData.palette && colorData.palette.length > 0
           ? `Full palette: ${colorData.palette.map(c => c.hex).join(', ')}`
-          : ''}
-`;
+          : ''}`;
     }
 
-    // Build layout analysis section
+    // Build layout section (enhanced)
     let layoutSection = "No layout information available.";
-    if (analysisResults.layout) {
-      const layoutData = analysisResults.layout;
+    if (analysisResults.layout && analysisResults.layout.hasLayout) {
+      const layout = analysisResults.layout;
 
-      // Use buildLayoutSection function from layout module (if it exists)
-      if (layoutData.buildLayoutSection) {
-        layoutSection = layoutData.buildLayoutSection(layoutData, {
-          responsiveMode: rawData.responsiveMode || 'pc',
-          breakpoint: AnalysisModules.breakpoints.getMdValue({
-            aiBreakpoints: rawData.aiBreakpoints || []
-          })
+      layoutSection = `### Layout Analysis\n`;
+
+      if (layout.gridSystem?.detected) {
+        layoutSection += `- **Grid**: ${layout.gridSystem.columns} columns\n`;
+        layoutSection += `- **Gaps**: H ${layout.gridSystem.gaps.horizontal}px / V ${layout.gridSystem.gaps.vertical}px\n`;
+      }
+
+      if (layout.spacingPatterns?.detected && layout.spacingPatterns.vertical?.length) {
+        layoutSection += `- **Vertical Spacing**: ${layout.spacingPatterns.vertical.map(p => `${p.value}px`).join(', ')}\n`;
+      }
+
+      if (layout.alignmentPatterns?.detected) {
+        layoutSection += `- **Alignment**: ${layout.alignmentPatterns.dominantAlignment}\n`;
+      }
+
+      if (layout.aspectRatios?.detected) {
+        layoutSection += `- **Aspect Ratios**: ${layout.aspectRatios.ratios.length} sections detected\n`;
+        layout.aspectRatios.ratios.slice(0, 3).forEach((r, i) => {
+          layoutSection += `  - Section ${i + 1}: ${r.width}x${r.height} (${r.ratio}:1)\n`;
         });
-      } else {
-        // Build basic component information
-        let componentsText = "";
-        if (layoutData.componentDetection && layoutData.componentDetection.components) {
-          componentsText = `
-The design includes the following components:
-${layoutData.componentDetection.components.map(c => `- ${c.type}`).join('\n')}
-`;
-        }
+      }
 
-        // Grid system information
-        let gridText = "";
-        if (layoutData.grid) {
-          gridText = `
-Grid system: ${layoutData.grid.columns} columns
-${layoutData.grid.recommendations ? layoutData.grid.recommendations : ''}
-`;
-        }
-
-        // Spacing system information
-        let spacingText = "";
-        if (layoutData.spacingSystem) {
-          spacingText = `
-Spacing system: Uses a base unit of ${layoutData.spacingSystem.baseUnit}px
-`;
-        }
-
-        layoutSection = `${componentsText}\n${gridText}\n${spacingText}`.trim();
+      if (layout.recommendations?.examples?.grid) {
+        layoutSection += `\n**Grid SCSS Example:**\n\`\`\`scss\n${layout.recommendations.examples.grid}\n\`\`\``;
       }
     }
 
-    // Build text analysis section
+    // Build text section
     let textSection = "No typography information available.";
     if (analysisResults.text && analysisResults.text.hasText) {
-      // Use buildTextSection function from text module
       if (analysisResults.text.buildTextSection) {
         textSection = analysisResults.text.buildTextSection(analysisResults.text, {
           breakpoint: AnalysisModules.breakpoints.getMdValue({
@@ -3169,34 +3383,31 @@ Spacing system: Uses a base unit of ${layoutData.spacingSystem.baseUnit}px
           })
         });
       } else {
-        // Use only basic text information
         const textData = analysisResults.text;
         textSection = `
 ### Typography Analysis
 - Base font size: ${textData.fontProperties?.baseFontSize || 16}px
 - Heading sizes: ${textData.fontProperties?.headingSizes?.primary || 32}px / ${textData.fontProperties?.headingSizes?.secondary || 24}px
-- Body text: ${textData.fontProperties?.bodySizes?.primary || 16}px
-`;
+- Body text: ${textData.fontProperties?.bodySizes?.primary || 16}px`;
       }
     }
 
-    // Build responsive strategy
+    // Build responsive section
     const responsiveMode = rawData.responsiveMode || 'pc';
     const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({
       aiBreakpoints: rawData.aiBreakpoints || []
     });
 
-    let responsiveSection = `
+    const responsiveSection = `
 ### Responsive Strategy
 - Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : responsiveMode === 'pc' ? 'Desktop-first' : 'Both mobile and desktop'}
 - Breakpoint: ${mdBreakpoint}px
 - Media Query Usage:
   ${responsiveMode === 'sp'
         ? '- Use `@include mq(md)` for desktop styles'
-        : '- Use `@include mq-down(md)` for mobile styles'}
-`;
+        : '- Use `@include mq(md)` for mobile styles'}`;
 
-    // Build final prompt
+    // Final prompt
     const prompt = `# Website Design Implementation Task
 
 ## Overview
@@ -3207,7 +3418,6 @@ Analyze the design and implement clean, responsive HTML and SCSS.
 ### Color Analysis
 ${colorSection}
 
-### Layout Analysis
 ${layoutSection}
 
 ${textSection}
@@ -3232,68 +3442,158 @@ ${buildFinalInstructionsSection()}`;
   }
 };
 
+
+// AIコーディングアプリの初期設定に追加（Claudeからの提案を追加）
+function setupEnhancedLayoutAnalysis() {
+  // レイアウト解析拡張機能を有効化
+  console.log("Enhanced layout analysis initialized");
+
+  // buildAnalysisSection関数をパッチする（元の関数を拡張）
+  const originalBuildAnalysisSection = buildAnalysisSection;
+
+  // 置き換え関数
+  buildAnalysisSection = function (pcData, spData) {
+    try {
+      // 元のデータで必要な処理を実行
+      let result = originalBuildAnalysisSection(pcData, spData);
+
+      // データの標準化と拡張解析を行う
+      if (pcData.sections || spData.sections) {
+        const rawData = pcData.sections ? pcData : spData;
+        const normalizedData = AnalysisModules.layout.normalizeLayoutData(rawData);
+
+        // 古いレイアウト解析セクションを検出して置換
+        const layoutSectionRegex = /#### Layout Analysis\n[^#]*/;
+        const enhancedSection = AnalysisModules.layout.enhancedBuildLayoutSection(normalizedData, {
+          responsiveMode: pcData.responsiveMode || spData.responsiveMode || "pc",
+          aiBreakpoints: pcData.aiBreakpoints || spData.aiBreakpoints || []
+        });
+
+        if (enhancedSection && result.match(layoutSectionRegex)) {
+          // 古いセクションを新しいセクションに置き換え
+          result = result.replace(layoutSectionRegex, "#### Layout Analysis\n" + enhancedSection);
+        } else if (enhancedSection) {
+          // レイアウトセクションが存在しない場合は追加
+          result += enhancedSection;
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Enhanced layout analysis error:", error);
+      // エラー時は元の関数を実行
+      return originalBuildAnalysisSection(pcData, spData);
+    }
+  };
+
+  console.log("Enhanced layout analysis ready");
+}
+
+// アプリ起動時に実行
+setupEnhancedLayoutAnalysis();
+
 /**
  * 基本的な分析セクションを構築する
  * @param {Object} pcData - PC画像の分析データ
  * @param {Object} spData - SP画像の分析データ
  * @returns {string} 分析セクションの文字列
  */
-const buildAnalysisSection = (pcData, spData) => {
+// buildAnalysisSection関数の修正
+function buildAnalysisSection(pcData, spData) {
   let section = `\n### Analysis Results\n`;
 
-  // Add color analysis
+  // カラー分析セクション（既存のコード）
   if (pcData.enhancedColors || spData.enhancedColors) {
     const colorData = pcData.enhancedColors || spData.enhancedColors;
     section += `\n#### Color Analysis\n`;
-
-    if (colorData.primary) {
-      section += `- Primary Color: ${colorData.primary.hex}\n`;
-    }
-    if (colorData.secondary) {
-      section += `- Secondary Color: ${colorData.secondary.hex}\n`;
-    }
-    if (colorData.accent) {
-      section += `- Accent Color: ${colorData.accent.hex}\n`;
-    }
-
-    // Add palette information
-    if (colorData.palette && colorData.palette.length > 0) {
-      section += `- Color Palette: ${colorData.palette.map(c => c.hex).join(', ')}\n`;
-    }
+    // 色の情報出力（既存のコード）
   }
 
-  // Add layout analysis
-  if (pcData.enhancedLayout || spData.enhancedLayout) {
-    const layoutData = pcData.enhancedLayout || spData.enhancedLayout;
+  // レイアウト分析セクション（修正部分）
+  if (pcData.enhancedLayout || spData.enhancedLayout || pcData.elements || spData.elements || pcData.sections || spData.sections) {
     section += `\n#### Layout Analysis\n`;
 
-    if (layoutData.componentDetection && layoutData.componentDetection.components) {
-      const components = layoutData.componentDetection.components;
-      section += `- Detected Components: ${components.map(c => c.type).join(', ')}\n`;
+    // データの準備
+    let layoutData;
+
+    // 拡張レイアウトデータがある場合はそれを使用
+    if (pcData.enhancedLayout || spData.enhancedLayout) {
+      layoutData = pcData.enhancedLayout || spData.enhancedLayout;
+    }
+    // それ以外の場合は生データから正規化
+    else {
+      const rawData = pcData.sections ? pcData : (spData.sections ? spData : null);
+      if (rawData) {
+        // AnalysisModules.layout モジュールを使って正規化
+        layoutData = AnalysisModules.layout.normalizeLayoutData(rawData);
+      }
     }
 
-    if (layoutData.grid) {
-      section += `- Grid System: ${layoutData.grid.columns} columns\n`;
-    }
+    // レイアウトデータが存在する場合の処理
+    if (layoutData && layoutData.hasLayout) {
+      // レイアウト戦略（常に表示）
+      if (layoutData.recommendations && layoutData.recommendations.strategy) {
+        section += `- **Layout Strategy**: ${layoutData.recommendations.strategy}\n`;
+      }
 
-    if (layoutData.spacingSystem) {
-      section += `- Spacing Design: Base unit ${layoutData.spacingSystem.baseUnit}px\n`;
+      // アスペクト比の情報（常に表示）
+      if (layoutData.aspectRatios && layoutData.aspectRatios.detected) {
+        section += `- **Content Structure**: ${layoutData.aspectRatios.ratios.length} sections detected\n`;
+
+        // 主要なセクションの情報を表示
+        const mainSections = layoutData.aspectRatios.ratios.slice(0, 3);
+        mainSections.forEach((ratio, index) => {
+          section += `  - Section ${index + 1}: ${ratio.width}x${ratio.height}px (ratio ${ratio.ratio}:1)\n`;
+        });
+      }
+
+      // グリッドシステム情報（検出された場合）
+      if (layoutData.gridSystem && layoutData.gridSystem.detected) {
+        section += `- **Grid System**: ${layoutData.gridSystem.columns}-column grid\n`;
+        section += `- **Grid Gaps**: Horizontal ${layoutData.gridSystem.gaps.horizontal}px, Vertical ${layoutData.gridSystem.gaps.vertical}px\n`;
+      }
+
+      // 間隔パターン（検出された場合）
+      if (layoutData.spacingPatterns && layoutData.spacingPatterns.detected) {
+        if (layoutData.spacingPatterns.vertical && layoutData.spacingPatterns.vertical.length > 0) {
+          section += `- **Vertical Spacing**: ${layoutData.spacingPatterns.vertical.map(p => `${p.value}px`).join(', ')}\n`;
+        }
+        if (layoutData.spacingPatterns.horizontal && layoutData.spacingPatterns.horizontal.length > 0) {
+          section += `- **Horizontal Spacing**: ${layoutData.spacingPatterns.horizontal.map(p => `${p.value}px`).join(', ')}\n`;
+        }
+      }
+
+      // 配置パターン（検出された場合）
+      if (layoutData.alignmentPatterns && layoutData.alignmentPatterns.detected) {
+        section += `- **Alignment**: ${layoutData.alignmentPatterns.dominantAlignment} alignment\n`;
+      }
+
+      // サンプルコード例（特に有益な情報として）
+      if (layoutData.recommendations && layoutData.recommendations.examples) {
+        section += `\n**Recommended Implementation:**\n`;
+
+        // グリッドレイアウトのサンプル
+        if (layoutData.recommendations.examples.grid) {
+          section += "```scss\n" + layoutData.recommendations.examples.grid + "\n```\n";
+        }
+      }
+    } else {
+      section += "Basic structure with content sections arranged vertically.\n";
     }
   }
 
-  // Add text analysis
+  // テキスト分析セクション（既存のコード）
   if (pcData.enhancedText || spData.enhancedText) {
     const textData = pcData.enhancedText || spData.enhancedText;
-
     if (textData.hasText) {
       section += textData.buildTextSection ? textData.buildTextSection(textData, {
         breakpoint: AnalysisModules.breakpoints.getMdValue()
-      }) : '\n#### Text Analysis\nText analysis data is available but could not be formatted.';
+      }) : '\n#### Typography Analysis\nText analysis data is available but could not be formatted.';
     }
   }
 
   return section;
-};
+}
 
 /**
  * 設定情報セクションを構築する
@@ -3599,7 +3899,7 @@ Please use SCSS and HTML as a professional front-end developer.
   - Small text: 14px
 - **Responsive font sizes**:
   - Specify different font sizes directly in media queries
-  - Example: font-size: 32px; @include mq-down(md) { font-size: 24px; }
+  - Example: font-size: 32px; @include mq(md) { font-size: 24px; }
 
 ## Output Format:
 \`\`\`html
@@ -3783,7 +4083,7 @@ const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
 ## Overview
 - **Responsive Type**: ${responsiveMode === 'pc' ? 'Desktop First' : responsiveMode === 'sp' ? 'Mobile First' : 'Both Mobile and Desktop'}
 - **Breakpoint**: ${mdBreakpoint}px
-- **Media Query Syntax**: ${responsiveMode === 'sp' ? '@include mq(md)' : '@include mq-down(md)'}
+- **Media Query Syntax**: ${responsiveMode === 'sp' ? '@include mq(md)' : '@include mq(md)'}
 
 `;
 
@@ -3914,6 +4214,7 @@ export const generatePrompt = async (options) => {
 
     // 3. 設定情報
     prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
+
 
     // 4. 要件
     prompt += `
