@@ -302,6 +302,8 @@ const AICodeGenerator = () => {
   const [selectedHtmlFile, setSelectedHtmlFile] = useState("");
   const [blockNameValidationError, setBlockNameValidationError] = useState("");
   const [htmlFiles, setHtmlFiles] = useState([]); // HTMLファイル一覧
+  const [savedScssFilesCount, setSavedScssFilesCount] = useState(0); // SCSS保存ファイル数
+  const [savedHtmlFilesCount, setSavedHtmlFilesCount] = useState(0); // HTML保存ファイル数
 
   // ブロック関連の状態管理を追加
   const [blockName, setBlockName] = useState("component"); // デフォルトのブロック名
@@ -417,12 +419,18 @@ const AICodeGenerator = () => {
     const loadHtmlFiles = async () => {
       if (window.api && window.api.getHtmlFiles) {
         try {
+          console.log('HTMLファイル一覧を取得します');
           const files = await window.api.getHtmlFiles();
+          console.log('取得したHTMLファイル一覧:', files);
+
           if (Array.isArray(files) && files.length > 0) {
             setHtmlFiles(files);
+            console.log('HTMLファイル一覧を設定しました:', files);
+
             // デフォルトで最初のファイルを選択
             if (!selectedHtmlFile && files.length > 0) {
               setSelectedHtmlFile(files[0]);
+              console.log('デフォルトのHTMLファイルを選択しました:', files[0]);
             }
           } else {
             console.warn('HTMLファイルが見つかりませんでした');
@@ -435,8 +443,9 @@ const AICodeGenerator = () => {
       }
     };
 
+    // コンポーネントマウント時に一度だけ実行
     loadHtmlFiles();
-  }, [selectedHtmlFile]);
+  }, []);
 
   // コード編集時にブロックを検出するuseEffect
   useEffect(() => {
@@ -602,6 +611,9 @@ const AICodeGenerator = () => {
         // SCSSの@includeをCSSメディアクエリに変換する処理
         let processedCSS = editingCSS || '';
 
+        // colorValuesをより広いスコープで定義
+        let colorValues = {};
+
         // 変数と色の設定を取得する非同期関数
         const loadColorVariables = async () => {
           try {
@@ -663,8 +675,8 @@ const AICodeGenerator = () => {
               defaultColors['$blue'] = '#408F95';
             }
 
-            // 色値を使用してCSSを処理
-            const colorValues = { ...defaultColors };
+            // 色値を使用してCSSを処理 - グローバル変数に代入
+            colorValues = { ...defaultColors };
 
             console.log("プレビューに使用する色変数:", colorValues);
 
@@ -2370,9 +2382,50 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   // コード保存関数
   const handleSaveCode = async () => {
     try {
+      console.log("保存準備 - HTMLファイル選択状態:", {
+        selectedHtmlFile,
+        htmlFiles,
+        hasHtmlFiles: htmlFiles.length > 0,
+        hasSelectedFile: !!selectedHtmlFile
+      });
+
+      // SCSS・HTMLコードが空でないかチェック
+      if (!editingCSS || editingCSS.trim() === '') {
+        setSaveSuccess(false);
+        setSaveError("SCSSコードが空です。SCSSコードを入力してください。");
+        return;
+      }
+
+      // ブロック名が存在するかチェック
+      if (!blockName || blockName.trim() === '') {
+        setSaveSuccess(false);
+        setSaveError("有効なブロック名が設定されていません。ブロック名を設定してください。");
+        return;
+      }
+
+      // HTMLファイルを選択している場合は、HTMLコードも必須
+      if (selectedHtmlFile && (!editingHTML || editingHTML.trim() === '')) {
+        setSaveSuccess(false);
+        setSaveError("HTMLファイルを選択していますが、HTMLコードが空です。HTMLコードを入力するか、HTMLファイルの選択を解除してください。");
+        return;
+      }
+
+      console.log("保存処理開始：", {
+        blockName,
+        selectedHtmlFile,
+        hasScssCode: !!editingCSS,
+        hasHtmlCode: !!editingHTML,
+        scssCodeLength: editingCSS ? editingCSS.length : 0,
+        htmlCodeLength: editingHTML ? editingHTML.length : 0
+      });
+
       // 検出されたSCSSブロックを取得（デバウンス付き）
       const detectedScssBlocks = detectScssBlocks(editingCSS);
       const detectedHtmlBlocks = detectHtmlBlocks(editingHTML);
+
+      // 検出結果のログ出力
+      console.log("検出されたSCSSブロック:", detectedScssBlocks.length);
+      console.log("検出されたHTMLブロック:", detectedHtmlBlocks.length);
 
       // メインブロック（親ブロック）のみを抽出
       const mainBlocks = detectedScssBlocks.filter(block => {
@@ -2473,7 +2526,16 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       }
 
       // 衝突がない場合は直接保存処理へ
-      await saveNonConflictingBlocks(mainBlocks, blockName, editingHTML, selectedHtmlFile);
+      await saveNonConflictingBlocks(
+        mainBlocks,          // SCSSブロックのリスト
+        blockName,           // メインHTMLブロック名
+        editingHTML,         // HTMLコード
+        selectedHtmlFile,    // 対象HTMLファイル
+        {
+          saveHtmlWithFirstBlock: true, // HTMLを最初のブロックで保存する設定
+          htmlFilename: blockName       // HTML保存用のファイル名
+        }
+      );
     } catch (error) {
       console.error("AI生成コードの保存中にエラーが発生しました:", error);
       setSaveSuccess(false);
@@ -2492,7 +2554,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   };
 
   // 衝突していないブロックを保存する関数
-  const saveNonConflictingBlocks = async (blocks, mainHtmlBlockName, htmlCode, targetHtmlFile) => {
+  const saveNonConflictingBlocks = async (blocks, mainHtmlBlockName, htmlCode, targetHtmlFile, options) => {
     try {
       // リロード防止フラグを設定
       setIsPreventingReload(true);
@@ -2500,6 +2562,14 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       if (window.api && window.api.setPreventReload) {
         window.api.setPreventReload(true);
       }
+
+      console.log("保存関数呼び出し詳細：", {
+        blocksCount: blocks.length,
+        mainHtmlBlockName,
+        hasHtmlCode: !!htmlCode,
+        htmlCodeLength: htmlCode ? htmlCode.length : 0,
+        targetHtmlFile
+      });
 
       // 保存対象のブロックを絞り込み（非衝突ブロックの場合、衝突時用のUIで選択されていない場合はスキップ）
       // 通常モードで呼ばれた場合は、blockSaveMapが空なので全てのブロックが対象となる
@@ -2510,6 +2580,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         }
         return true;
       });
+
+      console.log("保存対象ブロック数:", blocksToSave.length);
+      if (blocksToSave.length > 0) {
+        console.log("保存対象ブロック:", blocksToSave.map(b => b.name));
+      }
 
       if (blocksToSave.length === 0) {
         // 保存対象が0の場合は成功として扱う（ユーザーがすべてのチェックを外した場合）
@@ -2534,17 +2609,53 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         // 全ブロックのコードを1つにまとめる
         const combinedScssCode = relatedBlocks.map(block => block.code).join('\n\n');
 
-        // メインブロックのみHTMLを保存し、他のブロックではHTMLは空文字
-        const htmlToSave = mainBlock.name === mainHtmlBlockName ? htmlCode : "";
-        const targetHtmlFileToUse = mainBlock.name === mainHtmlBlockName ? targetHtmlFile : null;
+        // HTML保存ロジックの改良
+        // オプションがない場合のデフォルト値を設定
+        const saveOptions = options || {
+          saveHtmlWithFirstBlock: true,
+          htmlFilename: mainHtmlBlockName
+        };
+
+        // HTMLをどのブロックで保存するかを判定
+        let shouldSaveHtml = false;
+
+        // 最初のブロックでHTMLを保存する設定の場合
+        if (saveOptions.saveHtmlWithFirstBlock) {
+          shouldSaveHtml = blocksToSave.indexOf(mainBlock) === 0;
+        } else {
+          // ブロック名が一致する場合にHTMLを保存（従来の方法）
+          shouldSaveHtml = mainBlock.name === mainHtmlBlockName;
+        }
+
+        // HTML保存の設定
+        const htmlToSave = shouldSaveHtml && htmlCode ? htmlCode : "";
+        const targetHtmlFileToUse = shouldSaveHtml && targetHtmlFile ? targetHtmlFile : null;
+
+        // このブロックのHTML保存状況をログ出力
+        console.log(`ブロック「${mainBlock.name}」のHTML保存設定:`, {
+          isMainHtmlBlock: shouldSaveHtml,
+          hasHtmlToSave: !!htmlToSave && htmlToSave.trim() !== '',
+          htmlLength: htmlToSave ? htmlToSave.length : 0,
+          targetHtmlFile: targetHtmlFileToUse
+        });
 
         // 保存処理を実行
-        return await window.api.saveAIGeneratedCode(
+        const saveResult = await window.api.saveAIGeneratedCode(
           combinedScssCode,      // 統合されたSCSSコード
           htmlToSave,            // 選択されたブロックのみHTMLを保存
-          mainBlock.name,        // メインブロック名
+          mainBlock.name,        // メインブロック名（SCSSファイル名）
           targetHtmlFileToUse    // 選択されたブロックのみHTMLファイルに追加
         );
+
+        // 保存結果をログ出力
+        console.log(`ブロック「${mainBlock.name}」の保存結果:`, {
+          success: saveResult.success,
+          partialSuccess: saveResult.partialSuccess,
+          savedFiles: saveResult.savedFiles,
+          error: saveResult.error
+        });
+
+        return saveResult;
       });
 
       const results = await Promise.all(savePromises);
@@ -2563,20 +2674,31 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         ).length;
 
         // 保存されたSCSSファイル数とHTMLファイル数を個別にカウント
-        const savedScssFilesCount = results.filter(result =>
-          (result.success || result.partialSuccess) && result.savedFiles?.scss
-        ).length;
+        // すべての結果を集計
+        let scssFileCount = 0;
+        let htmlFileCount = 0;
 
-        const savedHtmlFilesCount = results.filter(result =>
-          (result.success || result.partialSuccess) && result.savedFiles?.html
-        ).length;
+        results.forEach(result => {
+          if ((result.success || result.partialSuccess) && result.savedFiles) {
+            if (result.savedFiles.scss) scssFileCount++;
+            if (result.savedFiles.html) htmlFileCount++;
+          }
+        });
 
         // グローバルステート変数に保存
-        setSavedScssFilesCount(savedScssFilesCount);
-        setSavedHtmlFilesCount(savedHtmlFilesCount);
+        setSavedScssFilesCount(scssFileCount);
+        setSavedHtmlFilesCount(htmlFileCount);
+
+        // 検出されたブロック全体の数も考慮
+        console.log(`保存完了 - ファイル集計:`, {
+          detectedScssBlocks: detectedScssBlocks.length,
+          mainBlocks: blocksToSave.length,
+          savedScss: scssFileCount,
+          savedHtml: htmlFileCount
+        });
 
         setSaveSuccess(true);
-        setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+        setSaveError(`コードを保存しました！（SCSSファイル: ${scssFileCount}個、HTMLファイル: ${htmlFileCount}個）`);
       } else if (hasAllFailed) {
         // すべての保存が失敗した場合
         const errorMessages = results
@@ -2888,7 +3010,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             nonConflictingScssBlocks,
             conflictInfo.originalBlockName === nonConflictingScssBlocks[0].name ? conflictInfo.originalBlockName : null,
             conflictInfo.originalBlockName === nonConflictingScssBlocks[0].name ? conflictInfo.htmlCode : "",
-            selectedHtmlFile
+            selectedHtmlFile,
+            {
+              saveHtmlWithFirstBlock: true,  // 最初のブロックでHTMLを保存
+              htmlFilename: newHtmlBlockName || conflictInfo.originalBlockName  // リネームされたHTMLブロック名を使用
+            }
           );
         }
 
@@ -2939,11 +3065,26 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       const savePromises = blocksToSave.map(async (block) => {
         const newName = blockRenameMap[block.name] || block.name;
+
+        // HTMLファイルの保存は最初のブロックのみで行う
+        // ブロックが複数ある場合、最初のブロックにのみHTMLを関連付ける
+        const isFirstBlock = blocksToSave.indexOf(block) === 0;
+        const htmlToSave = isFirstBlock ? htmlCode : "";
+        const targetHtmlFileToUse = isFirstBlock ? targetHtmlFile : null;
+
+        // HTMLファイルの保存状況をログ出力
+        console.log(`リネーム保存: ブロック「${block.name}→${newName}」のHTML保存設定:`, {
+          isFirstBlock: isFirstBlock,
+          hasHtmlToSave: !!htmlToSave && htmlToSave.trim() !== '',
+          htmlLength: htmlToSave ? htmlToSave.length : 0,
+          targetHtmlFile: targetHtmlFileToUse
+        });
+
         return await window.api.saveAIGeneratedCode(
           block.code,
-          htmlCode,
+          htmlToSave,
           newName,
-          targetHtmlFile
+          targetHtmlFileToUse
         );
       });
 
@@ -2957,20 +3098,22 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       // 少なくとも1つの保存が成功した場合
       if (hasAnySuccess) {
         // 保存されたSCSSファイル数とHTMLファイル数をカウント
-        const savedScssFilesCount = results.filter(result =>
-          (result.success || result.partialSuccess) && result.savedFiles?.scss
-        ).length;
+        let scssFileCount = 0;
+        let htmlFileCount = 0;
 
-        const savedHtmlFilesCount = results.filter(result =>
-          (result.success || result.partialSuccess) && result.savedFiles?.html
-        ).length;
+        results.forEach(result => {
+          if ((result.success || result.partialSuccess) && result.savedFiles) {
+            if (result.savedFiles.scss) scssFileCount++;
+            if (result.savedFiles.html) htmlFileCount++;
+          }
+        });
 
         // グローバルステート変数に保存
-        setSavedScssFilesCount(savedScssFilesCount);
-        setSavedHtmlFilesCount(savedHtmlFilesCount);
+        setSavedScssFilesCount(scssFileCount);
+        setSavedHtmlFilesCount(htmlFileCount);
 
         setSaveSuccess(true);
-        setSaveError(`コードを保存しました！（SCSSファイル: ${savedScssFilesCount}個、HTMLファイル: ${savedHtmlFilesCount}個）`);
+        setSaveError(`コードを保存しました！（SCSSファイル: ${scssFileCount}個、HTMLファイル: ${htmlFileCount}個）`);
 
         // 全ての保存処理が終了したら、モーダルを閉じる
         handleCloseRenameDialog();

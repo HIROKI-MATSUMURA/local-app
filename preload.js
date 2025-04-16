@@ -138,6 +138,9 @@ contextBridge.exposeInMainWorld('api', {
   // HTMLファイル一覧を取得する関数
   getHtmlFiles: () => ipcRenderer.invoke('get-html-files'),
 
+  // ファイルの存在をチェックする関数
+  checkFileExists: (blockName) => ipcRenderer.invoke('check-file-exists', blockName),
+
   // ファイルコンテンツリクエスト
   requestFileContent: (filePath) => ipcRenderer.send('request-file-content', filePath),
 
@@ -239,12 +242,12 @@ contextBridge.exposeInMainWorld('api', {
   getFileContent: (filePath) => ipcRenderer.invoke('get-file-content', filePath),
   saveHtmlFile: (fileName, content) => ipcRenderer.invoke('save-html-file', { fileName, content }),
   saveScssFile: (fileName, content) => ipcRenderer.invoke('save-scss-file', { fileName, content }),
-  saveAIGeneratedCode: (htmlFileName, htmlContent, scssFileName, scssContent) =>
+  saveAIGeneratedCode: (scssCode, htmlCode, blockName, targetHtmlFile) =>
     ipcRenderer.invoke('save-ai-generated-code', {
-      htmlFileName,
-      htmlContent,
-      scssFileName,
-      scssContent
+      scssCode,
+      htmlCode,
+      blockName,
+      targetHtmlFile
     }),
 
   // ファイル操作イベント - 直接メソッド呼び出し用
