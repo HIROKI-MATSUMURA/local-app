@@ -665,7 +665,7 @@ const ProjectManager = ({ onProjectChange }) => {
       });
 
       await window.api.saveProjectSettings(updatedProject);
-      await saveActiveProject(projectId);
+      await window.api.saveActiveProjectId(projectId);
       if (onProjectChange) onProjectChange(updatedProject);
     } catch (error) {
       console.error('プロジェクトの切り替えに失敗:', error);
@@ -688,12 +688,12 @@ const ProjectManager = ({ onProjectChange }) => {
           const firstProject = updatedProjects[0];
           setActiveProjectId(firstProject.id);
           setActiveProjectSettings(firstProject.settings);
-          await saveActiveProject(firstProject.id);
+          await window.api.saveActiveProjectId(firstProject.id);
           if (onProjectChange) onProjectChange(firstProject);
         } else {
           setActiveProjectId(null);
           setActiveProjectSettings(null);
-          await saveActiveProject(null);
+          await window.api.saveActiveProjectId(null);
           if (onProjectChange) onProjectChange(null);
         }
       }
@@ -747,7 +747,7 @@ const ProjectManager = ({ onProjectChange }) => {
         } else {
           setActiveProjectId(null);
           setActiveProjectSettings(null);
-          await saveActiveProject(null);
+          await window.api.saveActiveProjectId(null);
           if (onProjectChange) onProjectChange(null);
         }
       }
