@@ -1384,28 +1384,10 @@ const AICodeGenerator = () => {
       setLoadingStage("指示内容を分析中...");
       setLoadingProgress(20);
 
-      // 分析モードかどうかを確認 - 特定のキーワードが含まれている場合
-      const isAnalysisMode = /分析|解析|問題点|診断|チェック|確認|レビュー|analyze|review|check|issues/i.test(regenerateInstructions);
-
-      // 分析モードの場合は警告を表示して処理を終了
-      if (isAnalysisMode) {
-        alert("分析モードは現在利用できません。通常の再生成を行ってください。");
-        setLoading(false);
-        clearInterval(progressTimer);
-        return;
-      }
-
-      // 分析モードと修正モードで異なるプロンプトを構築
-      let regeneratePrompt;
-
-      if (isAnalysisMode) {
-        // 分析モード用プロンプト（実質は使用されない）
-        // ... existing code ...
-      } else {
-        // 修正モード用プロンプト（より詳細な指示とコード構造の理解を促進）
-        setLoadingStage("プロンプト生成中...");
-        setLoadingProgress(30);
-        regeneratePrompt = `
+      // プロンプトを構築
+      setLoadingStage("プロンプト生成中...");
+      setLoadingProgress(30);
+      const regeneratePrompt = `
 # コード修正リクエスト
 
 以下のHTMLとSCSSコードを修正してください。元のコードの構造と命名規則を維持しながら、指定された変更を適用します。
@@ -1492,7 +1474,6 @@ ${editingCSS}
 
 必ずフラットなSCSS構造を使用し、ネストを避けてください。
 `;
-      }
 
       console.log("window.api:", window.api ? "存在します" : "存在しません");
       console.log("generateCode関数を呼び出し中...");
