@@ -438,6 +438,27 @@ const AICodeGenerator = () => {
     loadHtmlFiles();
   }, [selectedHtmlFile]);
 
+  // コード編集時にブロックを検出するuseEffect
+  useEffect(() => {
+    if (editingCSS && editingHTML) {
+      // SCSSブロックの検出
+      const scssBlocks = detectScssBlocks(editingCSS);
+      setDetectedScssBlocks(scssBlocks);
+
+      // HTMLブロックの検出
+      const htmlBlocks = detectHtmlBlocks(editingHTML);
+      setDetectedHtmlBlocks(htmlBlocks);
+
+      // 最初に検出されたHTMLブロックをデフォルトのブロック名に設定
+      if (htmlBlocks.length > 0 && !blockName) {
+        setBlockName(htmlBlocks[0].name);
+      }
+
+      console.log("検出されたSCSSブロック:", scssBlocks);
+      console.log("検出されたHTMLブロック:", htmlBlocks);
+    }
+  }, [editingCSS, editingHTML]);
+
   // コード生成後に編集モードを有効化
   useEffect(() => {
     if (generatedHTML && generatedCSS) {
@@ -3512,6 +3533,77 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     }, 3000);
   };
 
+  // ブロックが除外されているかチェック
+  const isBlockExcluded = (blockName) => {
+    return excludedBlocks.includes(blockName);
+  };
+
+  // ブロックを保存対象から除外する処理
+  const handleExcludeBlock = (blockName) => {
+    setExcludedBlocks([...excludedBlocks, blockName]);
+  };
+
+  // ブロックを保存対象に戻す処理
+  const handleIncludeBlock = (blockName) => {
+    setExcludedBlocks(excludedBlocks.filter(name => name !== blockName));
+  };
+
+  // SCSSブロックの選択処理
+  const handleScssBlockSelect = (blockName) => {
+    // 選択されたメインブロックに関連するすべてのブロック（エレメントと擬似クラスを含む）を取得
+    const mainBlockCode = detectedScssBlocks.find(block => block.name === blockName);
+
+    if (!mainBlockCode) {
+      console.error(`ブロック ${blockName} が見つかりません`);
+      return;
+    }
+
+    // メインブロックに関連するすべてのエレメントと擬似クラスを見つける
+    const relatedElements = detectedScssBlocks.filter(block =>
+      block.name.startsWith(blockName + '__') || // エレメント
+      block.name === blockName ||
+      (block.name.startsWith(blockName + ':') && block.name.indexOf('__') === -1) // 擬似クラス（エレメントの擬似クラスは除外）
+    );
+
+    // 擬似クラスのブロック
+    const pseudoClasses = detectedScssBlocks.filter(block =>
+      block.name.startsWith(blockName + ':') && block.name.indexOf('__') === -1
+    );
+
+    // エレメントのみのブロック（擬似クラスなし）
+    const elements = relatedElements.filter(block =>
+      block.name.startsWith(blockName + '__') && block.name !== blockName
+    );
+
+    // メインブロックとその関連エレメントをすべて含む統合コード
+    const fullBlockCode = {
+      name: blockName,
+      code: mainBlockCode.code,
+      pseudoClasses: pseudoClasses, // 擬似クラスを分けて格納
+      elements: elements // エレメントを格納
+    };
+
+    setSelectedScssBlock(fullBlockCode);
+    setShowBlockDetails(true);
+    // モーダル表示時にスクロールをロック
+    document.body.style.overflow = 'hidden';
+  };
+
+  // ブロック詳細表示を閉じる
+  const handleCloseBlockDetails = () => {
+    setShowBlockDetails(false);
+    // スクロールロック解除
+    document.body.style.overflow = 'auto';
+  };
+
+  // モーダル外クリック時の処理
+  const handleModalBackdropClick = (e) => {
+    // モーダルの背景部分のみがクリックされた場合に閉じる
+    if (e.target.className === 'block-details-modal') {
+      handleCloseBlockDetails();
+    }
+  };
+
   return (
     <div className="ai-code-generator">
       <Header
@@ -3725,7 +3817,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                               className="include-block-button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleExcludeBlock(block.name);
+                                handleIncludeBlock(block.name);
                               }}
                               title="保存対象に戻す"
                             >
