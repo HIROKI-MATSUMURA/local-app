@@ -3427,10 +3427,6 @@ ${responsiveSection}
 ## Implementation Guidelines
 ${buildGuidelinesSection(responsiveMode, { aiBreakpoints: rawData.aiBreakpoints || [] })}
 
-## Output Format
-- Provide HTML first, then SCSS.
-- Format and organize both codes properly.
-- Include comments for main sections.
 
 ${buildFinalInstructionsSection()}`;
 
@@ -3758,8 +3754,8 @@ Please use SCSS and HTML as a professional front-end developer.
 - **Accessibility considerations**:
   - Use appropriate ARIA attributes for interactive elements
   - Ensure sufficient color contrast (minimum 4.5:1 for normal text)
-  - **Add English alt attributes to all images**:
-    - Use descriptive English text (e.g., alt="Company XYZ logo" instead of alt="Company logo")
+  - **Add Japanese alt attributes to all images**:
+    - Use descriptive Japanese text (e.g., alt="〇〇株式会社のロゴ" instead of alt="会社のロゴ")
     - Use empty alt attributes for decorative images (alt="")
     - Keep descriptions concise (about 5-15 characters)
     - Verify alt attributes communicate the purpose of the image
@@ -3769,10 +3765,8 @@ Please use SCSS and HTML as a professional front-end developer.
 - **Project (p-)**: Page/layout-specific components
   - Examples: \`.p-hero\`, \`.p-footer\`, \`.p-news-section\`
   - Use for large distinctive sections of the page
-
-- **Layout (l-)**: Structural and grid components
-  - Examples: \`.l-container\`, \`.l-grid\`, \`.l-row\`
-  - Use for layout structures that organize content
+  - **Important**: Manage layout structures through child elements (e.g., p-section__grid)
+  - Grid and other layout structures should be specified using element notation within project components
 
 - **Component (c-)**: Reusable UI elements
   - Examples: \`.c-button\`, \`.c-card\`, \`.c-form\`
@@ -3781,6 +3775,7 @@ Please use SCSS and HTML as a professional front-end developer.
 - **Utility (u-)**: Single-purpose utility classes
   - Examples: \`.u-text-center\`, \`.u-margin-top\`
   - Usually modify a single specific property
+**Note**: Do not use l- prefix (layout components) for this design implementation. All layout structures should be implemented as child elements of project components (p-).
 
 ### SCSS Guidelines:
 - Follow the ${responsiveMode === "both" ? "responsive" : `${responsiveMode === "pc" ? "desktop-first" : "mobile-first"}`} approach
@@ -3891,17 +3886,7 @@ Please use SCSS and HTML as a professional front-end developer.
   - Proportionally reduce spacing in mobile views (typically 50-70% of desktop values)
   - Control spacing changes with media queries
 
-### Font Specification Guidelines:
-- **Specify all font sizes directly in px**:
-  - Headings (h2): 32px to 24px
-  - Subheadings (h3): 24px to 20px
-  - Body text: 16px
-  - Small text: 14px
-- **Responsive font sizes**:
-  - Specify different font sizes directly in media queries
-  - Example: font-size: 32px; @include mq(md) { font-size: 24px; }
-
-## Output Format:
+## ⚠️ CRITICAL OUTPUT RULES ⚠:
 \`\`\`html
 <!-- HTML code here -->
 \`\`\`
@@ -4008,9 +3993,9 @@ const buildFinalInstructionsSection = () => {
 - **Only media queries @include mq() are allowed to be nested within selectors**
 - **Use appropriate prefixes for each element type**:
   - p- for page/project-specific components like heroes, headers, footers, main sections
-  - l- for layout components like containers, grids, wrappers
   - c- for common reusable UI components like buttons, cards, forms, navigation menus
   - u- for utility classes
+- **Do not use multiple different prefixes on the same element** - choose one prefix type per element
 - **Do not use multiple different prefixes on the same element** - choose one prefix type per element
 - **WRONG: \`<a class="c-button p-hoge__button">Read More</a>\`**
 - **CORRECT: \`<a class="c-button">Read More</a>\`** based on context
@@ -4020,7 +4005,7 @@ const buildFinalInstructionsSection = () => {
 ## Self-Verification Checklist
 Before submitting your code, verify each of the following points:
 
-### HTML Verification:
+### ESSENTIAL HTML VERIFICATION:
 - [ ] No nested components (unnecessarily having div inside div)
 - [ ] All images have appropriate alt attributes in English
 - [ ] All images have width and height attributes
@@ -4030,7 +4015,7 @@ Before submitting your code, verify each of the following points:
 - [ ] Button implementation follows the correct pattern
 - [ ] All interactive elements are accessible (focus states, appropriate roles)
 
-### SCSS Verification:
+### ESSENTIAL SCSS Verification:
 - [ ] No nesting whatsoever except for media queries
 - [ ] No & symbols anywhere in the code
 - [ ] All pseudo-classes (hover, focus, active) written as flat selectors
@@ -4043,26 +4028,26 @@ Before submitting your code, verify each of the following points:
 - [ ] Height properties are avoided when possible
 - [ ] All transitions are set to 0.3 second duration
 
-### Final Quality Check Process:
+### Final Quality Check Process（Special important）:
 1. **Compare with Original Design**:
-   - Visually confirm code matches the design comp
-   - Check spacing, alignment, and proportions
-   - Verify color accuracy
+  - Visually confirm code matches the design comp
+  - Check spacing, alignment, and proportions
+  - Verify color accuracy
 
 2. **Code Structure Review**:
-   - Scan all SCSS for & symbols (reject immediately if found)
-   - Verify all class names follow FLOCSS naming conventions
-   - Validate buttons follow the exact specified pattern
+  - Scan all SCSS for & symbols (reject immediately if found)
+  - Verify all class names follow FLOCSS naming conventions
+  - Validate buttons follow the exact specified pattern
 
 3. **Refactor Problematic Code**:
-   - Replace instances of mixed prefixes with separate elements
-   - Fix nested SCSS that isn't media queries
-   - Ensure all component hierarchies are correct
+  - Replace instances of mixed prefixes with separate elements
+  - Fix nested SCSS that isn't media queries
+  - Ensure all component hierarchies are correct
 
 4. **Specific Pattern Validation**:
-   - Buttons: \`<div class="p-section__button"><a href="#" class="c-button">Text</a></div>\`
-   - Cards: Parent with p- prefix, content with appropriate element names
-   - Images: Proper attributes and responsive handling
+  - Buttons: \`<div class="p-section__button"><a href="#" class="c-button">Text</a></div>\`
+  - Cards: Parent with p- prefix, content with appropriate element names
+  - Images: Proper attributes and responsive handling
 
 After reviewing this checklist, confirm that your HTML and SCSS accurately reproduce the design comp images and adhere to all guidelines. If any issues are found, fix them before submitting.
 `;
