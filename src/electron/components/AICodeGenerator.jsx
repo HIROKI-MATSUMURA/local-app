@@ -424,13 +424,15 @@ const AICodeGenerator = () => {
           console.log('取得したHTMLファイル一覧:', files);
 
           if (Array.isArray(files) && files.length > 0) {
-            setHtmlFiles(files);
-            console.log('HTMLファイル一覧を設定しました:', files);
+            // ファイルの順番を逆にする
+            const reversedFiles = [...files].reverse();
+            setHtmlFiles(reversedFiles);
+            console.log('HTMLファイル一覧を設定しました（逆順）:', reversedFiles);
 
-            // デフォルトで最初のファイルを選択
-            if (!selectedHtmlFile && files.length > 0) {
-              setSelectedHtmlFile(files[0]);
-              console.log('デフォルトのHTMLファイルを選択しました:', files[0]);
+            // デフォルトで最初のファイル（逆順後の先頭、元の最後）を選択
+            if (!selectedHtmlFile && reversedFiles.length > 0) {
+              setSelectedHtmlFile(reversedFiles[0]);
+              console.log('デフォルトのHTMLファイルを選択しました:', reversedFiles[0]);
             }
           } else {
             console.warn('HTMLファイルが見つかりませんでした');
@@ -458,9 +460,22 @@ const AICodeGenerator = () => {
       const htmlBlocks = detectHtmlBlocks(editingHTML);
       setDetectedHtmlBlocks(htmlBlocks);
 
+      // メインHTMLブロック（p-、c-、l-で始まるもの）を検出
+      const mainHtmlBlocks = htmlBlocks.filter(block =>
+        /^[pcl]-[a-zA-Z0-9_-]+$/.test(block.name) &&
+        !block.name.includes('__') &&
+        !block.name.includes(':')
+      );
+
+      console.log("検出されたメインHTMLブロック:", mainHtmlBlocks.map(b => b.name));
+
       // 最初に検出されたHTMLブロックをデフォルトのブロック名に設定
-      if (htmlBlocks.length > 0 && !blockName) {
-        setBlockName(htmlBlocks[0].name);
+      if (mainHtmlBlocks.length > 0) {
+        // 既にブロック名が設定されていない場合、またはユーザーが明示的に変更していない場合にのみ更新
+        if (!blockName || blockName === '') {
+          setBlockName(mainHtmlBlocks[0].name);
+          console.log("HTMLから検出したブロック名を設定:", mainHtmlBlocks[0].name);
+        }
       }
 
       console.log("検出されたSCSSブロック:", scssBlocks);
@@ -473,6 +488,23 @@ const AICodeGenerator = () => {
     if (generatedHTML && generatedCSS) {
       setEditingHTML(generatedHTML);
       setEditingCSS(generatedCSS);
+
+      // 生成されたHTMLからブロック名を自動検出
+      const htmlBlocks = detectHtmlBlocks(generatedHTML);
+      // メインHTMLブロック（p-、c-、l-で始まるもの）を検出
+      const mainHtmlBlocks = htmlBlocks.filter(block =>
+        /^[pcl]-[a-zA-Z0-9_-]+$/.test(block.name) &&
+        !block.name.includes('__') &&
+        !block.name.includes(':')
+      );
+
+      console.log("生成されたHTMLから検出したメインブロック:", mainHtmlBlocks.map(b => b.name));
+
+      // 最初に検出されたメインHTMLブロックをデフォルトのブロック名に設定
+      if (mainHtmlBlocks.length > 0) {
+        setBlockName(mainHtmlBlocks[0].name);
+        console.log("生成されたHTMLから検出したブロック名を設定:", mainHtmlBlocks[0].name);
+      }
     }
   }, [generatedHTML, generatedCSS]);
 
@@ -1824,6 +1856,27 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             setGeneratedHTML(html);
             setShowGeneratedCode(true);
 
+            // HTMLからブロック名を自動検出
+            try {
+              const detectedBlocks = detectHtmlBlocks(html);
+              // メインHTMLブロック（p-、c-、l-で始まるもの）を検出
+              const mainDetectedBlocks = detectedBlocks.filter(block =>
+                /^[pcl]-[a-zA-Z0-9_-]+$/.test(block.name) &&
+                !block.name.includes('__') &&
+                !block.name.includes(':')
+              );
+
+              console.log("生成されたHTMLから検出したメインブロック:", mainDetectedBlocks.map(b => b.name));
+
+              // 最初に検出されたメインHTMLブロックをブロック名として設定
+              if (mainDetectedBlocks.length > 0) {
+                setBlockName(mainDetectedBlocks[0].name);
+                console.log("生成されたHTMLから検出したブロック名を設定:", mainDetectedBlocks[0].name);
+              }
+            } catch (blockDetectionError) {
+              console.error("HTMLブロック検出中にエラーが発生しました:", blockDetectionError);
+            }
+
             // 画面を生成されたコードセクションまでスクロール
             setTimeout(() => {
               if (generatedCodeRef.current) {
@@ -2435,11 +2488,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         // メインブロックの条件：
         // 1. 名前に "__" が含まれていない（要素ではない）
         // 2. 名前に ":" が含まれていない（擬似クラスではない）
-        // もしくは
-        // 3. 名前に ":" が含まれていても "__" が含まれていない場合（親ブロックの擬似クラス）
-        return !block.name.includes('__') &&
-          (!block.name.includes(':') ||
-            (block.name.includes(':') && !block.name.includes('__')));
+        return !block.name.includes('__') && !block.name.includes(':');
       });
 
       // ログ出力
@@ -2600,10 +2649,19 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           // 除外されたブロックはスキップ
           if (excludedBlocks.includes(block.name)) return false;
 
+          // ブロック名からセレクタのベース部分を取得（コロンより前の部分）
+          const baseBlockName = block.name.split(':')[0];
+
           // メインブロックと同じか、メインブロックから派生したものか
           return block.name === mainBlock.name ||
             block.name.startsWith(mainBlock.name + '__') ||
-            (block.name.startsWith(mainBlock.name + ':') && !block.name.includes('__'));
+            // 疑似要素の場合は、ベース部分がメインブロック名と一致するかチェック
+            (block.name.includes(':') && baseBlockName === mainBlock.name);
+        });
+
+        // 各ブロックの内容をログ出力（デバッグ用）
+        relatedBlocks.forEach(block => {
+          console.log(`ブロック「${mainBlock.name}」の関連ブロック「${block.name}」がSCSSに含まれます`);
         });
 
         // 全ブロックのコードを1つにまとめる
@@ -3053,8 +3111,16 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         window.api.setPreventReload(true);
       }
 
-      // 保存対象のブロックを絞り込み（チェックボックスがオンのもののみ）
-      const blocksToSave = blocks.filter(block => blockSaveMap[block.name]);
+      // 保存対象のブロックを絞り込み（チェックボックスがオンのもので、かつ疑似要素を持たないもののみ）
+      // 疑似要素を持つブロックは除外（メインブロックに統合するため）
+      const blocksToSave = blocks.filter(block =>
+        blockSaveMap[block.name] && !block.name.includes(':')
+      );
+
+      console.log("衝突があるブロックの保存対象:", blocksToSave.map(b => b.name));
+      console.log("除外されたブロック（疑似要素など）:", blocks
+        .filter(block => !blocksToSave.includes(block))
+        .map(b => b.name));
 
       if (blocksToSave.length === 0) {
         // 保存対象が0の場合は成功として扱う（ユーザーがすべてのチェックを外した場合）
@@ -3065,6 +3131,25 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       const savePromises = blocksToSave.map(async (block) => {
         const newName = blockRenameMap[block.name] || block.name;
+
+        // 関連するブロック（疑似要素を含む）を収集
+        const relatedBlocks = blocks.filter(relatedBlock => {
+          // ブロック名からセレクタのベース部分を取得（コロンより前の部分）
+          const baseBlockName = relatedBlock.name.split(':')[0];
+
+          // 保存対象のブロックに関連するもの（同じ名前または派生したもの）
+          return relatedBlock.name === block.name ||
+            relatedBlock.name.startsWith(block.name + '__') ||
+            (relatedBlock.name.includes(':') && baseBlockName === block.name);
+        });
+
+        // 関連ブロックの内容をログ出力
+        relatedBlocks.forEach(relBlock => {
+          console.log(`衝突ブロック「${block.name}」の関連ブロック「${relBlock.name}」を統合します`);
+        });
+
+        // すべての関連ブロックのSCSSコードを結合
+        const combinedScssCode = relatedBlocks.map(relBlock => relBlock.code).join('\n\n');
 
         // HTMLファイルの保存は最初のブロックのみで行う
         // ブロックが複数ある場合、最初のブロックにのみHTMLを関連付ける
@@ -3081,7 +3166,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
         });
 
         return await window.api.saveAIGeneratedCode(
-          block.code,
+          combinedScssCode,
           htmlToSave,
           newName,
           targetHtmlFileToUse
@@ -3153,11 +3238,24 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     try {
       // 除外されていないメインブロックを特定
       const mainBlocks = detectedScssBlocks.filter(block => {
-        // ブロック名にアンダースコアがなく、コロンもない場合はメインブロック
+        // メインブロックの条件：
+        // 1. 名前に "__" が含まれていない（要素ではない）
+        // 2. 名前に ":" が含まれていない（擬似クラスではない）
+        // 3. 除外されたブロックではない
         return !block.name.includes('__') &&
           !block.name.includes(':') &&
           !excludedBlocks.includes(block.name);
       });
+
+      // ブロック情報をログ出力
+      console.log("メインブロック（保存対象）:", mainBlocks.map(b => b.name));
+      console.log("除外されたブロック:", excludedBlocks);
+
+      // 疑似要素を持つブロックを特定してログ出力
+      const pseudoBlocks = detectedScssBlocks.filter(block =>
+        block.name.includes(':') && !block.name.includes('__')
+      );
+      console.log("疑似要素を持つブロック（メインブロックに統合）:", pseudoBlocks.map(b => b.name));
 
       if (mainBlocks.length === 0) {
         setSaveSuccess(false);
