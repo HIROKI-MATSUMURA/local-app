@@ -515,9 +515,6 @@ const AICodeGenerator = () => {
         const iframe = previewRef.current;
         const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
 
-        // プレビューコンテナ要素のサイズを取得
-        const previewContainer = iframeDocument.querySelector('.preview-container');
-
         // 実際のコンテンツ領域のサイズを取得（余白込み）
         const bodyHeight = Math.max(
           iframeDocument.body.scrollHeight,
@@ -526,46 +523,13 @@ const AICodeGenerator = () => {
           iframeDocument.documentElement.offsetHeight
         );
 
-        // プレビューコンテナがある場合はその高さを優先、なければbodyの高さを使用
-        const contentHeight = previewContainer
-          ? previewContainer.offsetHeight // 余白分を追加しない
-          : bodyHeight;
+        // コンテンツの高さから最適な高さを計算
+        const newHeight = Math.max(bodyHeight + 50, 400); // 余白分も追加
 
-        // プレビューコンテナ内の全要素も確認して、最も下に位置する要素の位置も考慮する
-        if (previewContainer) {
-          const children = previewContainer.querySelectorAll('*');
-          let maxBottom = 0;
-
-          children.forEach(child => {
-            const rect = child.getBoundingClientRect();
-            const bottom = rect.bottom;
-            if (bottom > maxBottom) {
-              maxBottom = bottom;
-            }
-          });
-
-          // コンテナの上端からの相対位置を計算する必要がある
-          const containerRect = previewContainer.getBoundingClientRect();
-          const relativeBottom = maxBottom - containerRect.top; // 余白分追加しない
-
-          // 最も下の要素に基づく高さと、offsetHeightを比較して大きい方を使用
-          const heightBasedOnElements = Math.max(relativeBottom, contentHeight);
-
-          // 高さに最小値を設定（400px以下にはならない）
-          const newHeight = Math.max(heightBasedOnElements, 400);
-
-          // 現在の高さとの差が大きい場合、または大きなプレビューサイズ時は常に更新
-          if (Math.abs(newHeight - iframeHeight) > 5 || previewWidth >= 1440) {
-            console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px, 要素に基づく高さ: ${heightBasedOnElements}px）`);
-            setIframeHeight(newHeight);
-          }
-        } else {
-          // コンテナがない場合は通常の計算
-          const newHeight = Math.max(contentHeight, 400);
-          if (Math.abs(newHeight - iframeHeight) > 30) {
-            console.log(`iframeの高さを${iframeHeight}pxから${newHeight}pxに調整します（実際のコンテンツ高さ: ${contentHeight}px）`);
-            setIframeHeight(newHeight);
-          }
+        // 現在の高さと新しい高さが大きく異なる場合のみ更新
+        if (Math.abs(newHeight - iframeHeight) > 20) {
+          console.log(`iframeの高さを調整: ${iframeHeight}px → ${newHeight}px`);
+          setIframeHeight(newHeight);
         }
       }
     } catch (error) {
@@ -576,65 +540,14 @@ const AICodeGenerator = () => {
   // コンテンツが変更された場合にiframeの高さを調整
   useEffect(() => {
     if (previewRef.current && editingHTML && editingCSS) {
-      // 小さな遅延を入れてからiframeの高さを調整
-      const adjustHeightWithDelay = () => {
-        setTimeout(() => {
-          adjustIframeHeight();
-        }, 300); // 300ミリ秒後に高さを調整
-      };
+      // 遅延を入れて高さを調整
+      const timer = setTimeout(() => {
+        adjustIframeHeight();
+      }, 500);
 
-      // コンテンツが読み込まれた後に高さを調整
-      const iframe = previewRef.current;
-      iframe.onload = adjustHeightWithDelay;
-
-      // 初回レンダリング後にも高さを調整
-      adjustHeightWithDelay();
-
-      // オブザーバーを設定して動的なコンテンツ変更を監視
-      try {
-        const iframeWindow = iframe.contentWindow;
-        if (iframeWindow) {
-          // リサイズイベントのリスナーを追加
-          iframeWindow.addEventListener('resize', adjustHeightWithDelay);
-
-          // MutationObserverを使用してDOMの変更を監視
-          const iframeDocument = iframe.contentDocument || iframeWindow.document;
-          const iframeContentObserver = new MutationObserver(() => {
-            // 変更が検出されたら少し遅延させて高さを調整
-            adjustHeightWithDelay();
-          });
-
-          iframeContentObserver.observe(iframeDocument.body, {
-            childList: true,
-            subtree: true,
-            attributes: true
-          });
-
-          // 高さを更新する関数を定義
-          const updateHeight = () => {
-            adjustIframeHeight();
-          };
-
-          // 遅延して高さを更新する関数
-          const debouncedUpdateHeight = () => {
-            clearTimeout(window.resizeTimer);
-            window.resizeTimer = setTimeout(updateHeight, 100);
-          };
-
-          // ページ読み込み完了時に実行
-          window.addEventListener('load', function () {
-            // すぐに一度実行
-            updateHeight();
-          });
-
-          // リサイズイベント時も高さを更新
-          window.addEventListener('resize', debouncedUpdateHeight);
-        }
-      } catch (error) {
-        console.error("iframe観測設定中にエラーが発生しました:", error);
-      }
+      return () => clearTimeout(timer);
     }
-  }, [editingHTML, editingCSS, previewWidth]); // previewWidthも依存関係に追加
+  }, [editingHTML, editingCSS, previewWidth]);
 
   // プレビュー更新
   useEffect(() => {
@@ -909,8 +822,10 @@ const AICodeGenerator = () => {
               // HTML内容を更新
               iframeDoc.body.innerHTML = editingHTML;
 
-              // 高さを調整
-              adjustIframeHeight();
+              // 高さを調整（少し遅延させて確実に反映）
+              setTimeout(() => {
+                adjustIframeHeight();
+              }, 100);
             } catch (error) {
               console.error('プレビュー更新中にエラーが発生しました:', error);
             }
@@ -925,6 +840,39 @@ const AICodeGenerator = () => {
       }
     }
   }, [editingHTML, editingCSS, previewWidth, breakpoints, responsiveMode]);
+
+  // iframeの高さが変わったときにプレビューコンテナの高さも更新
+  useEffect(() => {
+    // この処理が頻繁に実行されないよう、遅延を入れる
+    const timer = setTimeout(() => {
+      if (previewContainerRef.current) {
+        // 親コンテナの実際の幅を取得
+        const containerWidth = previewContainerRef.current.clientWidth - 40; // パディングなどを考慮
+
+        // スケール率を計算（親コンテナに対する比率）
+        const scale = Math.min(1, containerWidth / previewWidth);
+
+        // iframeの高さをスケールに合わせて調整
+        const scaledHeight = iframeHeight * scale;
+
+        // ヘッダーとパディングの高さを考慮
+        const headerHeight = 60; // プレビューヘッダーの高さ
+        const paddingHeight = 40; // 上下のパディング
+
+        // 親コンテナの最終高さを計算
+        const containerHeight = scaledHeight + headerHeight + paddingHeight;
+
+        // 最小高さを400pxに設定
+        const finalHeight = Math.max(400, containerHeight);
+
+        // 高さを設定
+        previewContainerRef.current.style.height = previewWidth > 1000 ? `${finalHeight}px` : 'auto';
+        previewContainerRef.current.style.minHeight = `${Math.max(400, finalHeight)}px`;
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [iframeHeight, previewWidth]);
 
   // スケールの計算
   const calculateScale = () => {
@@ -948,67 +896,29 @@ const AICodeGenerator = () => {
     }
   };
 
-  // ウィンドウサイズが変わった時にスケールを再計算
+  // ウィンドウサイズが変わった時にスケールを再計算（デバウンス処理追加）
   useEffect(() => {
-    calculateScale();
+    // スケール計算関数をデバウンス処理
+    let resizeTimeout;
     const handleResize = () => {
-      calculateScale();
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        calculateScale();
+      }, 200); // 200ms以内の連続イベントを無視
     };
 
+    // 初回計算
+    calculateScale();
+
+    // リサイズイベントリスナー設定
     window.addEventListener('resize', handleResize);
+
+    // クリーンアップ関数
     return () => {
       window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimeout);
     };
-  }, [previewWidth]);
-
-  // プレビュー幅が変わった時にスケールを更新
-  useEffect(() => {
-    calculateScale();
-  }, [previewWidth]);
-
-  // プレビュー幅が変わった時に確実にスケールを更新
-  useEffect(() => {
-    // スケールの計算を少し遅らせることで、DOM更新後の正確な値を取得
-    setTimeout(() => {
-      calculateScale();
-
-      // 複数回呼び出すことで、レンダリング完了後の正確な値を取得
-      setTimeout(calculateScale, 100);
-    }, 50);
-  }, [previewWidth]);
-
-  // iframeの高さが変わったときにプレビューコンテナの高さも更新
-  useEffect(() => {
-    if (previewWidth > 1000 && previewContainerRef.current) {
-      // スケール率を計算
-      const scale = 1022 / previewWidth;
-
-      // iframeの元の高さを取得
-      const originalHeight = iframeHeight;
-
-      // プレビューヘッダーの高さを考慮（およそ100px）
-      const headerHeight = 100;
-
-      // プレビューコンテナの上下パディングを考慮（およそ50px）
-      const paddingHeight = 50;
-
-      // スケールされた高さ + ヘッダー + パディング
-      const scaledTotalHeight = (originalHeight * scale) + headerHeight + paddingHeight;
-
-      // 最小高さを確保
-      const finalHeight = Math.max(500, scaledTotalHeight);
-
-      console.log(`プレビューコンテナの高さを調整: 元の高さ=${originalHeight}px, スケール=${scale}, 計算後の高さ=${finalHeight}px`);
-
-      // 高さを設定
-      previewContainerRef.current.style.height = `${finalHeight}px`;
-      previewContainerRef.current.style.minHeight = `${finalHeight}px`;
-    } else if (previewContainerRef.current) {
-      // 小さいサイズの場合はautoに戻す
-      previewContainerRef.current.style.height = 'auto';
-      previewContainerRef.current.style.minHeight = '500px';
-    }
-  }, [iframeHeight, previewWidth]);
+  }, [previewWidth]); // previewWidthが変わったときだけ再設定
 
   // ドラッグ処理の開始
   const handleDragStart = (e) => {
@@ -4383,10 +4293,12 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               className="preview-iframe-container"
               style={{
                 width: `${previewWidth}px`,
-                transform: previewWidth > 1000 ? `scale(calc(1022/${previewWidth}))` : 'none', // 1000px以下ではスケールを適用しない
+                transform: previewWidth > 1000 ? `scale(${Math.min(1, (previewContainerRef.current?.clientWidth - 40) / previewWidth)})` : 'none',
                 transformOrigin: 'top left',
-                height: `${Number(iframeHeight) + 20}px`,
-                minHeight: `${(Math.max(400, iframeHeight) + 20) * (previewWidth > 1000 ? (1022 / previewWidth) : 1)}px` // 1000px以下では通常の高さを使用
+                height: `${Number(iframeHeight)}px`,
+                // 親コンテナに合わせて高さを設定し、縦スクロールを回避
+                maxWidth: '100%',
+                marginBottom: previewWidth > 1000 ? '20px' : '0'
               }}
             >
               <iframe
@@ -4396,7 +4308,8 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 style={{
                   width: `${previewWidth}px`,
                   height: `${iframeHeight}px`,
-                  overflow: 'auto'
+                  border: 'none',
+                  overflow: 'visible'
                 }}
                 scrolling="auto"
               ></iframe>
