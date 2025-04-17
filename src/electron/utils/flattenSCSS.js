@@ -43,8 +43,8 @@ const flattenSCSS = (scss) => {
         continue;
       }
 
-      // 💡 無効なカラー変数マッピング行をスキップ
-      if (/^#[0-9a-fA-F]{6}:\s*\$?[\w-]+;/.test(trimmed)) {
+      // 💡 カラーorフォントマッピングっぽい無効行をスキップ
+      if (/^#[0-9a-fA-F]{6}:\s*[^;]+;/.test(trimmed)) {
         continue;
       }
 

@@ -1176,28 +1176,22 @@ $radius-xl: 16px;
         position: relative;
         margin-bottom: $spacing-lg;
         display: flex;
-        justify-content: flex-start;
+        justify-content: center;
         align-items: flex-start;
         min-height: 400px;
-        overflow: visible;
-        transition: all 0.3s ease;
         transform-origin: top left !important;
-
-        &[style*="width: 1440px"],
-        &[style*="width: 1920px"] {
-          box-sizing: border-box;
-          margin-bottom: $spacing-xl;
-        }
+        transition: all 0.3s ease;
+        box-sizing: border-box;
+        overflow: visible;
 
         .preview-iframe {
           border: none;
           background-color: white;
           box-shadow: 0 4px 15px rgba($primary-color, 0.15);
           border-radius: $radius-md;
-          overflow: auto;
           max-width: 100%;
           transition: all 0.3s ease;
-          transform-origin: top left;
+          transform-origin: top left !important;
         }
       }
     }

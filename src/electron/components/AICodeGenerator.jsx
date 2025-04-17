@@ -20,6 +20,7 @@ import "../styles/AICodeGenerator.scss";
 import 'highlight.js/styles/github.css';
 import Header from './Header';
 import { detectScssBlocks, detectHtmlBlocks } from "../utils/codeParser";
+// import * as sass from 'sass'; // SCSSコンパイル用にsassをインポート
 
 const LOCAL_STORAGE_KEY = "ai_code_generator_state";
 
@@ -215,6 +216,203 @@ const analyzeImageText = async (file, updateProgress) => {
   });
 };
 
+// SCSSをCSSに擬似的に変換する関数
+const processSCSS = (scssCode, breakpointsArr = []) => {
+  if (!scssCode) return '';
+
+  try {
+    let processedCSS = scssCode;
+
+    // 変数の抽出と保存
+    const variables = {};
+    const variableRegex = /\$([\w-]+):\s*([^;]+);/g;
+    let variableMatch;
+
+    while ((variableMatch = variableRegex.exec(scssCode)) !== null) {
+      const [_, name, value] = variableMatch;
+      variables['$' + name] = value.trim();
+    }
+
+    console.log('SCSSから抽出した変数:', variables);
+
+    // 変数の置換
+    Object.keys(variables).forEach(variable => {
+      const regex = new RegExp(variable.replace('$', '\\$'), 'g');
+      processedCSS = processedCSS.replace(regex, variables[variable]);
+    });
+
+    // ブレークポイントマップを動的に作成
+    const bpMap = {};
+    if (Array.isArray(breakpointsArr) && breakpointsArr.length > 0) {
+      breakpointsArr.forEach(bp => {
+        if (bp.active && bp.name && bp.value) {
+          bpMap[bp.name] = bp.value.toString();
+        }
+      });
+    } else {
+      // デフォルト値
+      bpMap['sm'] = '576';
+      bpMap['md'] = '768';
+      bpMap['lg'] = '992';
+      bpMap['xl'] = '1200';
+      bpMap['xxl'] = '1400';
+    }
+
+    console.log('使用するブレークポイント:', bpMap);
+
+    // @include mq(name) パターンを @media (min-width: Xpx) に変換
+    const mqRegex = /@include\s+mq\((\w+)\)\s*{([^}]*)}/gs;
+    let mqMatch;
+
+    while ((mqMatch = mqRegex.exec(processedCSS)) !== null) {
+      const [fullMatch, bpName, content] = mqMatch;
+      const bpValue = bpMap[bpName] || '768'; // デフォルト値
+
+      // @mediaクエリに変換
+      const mediaQuery = `@media (min-width: ${bpValue}px) {${content}}`;
+
+      // 元のコードを置換
+      processedCSS = processedCSS.replace(fullMatch, mediaQuery);
+    }
+
+    // @breakpoint(name) パターンも同様に処理
+    const bpRegex = /@breakpoint\((\w+)\)\s*{([^}]*)}/gs;
+    let bpMatch;
+
+    while ((bpMatch = bpRegex.exec(processedCSS)) !== null) {
+      const [fullMatch, bpName, content] = bpMatch;
+      const bpValue = bpMap[bpName] || '768'; // デフォルト値
+
+      // @mediaクエリに変換
+      const mediaQuery = `@media (min-width: ${bpValue}px) {${content}}`;
+
+      // 元のコードを置換
+      processedCSS = processedCSS.replace(fullMatch, mediaQuery);
+    }
+
+    console.log('SCSS疑似変換完了');
+    return processedCSS;
+  } catch (error) {
+    console.error('SCSS処理中にエラーが発生しました:', error);
+    return scssCode; // エラー時は元のコードを返す
+  }
+};
+
+// SCSSをリアルタイムでコンパイルしてiframeに反映する関数
+const compileAndUpdatePreview = async (htmlCode, scssCode, iframeRef, viewportWidth = 375, setProcessedCSSFunc = null) => {
+  try {
+    if (!window.Sass) {
+      console.error('Sass.js（ブラウザ用Sassコンパイラ）が見つかりません');
+      return false;
+    }
+
+    // Sassコンパイル
+    const compiled = await new Promise((resolve, reject) => {
+      const sass = new window.Sass();
+      sass.compile(scssCode, (result) => {
+        if (result.status === 0) {
+          resolve(result.text); // 正常
+        } else {
+          console.error('SCSSコンパイルエラー:', result.formatted);
+          reject(new Error(result.formatted)); // エラー
+        }
+      });
+    });
+
+    // 保存用のデータも更新
+    if (setProcessedCSSFunc && typeof setProcessedCSSFunc === 'function') {
+      setProcessedCSSFunc(compiled);
+    }
+
+    // iframeの中にHTMLとコンパイル済みCSSを流し込む
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      console.error('iframeが見つかりません');
+      return false;
+    }
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=${viewportWidth}">
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+          }
+          ${compiled}
+        </style>
+      </head>
+      <body>
+        ${htmlCode}
+      </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    console.log('✅ プレビュー更新完了（コンパイル済みCSS適用）');
+    return true;
+  } catch (error) {
+    console.error('❌ プレビュー更新失敗:', error);
+    return false;
+  }
+};
+
+// iframe内のHTMLとCSSを直接更新する関数（Sass.jsがない場合のフォールバック）
+const updateIframeWithCSS = (htmlCode, cssCode, iframeRef, viewportWidth = 375, setProcessedCSSFunc = null) => {
+  try {
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      console.error('iframeが見つかりません');
+      return false;
+    }
+
+    // 保存用のデータも更新
+    if (setProcessedCSSFunc && typeof setProcessedCSSFunc === 'function') {
+      setProcessedCSSFunc(cssCode);
+    }
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=${viewportWidth}">
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+          }
+          ${cssCode}
+        </style>
+      </head>
+      <body>
+        ${htmlCode}
+      </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    console.log('✅ プレビュー更新完了（フォールバックCSS適用）');
+    return true;
+  } catch (error) {
+    console.error('❌ プレビュー更新失敗:', error);
+    return false;
+  }
+};
+
 const AICodeGenerator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [generatedHTML, setGeneratedHTML] = useState("");
@@ -226,6 +424,11 @@ const AICodeGenerator = () => {
   // リロード防止用のフラグを追加
   const [isPreventingReload, setIsPreventingReload] = useState(false);
   const generatedCodeRef = useRef(null);
+
+  // エラーと更新状態の管理
+  const [error, setError] = useState(null);
+  const [updating, setUpdating] = useState(false);
+  const [processedCSS, setProcessedCSS] = useState("");
 
   // レスポンシブ設定
   const [responsiveMode, setResponsiveMode] = useState("sp");
@@ -262,6 +465,8 @@ const AICodeGenerator = () => {
   const [customSizeInput, setCustomSizeInput] = useState("");
   const [showCustomSizeInput, setShowCustomSizeInput] = useState(false);
   const [scaleRatio, setScaleRatio] = useState(1);
+  const [selectedPreviewSize, setSelectedPreviewSize] = useState("sp");
+  const [customWidth, setCustomWidth] = useState(1440);
 
   // 保存から除外するブロックを管理
   const [excludedBlocks, setExcludedBlocks] = useState([]);
@@ -309,6 +514,109 @@ const AICodeGenerator = () => {
   const [blockName, setBlockName] = useState("component"); // デフォルトのブロック名
 
   // プレビュー関連の状態管理
+
+  // プレビュー更新を強制的に走らせる用（サイズ変更後すぐ）
+  const forceUpdatePreview = async (width) => {
+    if (!previewRef.current) return;
+    const iframe = previewRef.current;
+    iframe.style.width = `${width}px`;
+
+    try {
+      let success = false;
+
+      // Sass.jsが利用可能かチェック
+      if (window.Sass) {
+        // Sass.jsを使ってSCSSをコンパイル
+        console.log('Sass.jsを使用してSCSSをコンパイルします');
+        success = await compileAndUpdatePreview(editingHTML || '', editingCSS || '', previewRef, width, setProcessedCSS);
+      } else {
+        // Sass.jsがない場合はprocessSCSSでフォールバック
+        console.log('Sass.jsが利用できないため、フォールバック処理を使用します');
+        const fallbackCSS = processSCSS(editingCSS || '', breakpoints);
+        success = updateIframeWithCSS(editingHTML || '', fallbackCSS, previewRef, width, setProcessedCSS);
+      }
+
+      // 高さを調整
+      if (success) {
+        setTimeout(() => {
+          adjustIframeHeight();
+          adjustPreviewContainerHeight();
+        }, 200);
+      } else {
+        // どちらのアプローチも失敗した場合
+        console.error('プレビュー更新に失敗しました。生のCSSを使用します。');
+
+        // 最終手段としてスタイルなしでHTMLを表示
+        setProcessedCSS(editingCSS); // 処理前のCSSで更新
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=${width}">
+            <style>
+              html, body {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                width: 100%;
+                height: 100%;
+              }
+              ${editingCSS || ''}
+            </style>
+          </head>
+          <body>
+            ${editingHTML || ''}
+          </body>
+          </html>
+        `);
+        iframeDoc.close();
+
+        // 高さを調整
+        setTimeout(() => {
+          adjustIframeHeight();
+          adjustPreviewContainerHeight();
+        }, 200);
+      }
+    } catch (error) {
+      console.error('プレビュー更新中にエラーが発生しました:', error);
+    }
+  };
+
+  // プレビューサイズ変更のハンドラー
+  const handlePreviewSizeChange = (size) => {
+    setSelectedPreviewSize(size);
+
+    let width;
+    switch (size) {
+      case 'sp':
+        width = 375;
+        break;
+      case 'tablet':
+        width = 768;
+        break;
+      case 'pc':
+        width = 1440;
+        break;
+      case 'wide':
+        width = 1920;
+        break;
+      case 'custom':
+        width = customWidth || 1440;
+        break;
+      default:
+        width = 375;
+    }
+
+    setPreviewWidth(width);
+
+    // プレビューを即時更新
+    setTimeout(async () => {
+      await forceUpdatePreview(width);
+    }, 0);
+  };
 
   // 初期化処理（プロジェクト設定を読み込む）
   useEffect(() => {
@@ -412,6 +720,11 @@ const AICodeGenerator = () => {
     };
 
     loadResponsiveSettings();
+
+    // 初期表示のためにプレビューを更新
+    setTimeout(async () => {
+      await forceUpdatePreview(previewWidth);
+    }, 500); // 初回は少し長めの遅延
   }, []);
 
   // HTMLファイル一覧の取得
@@ -508,28 +821,63 @@ const AICodeGenerator = () => {
     }
   }, [generatedHTML, generatedCSS]);
 
-  // iframeのコンテンツの高さに基づいてiframeの高さを調整する関数
+  // プレビューコンテナ全体の高さを調整する関数
+  const adjustPreviewContainerHeight = () => {
+    const iframe = previewRef.current;
+    const container = previewContainerRef.current;
+
+    if (!iframe || !container) return;
+
+    // iframeの中身の高さを取得
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    const iframeContentHeight =
+      iframeDoc?.body?.scrollHeight ||
+      iframeDoc?.documentElement?.scrollHeight ||
+      600; // 最低値
+
+    // ヘッダーの高さを取得（実際のDOM要素から取得するのがベスト）
+    const header = container.querySelector('.preview-header');
+    const headerHeight = header?.offsetHeight || 60; // ヘッダーがなければデフォルト値
+
+    const padding = 60; // 上下の余白
+    const scale = scaleRatio; // 現在のスケール率
+
+    // スケーリングされた高さを計算
+    const scaledHeight = iframeContentHeight * scale;
+    const finalHeight = Math.max(400, Math.ceil(scaledHeight + headerHeight + padding));
+
+    console.log(`プレビューコンテナ高さ調整: iframeContent=${iframeContentHeight}px, scale=${scale}, scaled=${scaledHeight}px, header=${headerHeight}px, final=${finalHeight}px`);
+
+    // コンテナの高さを設定
+    container.style.height = `${finalHeight}px`;
+    container.style.minHeight = `${finalHeight}px`;
+  };
+
+  // iframeの高さ調整（iframeの内部高さのみを設定）
   const adjustIframeHeight = () => {
     try {
       if (previewRef.current) {
         const iframe = previewRef.current;
         const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
 
-        // 実際のコンテンツ領域のサイズを取得（余白込み）
+        // 実際のコンテンツ領域のサイズを取得
         const bodyHeight = Math.max(
           iframeDocument.body.scrollHeight,
           iframeDocument.documentElement.scrollHeight,
           iframeDocument.body.offsetHeight,
-          iframeDocument.documentElement.offsetHeight
+          iframeDocument.documentElement.offsetHeight,
+          600 // 最低値
         );
 
-        // コンテンツの高さから最適な高さを計算
-        const newHeight = Math.max(bodyHeight + 50, 400); // 余白分も追加
+        // 高さが大きく変わる場合のみ更新
+        if (Math.abs(bodyHeight - iframeHeight) > 20) {
+          console.log(`iframe内部高さ調整: ${iframeHeight}px → ${bodyHeight}px`);
+          setIframeHeight(bodyHeight);
 
-        // 現在の高さと新しい高さが大きく異なる場合のみ更新
-        if (Math.abs(newHeight - iframeHeight) > 20) {
-          console.log(`iframeの高さを調整: ${iframeHeight}px → ${newHeight}px`);
-          setIframeHeight(newHeight);
+          // iframeHeightが変わったので、少し遅らせてコンテナ全体の高さも調整
+          setTimeout(() => {
+            adjustPreviewContainerHeight();
+          }, 500);
         }
       }
     } catch (error) {
@@ -742,99 +1090,123 @@ const AICodeGenerator = () => {
 
         // メディアクエリの処理
         const processBreakpoints = (css) => {
-          if (breakpoints && breakpoints.length > 0) {
-            // アクティブなブレークポイントのマップを作成
-            const bpMap = {};
-            breakpoints.forEach(bp => {
-              if (bp.active) {
-                bpMap[bp.name] = bp.value;
-                console.log(`ブレークポイント "${bp.name}" (${bp.value}px) を使用します`);
-              }
-            });
+          if (!css) return css;
 
-            // メディアクエリのパターンを修正 - s修飾子を追加して複数行に対応
-            const mqBlockPattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]*)}/gs;
-            let processedCss = css;
-            let match;
+          // breakpoints関数の処理
+          const breakpointRegex = /@breakpoint\((\w+)\) {([^}]*)}/g;
+          let processedCss = css;
+          let match;
 
-            console.log('メディアクエリの変換を開始します');
-            console.log('現在のブレークポイント設定:', bpMap);
-
-            // 文字列をクローンして検索
-            const cssClone = css.toString();
-            const matches = Array.from(cssClone.matchAll(mqBlockPattern));
-            console.log(`検出されたメディアクエリ: ${matches.length}個`);
-
-            if (matches.length === 0) {
-              console.log('CSS内にメディアクエリが見つかりませんでした');
-              return css;
+          // ブレークポイント名から値へのマッピング
+          const bpMap = {};
+          breakpoints.forEach(bp => {
+            if (bp.active) {
+              bpMap[bp.name] = bp.value;
             }
+          });
 
-            while ((match = mqBlockPattern.exec(css)) !== null) {
-              const [fullMatch, bpName, content] = match;
-              console.log(`メディアクエリを検出: @include mq(${bpName})`);
+          // すべてのブレークポイント関数を検索
+          while ((match = breakpointRegex.exec(css)) !== null) {
+            const [fullMatch, bpName, content] = match;
 
-              // 設定されているブレークポイントのみを処理
-              if (bpMap[bpName]) {
-                const mediaQueryStart = responsiveMode === "sp"
-                  ? `@media (min-width: ${bpMap[bpName]}px)`
-                  : `@media (max-width: ${bpMap[bpName]}px)`;
+            // 設定されているブレークポイントのみを処理
+            if (bpMap[bpName]) {
+              const mediaQueryStart = `@media (min-width: ${bpMap[bpName]}px)`;
 
-                // セレクタと中身を抽出
-                const contentLines = content.trim().split('\n');
-                const processedContent = contentLines
-                  .map(line => line.trim())
-                  .filter(line => line)
-                  .join('\n  ');
+              // セレクタと中身を抽出
+              const contentLines = content.trim().split('\n');
+              const processedContent = contentLines
+                .map(line => line.trim())
+                .filter(line => line)
+                .join('\n  ');
 
-                const replacement = `${mediaQueryStart} {\n  ${processedContent}\n}`;
-                processedCss = processedCss.replace(fullMatch, replacement);
-
-                console.log(`メディアクエリを変換: ${bpName} → ${mediaQueryStart}`);
-              } else {
-                // 未設定のブレークポイントは削除
-                processedCss = processedCss.replace(fullMatch, '');
-                console.warn(`未設定のブレークポイント "${bpName}" をスキップします`);
-              }
+              const replacement = `${mediaQueryStart} {\n  ${processedContent}\n}`;
+              processedCss = processedCss.replace(fullMatch, replacement);
+            } else {
+              // 未設定のブレークポイントは削除
+              processedCss = processedCss.replace(fullMatch, '');
             }
-
-            return processedCss;
           }
-          return css;
+
+          return processedCss;
         };
 
-        // iframe内のプレビューを更新する関数
-        const updatePreview = (processedCSS) => {
+        // remをpxに変換する関数
+        const convertRemToPx = (remValue) => {
+          // デフォルトのベースフォントサイズは16px
+          const baseFontSize = 16;
+          // remの値を数値に変換
+          const numericValue = parseFloat(remValue.replace('rem', ''));
+          // pxに変換して返す
+          return numericValue * baseFontSize;
+        };
+
+        // CSSのプロパティのremをpxに変換（必要に応じて）
+        const processRemValues = (css) => {
+          if (!css) return css;
+
+          // remを含むプロパティを検出する正規表現
+          const remPattern = /([0-9.]+)rem/g;
+
+          // すべてのrem値をpxに変換
+          return css.replace(remPattern, (match, value) => {
+            const pxValue = convertRemToPx(match);
+            return `${pxValue}px`;
+          });
+        };
+
+        // プレビュー更新時のCSS処理を行う関数
+        const updatePreviewWithProcessedCSS = (processedCSS) => {
           if (previewRef.current) {
             try {
               // iframeのdocumentを取得
-              const iframeDoc = previewRef.current.contentDocument || previewRef.current.contentWindow.document;
+              const iframe = previewRef.current;
+              const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
 
-              // スタイル要素を作成・更新
-              let styleElement = iframeDoc.getElementById('preview-styles');
-              if (!styleElement) {
-                styleElement = iframeDoc.createElement('style');
-                styleElement.id = 'preview-styles';
-                iframeDoc.head.appendChild(styleElement);
-              }
-              styleElement.textContent = processedCSS;
-
-              // HTML内容を更新
-              iframeDoc.body.innerHTML = editingHTML;
+              // 基本的なHTMLドキュメントを構築（viewportメタタグを現在のプレビュー幅に合わせる）
+              iframeDoc.open();
+              iframeDoc.write(`
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=${previewWidth}">
+                    <style>
+                      html, body {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                        width: 100%;
+                        height: 100%;
+                      }
+                      ${processedCSS}
+                    </style>
+                  </head>
+                  <body>
+                    ${editingHTML}
+                  </body>
+                  </html>
+                `);
+              iframeDoc.close();
 
               // 高さを調整（少し遅延させて確実に反映）
               setTimeout(() => {
                 adjustIframeHeight();
-              }, 100);
+                adjustPreviewContainerHeight();
+              }, 200);
+
+              console.log(`プレビュー更新: viewport幅=${previewWidth}px に設定しました`);
             } catch (error) {
               console.error('プレビュー更新中にエラーが発生しました:', error);
             }
           }
         };
 
+        // エラー処理用のupdatePreview関数
+        const updatePreview = (processedCSS) => updatePreviewWithProcessedCSS(processedCSS);
+
         // 非同期処理を開始
         loadColorVariables();
-
       } catch (error) {
         console.error("プレビュー更新中にエラーが発生しました:", error);
       }
@@ -845,56 +1217,18 @@ const AICodeGenerator = () => {
   useEffect(() => {
     // この処理が頻繁に実行されないよう、遅延を入れる
     const timer = setTimeout(() => {
-      if (previewContainerRef.current) {
-        // 親コンテナの実際の幅を取得
-        const containerWidth = previewContainerRef.current.clientWidth - 40; // パディングなどを考慮
-
-        // スケール率を計算（親コンテナに対する比率）
-        const scale = Math.min(1, containerWidth / previewWidth);
-
-        // iframeの高さをスケールに合わせて調整
-        const scaledHeight = iframeHeight * scale;
-
-        // ヘッダーとパディングの高さを考慮
-        const headerHeight = 60; // プレビューヘッダーの高さ
-        const paddingHeight = 40; // 上下のパディング
-
-        // 親コンテナの最終高さを計算
-        const containerHeight = scaledHeight + headerHeight + paddingHeight;
-
-        // 最小高さを400pxに設定
-        const finalHeight = Math.max(400, containerHeight);
-
-        // 高さを設定
-        previewContainerRef.current.style.height = previewWidth > 1000 ? `${finalHeight}px` : 'auto';
-        previewContainerRef.current.style.minHeight = `${Math.max(400, finalHeight)}px`;
+      if (previewContainerRef.current && previewRef.current) {
+        adjustPreviewContainerHeight();
       }
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [iframeHeight, previewWidth]);
+  }, [iframeHeight, previewWidth, scaleRatio]);
 
-  // スケールの計算
-  const calculateScale = () => {
-    if (previewContainerRef.current && previewWidth > 1000) {
-      // プレビューコンテナの実際の幅を取得
-      const containerRect = previewContainerRef.current.getBoundingClientRect();
-
-      // パディングとボーダーなどを考慮して、利用可能な実際の幅を計算
-      // getPaddingの代わりにdirectに数値を指定（両側合わせて40px）
-      const availableWidth = containerRect.width - 40;
-
-      // より正確なスケール計算
-      // 小数点第6位まで計算して、より正確なスケール値を得る
-      const scale = Math.min(1, parseFloat((availableWidth / previewWidth).toFixed(6)));
-
-      console.log(`プレビューコンテナ幅: ${containerRect.width}px、利用可能幅: ${availableWidth}px、プレビュー幅: ${previewWidth}px、計算されたスケール: ${scale}`);
-
-      setScaleRatio(scale);
-    } else {
-      setScaleRatio(1);
-    }
-  };
+  // プレビューサイズが変わったときにスケールを再計算
+  useEffect(() => {
+    calculateScale();
+  }, [previewWidth]);
 
   // ウィンドウサイズが変わった時にスケールを再計算（デバウンス処理追加）
   useEffect(() => {
@@ -904,11 +1238,9 @@ const AICodeGenerator = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         calculateScale();
+        adjustPreviewContainerHeight();
       }, 200); // 200ms以内の連続イベントを無視
     };
-
-    // 初回計算
-    calculateScale();
 
     // リサイズイベントリスナー設定
     window.addEventListener('resize', handleResize);
@@ -919,6 +1251,41 @@ const AICodeGenerator = () => {
       clearTimeout(resizeTimeout);
     };
   }, [previewWidth]); // previewWidthが変わったときだけ再設定
+
+  // スケールの計算
+  const calculateScale = () => {
+    if (!previewContainerRef.current) {
+      setScaleRatio(1);
+      return;
+    }
+
+    // プレビューコンテナの実際の幅を取得
+    const containerRect = previewContainerRef.current.getBoundingClientRect();
+
+    // パディングとボーダーなどを考慮して、利用可能な実際の幅を計算
+    const availableWidth = containerRect.width - 40; // 左右のパディング
+
+    // より正確なスケール計算（小数点以下6桁まで保持）
+    const scale = Math.min(1, parseFloat((availableWidth / previewWidth).toFixed(6)));
+
+    console.log(`スケール計算: コンテナ幅=${containerRect.width}px, 使用可能幅=${availableWidth}px, プレビュー幅=${previewWidth}px, 計算スケール=${scale}`);
+
+    // スケールを設定して適用
+    setScaleRatio(scale);
+
+    // previewIframeContainerにスケールを直接適用
+    const previewIframeContainer = document.querySelector('.preview-iframe-container');
+    if (previewIframeContainer) {
+      previewIframeContainer.style.width = `${previewWidth}px`; // ← ここが重要！
+      previewIframeContainer.style.transform = `scale(${scale})`;
+      previewIframeContainer.style.transformOrigin = 'top left';
+    }
+
+    // コンテナの高さも調整（少し遅延させて確実に反映）
+    setTimeout(() => {
+      adjustPreviewContainerHeight();
+    }, 50);
+  };
 
   // ドラッグ処理の開始
   const handleDragStart = (e) => {
@@ -950,18 +1317,44 @@ const AICodeGenerator = () => {
 
   // プレビューサイズのリセット
   const resetPreviewSize = (size) => {
-    setPreviewWidth(size);
-    setShowCustomSizeInput(false);
+    let sizeKey = 'sp';
+
+    // サイズ値からサイズキーを特定
+    switch (size) {
+      case 375:
+        sizeKey = 'sp';
+        break;
+      case 768:
+        sizeKey = 'tablet';
+        break;
+      case 1440:
+        sizeKey = 'pc';
+        break;
+      case 1920:
+        sizeKey = 'wide';
+        break;
+      default:
+        sizeKey = 'sp';
+    }
+
+    // handlePreviewSizeChangeを呼び出す
+    handlePreviewSizeChange(sizeKey);
   };
 
   // カスタムサイズの適用
   const applyCustomSize = () => {
-    const size = parseInt(customSizeInput, 10);
-    if (!isNaN(size) && size >= 320 && size <= 2560) {
-      setPreviewWidth(size);
-      setShowCustomSizeInput(false);
-    } else {
-      alert("320px〜2560pxの間で入力してください。");
+    if (customSizeInput) {
+      const width = parseInt(customSizeInput, 10);
+      if (width >= 320 && width <= 2560) {
+        setCustomWidth(width);
+        setPreviewWidth(width);
+        setShowCustomSizeInput(false);
+
+        // カスタムサイズ変更後にプレビューを強制更新
+        setTimeout(() => {
+          forceUpdatePreview(width);
+        }, 0);
+      }
     }
   };
 
@@ -1186,47 +1579,111 @@ const AICodeGenerator = () => {
   // 編集したコードを反映
   const handleUpdateCode = async () => {
     try {
-      // 編集内容を表示用の状態変数に保存
-      setGeneratedHTML(editingHTML);
-      setGeneratedCSS(editingCSS);
+      setUpdating(true);
+      setError(null);
 
-      // CSS内のremをpxに変換（CSSのみ）
-      const remCss = convertRemToPx(editingCSS);
+      // CSSを更新
+      if (editingCSS !== generatedCSS) {
+        // CSSの前処理（remの変換など必要な処理があれば）
+        let processedCSS = editingCSS;
 
-      try {
-        // AIが生成したHEX値を変数に置き換える
-        const { modifiedCode: cssWithVars, replacedCount } = await replaceHexWithVariables(remCss);
+        // remをpxに変換する関数
+        const convertRemToPx = (remValue) => {
+          // デフォルトのベースフォントサイズは16px
+          const baseFontSize = 16;
+          // remの値を数値に変換
+          const numericValue = parseFloat(remValue.replace('rem', ''));
+          // pxに変換して返す
+          return numericValue * baseFontSize;
+        };
 
-        // 置換結果のログ出力
-        if (replacedCount > 0) {
-          console.log(`${replacedCount}個のHEX値を変数に変換しました`);
-        } else {
-          console.log("変換対象のHEX値は見つかりませんでした");
-        }
+        // CSSのプロパティのremをpxに変換
+        const processRemValues = (css) => {
+          if (!css) return css;
+          // remを含むプロパティを検出する正規表現
+          const remPattern = /([0-9.]+)rem/g;
+          // すべてのrem値をpxに変換
+          return css.replace(remPattern, (match, value) => {
+            const pxValue = convertRemToPx(match);
+            return `${pxValue}px`;
+          });
+        };
 
-        // SCSS内のBreakpoint記述を処理
-        const processedWithBreakpoints = processBreakpoints(cssWithVars);
+        // プレビュー更新関数
+        const updatePreview = (css) => {
+          if (previewRef.current) {
+            try {
+              // iframeのdocumentを取得
+              const iframe = previewRef.current;
+              const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
 
-        // CSSをプレビューに適用
-        updatePreview(processedWithBreakpoints);
+              // 基本的なHTMLドキュメントを構築
+              iframeDoc.open();
+              iframeDoc.write(`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=${previewWidth}">
+                <style>
+                  html, body {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                    width: 100%;
+                    height: 100%;
+                  }
+                  ${css}
+                </style>
+              </head>
+              <body>
+                ${editingHTML}
+              </body>
+              </html>
+            `);
+              iframeDoc.close();
 
-        // 編集モードから表示モードに切り替え
-        setIsEditing(false);
-      } catch (colorProcessingError) {
-        console.error("色変数処理中にエラーが発生しました:", colorProcessingError);
-        // エラー時は基本処理のみ適用
-        updatePreview(remCss);
-        setIsEditing(false);
+              // 高さを調整（少し遅延させて確実に反映）
+              setTimeout(() => {
+                adjustIframeHeight();
+                adjustPreviewContainerHeight();
+              }, 200);
+
+              console.log(`プレビュー更新: viewport幅=${previewWidth}px に設定しました`);
+            } catch (error) {
+              console.error('プレビュー更新中にエラーが発生しました:', error);
+            }
+          }
+        };
+
+        // remをpxに変換（必要に応じて）
+        processedCSS = processRemValues(processedCSS);
+
+        // プレビューを更新
+        updatePreview(processedCSS);
+
+        // 保存用のデータも更新
+        setProcessedCSS(processedCSS);
+        console.log("CSSを更新しました");
       }
+
+      // HTMLを更新
+      if (editingHTML !== generatedHTML) {
+        console.log("HTMLを更新しました");
+      }
+
+      setUpdating(false);
     } catch (error) {
       console.error("コード更新中にエラーが発生しました:", error);
+      setError("コードの更新中にエラーが発生しました。");
       try {
-        // エラー時はそのままのコードを使用
-        updatePreview(editingCSS);
-        setIsEditing(false);
+        // エラー時でもプレビューの更新を試みる
+        // updatePreview関数は上で定義済み
+        setUpdating(false);
       } catch (previewError) {
         console.error("エラー時のプレビュー更新に失敗しました:", previewError);
       }
+      setUpdating(false);
     }
   };
 
@@ -3533,10 +3990,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         <div className="uploader-container sp-uploader">
           <h3>SP画像 <span className="help-text">（モバイルレイアウト）</span></h3>
-          <div className="image-upload-area" onClick={() => document.getElementById('sp-image-upload').click()}>
+          <div className="image-upload-area" onClick={() => document.getElementById('sp-image-input').click()}>
             <input
               type="file"
-              id="sp-image-upload"
+              id="sp-image-input"
               accept="image/*"
               onChange={(e) => handleImageUpload(e, 'sp')}
               style={{ display: 'none' }}
@@ -3771,6 +4228,104 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       handleCloseBlockDetails();
     }
   };
+
+  // iframeからのメッセージを受け取る
+  useEffect(() => {
+    const handleIframeMessage = (event) => {
+      // プレビューからのメッセージを処理
+      if (event.data && event.data.type === "preview-rendered") {
+        console.log("プレビューレンダリング情報:", event.data);
+
+        // メディアクエリの状態を確認
+        const mediaQueryStatus = event.data.mediaQueries;
+        console.log("メディアクエリ状態:", mediaQueryStatus);
+
+        // プレビューの幅と実際のメディアクエリの状態が一致しているか確認
+        if (event.data.width <= 767 && mediaQueryStatus.minWidth768) {
+          console.warn("警告: SPモードですが、min-width: 768pxのメディアクエリが有効になっています");
+        }
+
+        // 必要に応じてプレビューのレイアウトを調整
+        if (previewRef.current) {
+          setTimeout(() => {
+            adjustIframeHeight();
+          }, 100);
+        }
+      }
+    };
+
+    // メッセージイベントリスナーを追加
+    window.addEventListener("message", handleIframeMessage);
+
+    return () => {
+      // クリーンアップ時にイベントリスナーを削除
+      window.removeEventListener("message", handleIframeMessage);
+    };
+  }, [previewWidth]);
+
+  // プレビューサイズが変わったときの処理を改善
+  useEffect(() => {
+    // プレビューサイズが変わったら確実にiframeを更新
+    const timer = setTimeout(() => {
+      if (previewRef.current && editingCSS) {
+        try {
+          // 現在のCSSを取得して処理
+          const processedCSS = processRemValues(editingCSS);
+          // iframeのdocumentを取得して再構築
+          updatePreviewWithProcessedCSS(processedCSS);
+
+          // スケールを再計算してからコンテナ高さを調整
+          calculateScale();
+          setTimeout(() => {
+            adjustIframeHeight();
+            adjustPreviewContainerHeight();
+          }, 200);
+
+          console.log(`プレビューサイズ変更により再レンダリング: ${previewWidth}px`);
+        } catch (error) {
+          console.error("プレビューサイズ変更時の更新エラー:", error);
+        }
+      }
+    }, 10);
+
+    return () => clearTimeout(timer);
+  }, [previewWidth]); // previewWidthが変わったときだけ実行
+
+  // CSSとHTML変更時のプレビュー更新
+  useEffect(() => {
+    if (previewRef.current && editingCSS) {
+      const timer = setTimeout(async () => {
+        try {
+          // SCSSをブラウザでコンパイルしてプレビュー更新
+          await forceUpdatePreview(previewWidth);
+          console.log("CSSをプレビュー用に処理しました");
+        } catch (error) {
+          console.error("プレビュー更新中にエラーが発生しました:", error);
+        }
+      }, 300); // 300ms遅延させる (タイピング中の連続更新防止)
+
+      return () => clearTimeout(timer);
+    }
+  }, [editingHTML, editingCSS, previewWidth, breakpoints, responsiveMode]);
+
+  // ハートビート機能で定期的にサーバーと疎通チェック
+  useEffect(() => {
+    let heartbeatInterval;
+
+    if (isPreventingReload) {
+      console.log("リロード防止ハートビートを開始します");
+      heartbeatInterval = setInterval(() => {
+        // 空のPostMessageを送信して、イベントリスナーでリセット
+        resetPreventReload();
+      }, 10000); // 10秒おきに更新
+    }
+
+    return () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+    };
+  }, [isPreventingReload]);
 
   return (
     <div className="ai-code-generator">
@@ -4238,25 +4793,25 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               <div className="preview-controls">
                 <div className="preview-size-buttons">
                   <button
-                    onClick={() => resetPreviewSize(375)}
+                    onClick={() => handlePreviewSizeChange('sp')}
                     className={previewWidth === 375 && !showCustomSizeInput ? "active" : ""}
                   >
                     SP (375px)
                   </button>
                   <button
-                    onClick={() => resetPreviewSize(768)}
+                    onClick={() => handlePreviewSizeChange('tablet')}
                     className={previewWidth === 768 && !showCustomSizeInput ? "active" : ""}
                   >
                     Tablet (768px)
                   </button>
                   <button
-                    onClick={() => resetPreviewSize(1440)}
+                    onClick={() => handlePreviewSizeChange('pc')}
                     className={previewWidth === 1440 && !showCustomSizeInput ? "active" : ""}
                   >
                     PC (1440px)
                   </button>
                   <button
-                    onClick={() => resetPreviewSize(1920)}
+                    onClick={() => handlePreviewSizeChange('wide')}
                     className={previewWidth === 1920 && !showCustomSizeInput ? "active" : ""}
                   >
                     PC (1920px)
@@ -4293,12 +4848,9 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
               className="preview-iframe-container"
               style={{
                 width: `${previewWidth}px`,
-                transform: previewWidth > 1000 ? `scale(${Math.min(1, (previewContainerRef.current?.clientWidth - 40) / previewWidth)})` : 'none',
+                transform: `scale(${scaleRatio})`,
                 transformOrigin: 'top left',
-                height: `${Number(iframeHeight)}px`,
-                // 親コンテナに合わせて高さを設定し、縦スクロールを回避
-                maxWidth: '100%',
-                marginBottom: previewWidth > 1000 ? '20px' : '0'
+                margin: '0 auto'
               }}
             >
               <iframe
@@ -4309,7 +4861,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   width: `${previewWidth}px`,
                   height: `${iframeHeight}px`,
                   border: 'none',
-                  overflow: 'visible'
+                  transformOrigin: 'top left'
                 }}
                 scrolling="auto"
               ></iframe>
@@ -4318,9 +4870,9 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
           {showGeneratedCode && (
             <div className="regenerate-form">
-              <h3>コードの再生成・分析</h3>
+              <h3>コードの再生成</h3>
               <p className="regenerate-info">
-                生成されたコードに対して修正指示や分析依頼ができます。「分析」「確認」などの単語を含めると分析モードになります。
+                生成されたコードに対して修正指示ができます。
               </p>
               <textarea
                 value={regenerateInstructions}

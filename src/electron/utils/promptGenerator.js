@@ -3872,6 +3872,24 @@ Please use SCSS and HTML as a professional front-end developer.
   }
 }
 \`\`\`
+All color values **must be written as HEX codes (e.g., \`#0f2931\`)**.
+Do **not** use:
+- SCSS variables like \`$primary-color\` unless explicitly defined at the top
+- Named colors (e.g., \`blue\`, \`white\`, \`black\`)
+- \`rgb()\` or \`hsl()\` formats
+
+✅ Correct:
+\`\`\`scss
+    .p-title {
+    color: #0f2931;
+    background-color: #ffffff;
+  }
+❌ Incorrect:
+.p-title {
+  color: $primary-color;       // Not allowed
+  background-color: white;     // Not allowed
+  border-color: rgb(255, 255, 255); // Not allowed
+}
 
 ### Performance Optimization Guidelines:
 - Use modern CSS properties (will-change, contain, etc.) for performance-critical animations
