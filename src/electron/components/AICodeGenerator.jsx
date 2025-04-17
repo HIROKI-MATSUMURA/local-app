@@ -1364,126 +1364,101 @@ const AICodeGenerator = () => {
     setCustomSizeInput(previewWidth.toString());
   };
 
-  // 画像のリサイズと最適化処理
+  // 画像をリサイズする関数
   const resizeImage = (base64Image, maxWidth) => {
     return new Promise((resolve, reject) => {
       try {
-        // 画像のメディアタイプを保持
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          try {
+            // もし画像が既に指定サイズ以下なら処理しない
+            if (img.width <= maxWidth) {
+              console.log(`画像リサイズ不要: 現在の幅 ${img.width}px は最大幅 ${maxWidth}px 以下です`);
+              // メモリリーク防止のため参照をクリア
+              URL.revokeObjectURL(img.src);
+              resolve(base64Image);
+              return;
+            }
+
+            // 縦横比を維持したまま幅を調整
+            const ratio = maxWidth / img.width;
+            const width = maxWidth;
+            const height = img.height * ratio;
+
+            // Canvasで描画
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // JPEG形式で出力して圧縮率を調整
+            const quality = 0.85; // 画質（0.0〜1.0）
+            const resizedBase64 = canvas.toDataURL("image/jpeg", quality);
+
+            console.log(`画像リサイズ完了: ${img.width}x${img.height} → ${width}x${height}`);
+            console.log(`サイズ変更: ${Math.round(base64Image.length / 1024)}KB → ${Math.round(resizedBase64.length / 1024)}KB`);
+
+            // メモリリーク防止のため参照をクリア
+            URL.revokeObjectURL(img.src);
+
+            // Canvasを削除（GCのヒント）
+            canvas.width = 0;
+            canvas.height = 0;
+
+            resolve(resizedBase64);
+          } catch (err) {
+            console.error("Canvasでの描画エラー:", err);
+            reject(err);
+          }
+        };
+
+        img.onerror = (err) => {
+          console.error("画像読み込みエラー:", err);
+          reject(new Error("画像の読み込みに失敗しました"));
+        };
+
+        // Data URLを設定して読み込み開始
+        img.src = base64Image;
+      } catch (err) {
+        console.error("画像リサイズエラー:", err);
+        reject(err);
+      }
+    });
+  };
+
+  // 画像を処理・最適化する関数
+  const processImage = (base64Image) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const startTime = performance.now();
+
+        // 画像のメディアタイプを検出
         const mediaTypeMatch = base64Image.match(/^data:([^;]+);base64,/);
         const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/jpeg';
 
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-
-          // 画像のアスペクト比を維持したまま、指定した幅に合わせる
-          const aspectRatio = img.width / img.height;
-          const newWidth = Math.min(img.width, maxWidth);
-          const newHeight = newWidth / aspectRatio;
-
-          canvas.width = newWidth;
-          canvas.height = newHeight;
-
-          const ctx = canvas.getContext('2d');
-
-          // 透過背景がある場合（PNGなど）は白背景を適用
-          if (mediaType === 'image/png' || mediaType === 'image/webp') {
-            ctx.fillStyle = "#FFFFFF";
-            ctx.fillRect(0, 0, newWidth, newHeight);
-          }
-
-          // 画像を描画
-          ctx.drawImage(img, 0, 0, newWidth, newHeight);
-
-          // 元のメディアタイプを維持して出力
-          const newBase64 = canvas.toDataURL(mediaType, 0.92);
-          console.log(`画像をリサイズしました: ${newWidth}x${newHeight}px, 形式: ${mediaType}`);
-          resolve(newBase64);
-        };
-
-        img.onerror = (err) => {
-          console.error('画像の読み込みエラー:', err);
-          reject(err);
-        };
-
-        img.src = base64Image;
-      } catch (err) {
-        console.error('リサイズエラー:', err);
-        reject(err);
-      }
-    });
-  };
-
-  // 画像処理用のヘルパー関数
-  const processImage = (base64Image) => {
-    return new Promise((resolve, reject) => {
-      try {
-        // メディアタイプを検出
-        const mediaTypeMatch = base64Image.match(/^data:([^;]+);base64,/);
-        if (!mediaTypeMatch) {
-          console.log('画像形式が不明なため、JPEG形式として処理します');
-          // 形式不明の場合はJPEGに変換
-          return convertToJpeg(base64Image).then(resolve).catch(reject);
+        // PNGの場合はJPEGに変換
+        let processedImage = base64Image;
+        if (mediaType.includes('png')) {
+          processedImage = await convertToJpeg(base64Image);
         }
 
-        const mediaType = mediaTypeMatch[1];
-        console.log(`検出された画像形式: ${mediaType}`);
-
-        // Claude APIがサポートするメディアタイプかチェック
-        if (["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mediaType)) {
-          console.log(`${mediaType}形式はClaudeがサポートするので、そのまま使用します`);
-          resolve({
-            base64: base64Image,
-            mediaType: mediaType
-          });
-        } else {
-          console.log(`${mediaType}形式はサポートされていないため、JPEG形式に変換します`);
-          // サポートされていないフォーマットはJPEGに変換
-          convertToJpeg(base64Image).then(jpegBase64 => {
-            resolve({
-              base64: jpegBase64,
-              mediaType: 'image/jpeg'
-            });
-          }).catch(reject);
+        // サイズが大きい場合はさらに圧縮
+        if (processedImage.length > 500000) { // 500KB以上の場合
+          const maxWidth = processedImage.length > 1000000 ? 1200 : 1600; // 1MB以上なら1200px、それ以外は1600px
+          processedImage = await resizeImage(processedImage, maxWidth);
         }
+
+        const endTime = performance.now();
+        console.log(`画像処理完了: ${Math.round((endTime - startTime) / 10) / 100}秒`);
+
+        resolve({
+          base64: processedImage,
+          mimeType: 'image/jpeg'
+        });
       } catch (err) {
-        console.error('画像処理エラー:', err);
-        reject(err);
-      }
-    });
-  };
-
-  // 非対応形式の画像をJPEG形式に変換
-  const convertToJpeg = (base64Image) => {
-    return new Promise((resolve, reject) => {
-      try {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-
-          const ctx = canvas.getContext('2d');
-          // 白背景を適用（透過PNG対策）
-          ctx.fillStyle = "#FFFFFF";
-          ctx.fillRect(0, 0, img.width, img.height);
-          // 画像を描画
-          ctx.drawImage(img, 0, 0);
-
-          // JPEG形式で出力
-          const jpegBase64 = canvas.toDataURL('image/jpeg', 0.95);
-          console.log(`画像をJPEG形式に変換しました: ${img.width}x${img.height}px`);
-          resolve(jpegBase64);
-        };
-
-        img.onerror = (err) => {
-          console.error('画像変換エラー:', err);
-          reject(err);
-        };
-
-        img.src = base64Image;
-      } catch (err) {
-        console.error('画像変換エラー:', err);
+        console.error("画像処理エラー:", err);
         reject(err);
       }
     });
@@ -1491,12 +1466,27 @@ const AICodeGenerator = () => {
 
   // 画像アップロード時の処理
   const handleImageUpload = async (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    console.log(`画像アップロード開始: ${file.name}, タイプ: ${type}, サイズ: ${Math.round(file.size / 1024)}KB`);
-
     try {
+      e.stopPropagation();
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // 前の画像のBlobURLがあれば解放
+      if (type === 'pc' && pcImage && pcImage.preview && pcImage.preview.startsWith('blob:')) {
+        URL.revokeObjectURL(pcImage.preview);
+      } else if (type === 'sp' && spImage && spImage.preview && spImage.preview.startsWith('blob:')) {
+        URL.revokeObjectURL(spImage.preview);
+      }
+
+      // 念のため古い参照を解放
+      if (type === 'pc') {
+        setPcImage(null);
+        setPcImageBase64(null);
+      } else {
+        setSpImage(null);
+        setSpImageBase64(null);
+      }
+
       // ファイルサイズを確認 (4MB制限)
       const maxSize = 4 * 1024 * 1024; // 4MB
       if (file.size > maxSize) {
@@ -1694,6 +1684,9 @@ const AICodeGenerator = () => {
       alert("再生成の指示を入力してください");
       return;
     }
+
+    // メモリクリーンアップを実行
+    performMemoryCleanup();
 
     setLoading(true);
     setLoadingProgress(0);
@@ -1999,6 +1992,9 @@ ${editingCSS}
         alert("API機能が利用できません。アプリケーションの再起動をお試しください。");
         return;
       }
+
+      // アプリメモリの状態を確認
+      performMemoryCleanup();
 
       // API設定コンポーネントから保存されたAPIキーを取得
       const apiKeyResponse = await window.api.getClaudeApiKey(); // Electron経由で取得
@@ -2332,11 +2328,17 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     // 再生成指示をクリア
     setRegenerateInstructions("");
 
+    // メモリクリーンアップを実行
+    performMemoryCleanup();
+
     console.log("生成コードをリセットしました（画像は保持）");
   };
 
   // 全てのデータをリセット（既存のhandleResetを改名）
   const handleResetAll = () => {
+    // ユーザーに通知するためのアラート表示
+    alert("すべてのデータをリセットし、メモリクリーンアップを実行します。");
+
     // 生成されたコードをクリア
     setGeneratedCode("");
     setGeneratedHTML("");
@@ -2360,8 +2362,128 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     // 再生成指示をクリア
     setRegenerateInstructions("");
 
-    console.log("すべての生成データをリセットしました");
+    // キャッシュクリア
+    if (window.caches) {
+      caches.keys().then(names => {
+        names.forEach(name => {
+          caches.delete(name);
+        });
+        console.log("ブラウザキャッシュをクリアしました");
+      });
+    }
+
+    // メモリを積極的に解放
+    if (window.api && window.api.gc) {
+      try {
+        window.api.gc();
+        console.log("Electronのガベージコレクションを実行しました");
+      } catch (e) {
+        console.error("ガベージコレクション実行エラー:", e);
+      }
+    }
+
+    // プレビューをリフレッシュ（iframeをクリア）
+    if (previewRef.current) {
+      try {
+        const iframe = previewRef.current;
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=375">
+            <style>
+              body { font-family: sans-serif; text-align: center; color: #666; padding-top: 50px; }
+            </style>
+          </head>
+          <body>
+            <p>すべてのデータがリセットされました</p>
+          </body>
+          </html>
+        `);
+        iframeDoc.close();
+        console.log("プレビューiframeをリフレッシュしました");
+      } catch (e) {
+        console.error("iframeリフレッシュエラー:", e);
+      }
+    }
+
+    console.log("すべての生成データをリセットし、メモリクリーンアップを実行しました");
   };
+
+  // メモリクリーンアップ関数
+  const performMemoryCleanup = () => {
+    console.log("メモリクリーンアップを実行します...");
+
+    // 一時データをクリア
+    if (window.URL && window.URL.revokeObjectURL) {
+      if (pcImage && pcImage.preview && pcImage.preview.startsWith('blob:')) {
+        URL.revokeObjectURL(pcImage.preview);
+        console.log("PC画像のBlobを解放しました");
+      }
+      if (spImage && spImage.preview && spImage.preview.startsWith('blob:')) {
+        URL.revokeObjectURL(spImage.preview);
+        console.log("SP画像のBlobを解放しました");
+      }
+    }
+
+    // メモリ使用量をログ出力（開発用）
+    if (window.performance && window.performance.memory) {
+      console.log("メモリ使用状況:", {
+        totalJSHeapSize: Math.round(window.performance.memory.totalJSHeapSize / (1024 * 1024)) + "MB",
+        usedJSHeapSize: Math.round(window.performance.memory.usedJSHeapSize / (1024 * 1024)) + "MB",
+        jsHeapSizeLimit: Math.round(window.performance.memory.jsHeapSizeLimit / (1024 * 1024)) + "MB",
+      });
+
+      // メモリ使用量が高い場合に警告
+      const usedMemoryPercentage = (window.performance.memory.usedJSHeapSize / window.performance.memory.jsHeapSizeLimit) * 100;
+      if (usedMemoryPercentage > 70) {
+        console.warn(`メモリ使用量が高いです (${Math.round(usedMemoryPercentage)}%)。メモリリセットボタンを使用することをお勧めします。`);
+      }
+    }
+
+    // Node.js環境のElectronでのみGCを実行
+    if (window.api && window.api.gc) {
+      try {
+        window.api.gc();
+        console.log("Electronのガベージコレクションを実行しました");
+      } catch (e) {
+        console.error("ガベージコレクション実行エラー:", e);
+      }
+    }
+
+    return true;
+  };
+
+  // 一定間隔でメモリクリーンアップを実行
+  useEffect(() => {
+    console.log("メモリ監視を開始します");
+
+    // 30秒ごとにクリーンアップを実行
+    const cleanupInterval = setInterval(() => {
+      performMemoryCleanup();
+    }, 30000);
+
+    // メモリ使用量の定期監視
+    let memoryMonitorInterval;
+    if (window.performance && window.performance.memory) {
+      memoryMonitorInterval = setInterval(() => {
+        const usedMemoryPercentage = (window.performance.memory.usedJSHeapSize / window.performance.memory.jsHeapSizeLimit) * 100;
+        if (usedMemoryPercentage > 80) {
+          console.warn(`高メモリ使用量検出 (${Math.round(usedMemoryPercentage)}%)。自動クリーンアップを実行します。`);
+          performMemoryCleanup();
+        }
+      }, 15000); // 15秒ごとに監視
+    }
+
+    return () => {
+      clearInterval(cleanupInterval);
+      if (memoryMonitorInterval) clearInterval(memoryMonitorInterval);
+      performMemoryCleanup(); // コンポーネントのアンマウント時にもクリーンアップ
+    };
+  }, []);
 
   // iframeからのメッセージを受け取るイベントリスナー
   useEffect(() => {
@@ -4326,6 +4448,106 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       }
     };
   }, [isPreventingReload]);
+
+  // PNGなどをJPEG形式に変換する関数
+  const convertToJpeg = (base64Image) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            const ctx = canvas.getContext('2d');
+            // 白背景を適用（透過PNG対策）
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, img.width, img.height);
+            // 画像を描画
+            ctx.drawImage(img, 0, 0);
+
+            // JPEG形式で出力
+            const quality = 0.9; // 画質（0.0〜1.0）
+            const jpegBase64 = canvas.toDataURL('image/jpeg', quality);
+            console.log(`画像をJPEG形式に変換しました: ${img.width}x${img.height}px`);
+
+            // メモリリーク防止
+            URL.revokeObjectURL(img.src);
+            canvas.width = 0;
+            canvas.height = 0;
+
+            resolve(jpegBase64);
+          } catch (err) {
+            console.error('Canvas処理エラー:', err);
+            reject(err);
+          }
+        };
+
+        img.onerror = (err) => {
+          console.error('画像変換エラー:', err);
+          reject(err);
+        };
+
+        img.src = base64Image;
+      } catch (err) {
+        console.error('画像変換エラー:', err);
+        reject(err);
+      }
+    });
+  };
+
+  // コンポーネントがアンマウントされる前に実行するクリーンアップ処理
+  useEffect(() => {
+    return () => {
+      console.log("AICodeGeneratorコンポーネントのクリーンアップを実行します");
+
+      // 画像リソースを解放
+      if (pcImage && pcImage.preview) {
+        if (pcImage.preview.startsWith('blob:')) {
+          URL.revokeObjectURL(pcImage.preview);
+        }
+      }
+
+      if (spImage && spImage.preview) {
+        if (spImage.preview.startsWith('blob:')) {
+          URL.revokeObjectURL(spImage.preview);
+        }
+      }
+
+      // iframeのリソースを解放
+      if (previewRef.current) {
+        try {
+          const iframe = previewRef.current;
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+          iframeDoc.open();
+          iframeDoc.write(''); // 空のドキュメントに置き換え
+          iframeDoc.close();
+        } catch (e) {
+          console.error("iframeクリーンアップエラー:", e);
+        }
+      }
+
+      // 明示的にGCを実行（Node.js環境の場合）
+      if (window.api && window.api.gc) {
+        try {
+          window.api.gc();
+          console.log("Electronのガベージコレクションを実行しました");
+        } catch (e) {
+          console.error("ガベージコレクション実行エラー:", e);
+        }
+      }
+    };
+  }, []);
+
+  // キャッシュをクリアする関数
+  const clearBrowserCache = () => {
+    // handleResetAllに統合したため実装を削除
+    console.log("この機能はhandleResetAllに統合されました");
+    // 代わりにhandleResetAllを呼び出すこともできます
+    // handleResetAll();
+    return true;
+  };
 
   return (
     <div className="ai-code-generator">

@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('api', {
   // Electron環境のフラグ
   isElectron: true,
 
+  // メモリ管理
+  gc: () => ipcRenderer.invoke('gc'),
+
   // パス操作
   path: {
     join: (...paths) => path.join(...paths),

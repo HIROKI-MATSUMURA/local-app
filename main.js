@@ -11,6 +11,73 @@ const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
+// GC機能の確認とフラグ設定
+// package.jsonのelectron-builder設定例:
+// "build": {
+//   "extraMetadata": {
+//     "main": "main.js"
+//   },
+//   "files": [
+//     "**/*",
+//     "!**/*.{ts,map,md}"
+//   ],
+//   "extraResources": [
+//     "assets/**"
+//   ],
+//   "mac": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "win": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "linux": {
+//     "executableArgs": ["--expose-gc"]
+//   }
+// }
+
+// 自動再起動をスキップするフラグ - ターミナルを走らせ続けるために有効化
+const SKIP_GC_RELAUNCH = true; // trueに設定するとGCフラグがなくても再起動しません
+
+// 開発環境では自動的に--expose-gcフラグを付けて再起動（スキップフラグがfalseの場合のみ）
+if (!process.argv.includes('--expose-gc') && !app.isPackaged && !SKIP_GC_RELAUNCH) {
+  console.log('GC機能を有効化するため、--expose-gcフラグを付けて再起動します');
+  app.relaunch({ args: process.argv.slice(1).concat(['--expose-gc']) });
+  app.exit(0);
+  return;
+}
+
+// GCのポリフィル - GC機能が利用できない場合に代替手段を提供
+if (!global.gc) {
+  console.log('--expose-gcフラグがないため、完全なメモリクリーンアップ機能は使用できません');
+  console.log('ターミナルログを確認するために自動再起動はスキップされました');
+  console.log('完全なGC機能を有効化するには、アプリを終了して以下のコマンドで再起動してください:');
+  console.log('NODE_ENV=development electron --expose-gc .');
+
+  // モックGC関数を提供してエラーを防止
+  global.gc = () => {
+    console.log('⚠️ GC機能の擬似実行: 実際のメモリ解放はされていません');
+    // 可能な限りのメモリ解放処理
+    if (global.window && global.window.performance) {
+      try {
+        const memoryInfo = global.window.performance.memory;
+        console.log(`メモリ使用状況: ${Math.round(memoryInfo.usedJSHeapSize / (1024 * 1024))}MB / ${Math.round(memoryInfo.jsHeapSizeLimit / (1024 * 1024))}MB`);
+      } catch (e) {
+        // メモリ情報取得エラーを無視
+      }
+    }
+
+    try {
+      // 一部のリソースを解放するためのダミー処理
+      if (global.process && typeof global.process.memoryUsage === 'function') {
+        const memUsage = process.memoryUsage();
+        console.log(`プロセスメモリ: RSS=${Math.round(memUsage.rss / (1024 * 1024))}MB, Heap=${Math.round(memUsage.heapUsed / (1024 * 1024))}MB / ${Math.round(memUsage.heapTotal / (1024 * 1024))}MB`);
+      }
+    } catch (e) {
+      console.error('メモリ使用量の取得に失敗しました', e);
+    }
+  };
+}
+
 // プロジェクト設定ファイルのパスを定義
 const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
 const ACTIVE_PROJECT_PATH = path.join(app.getPath('userData'), 'active-project.json');
@@ -2923,6 +2990,23 @@ $mediaquerys: (
       return { success: true };
     } catch (error) {
       console.error('フォルダを開く際にエラーが発生しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // メモリ管理のためのガベージコレクション実行API
+  ipcMain.handle('gc', async () => {
+    try {
+      if (global.gc) {
+        global.gc();
+        console.log('メインプロセスでガベージコレクションを実行しました');
+        return { success: true };
+      } else {
+        console.log('ガベージコレクション機能が利用できません。--expose-gc フラグを使用して起動してください。');
+        return { success: false, error: 'GC not available' };
+      }
+    } catch (error) {
+      console.error('ガベージコレクション実行中にエラーが発生しました:', error);
       return { success: false, error: error.message };
     }
   });
