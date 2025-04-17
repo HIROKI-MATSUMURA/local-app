@@ -2903,6 +2903,29 @@ $mediaquerys: (
       };
     }
   });
+
+  // フォルダをシステムのファイルエクスプローラーで開く
+  ipcMain.handle('open-folder', async (event, folderPath) => {
+    try {
+      if (!folderPath) {
+        throw new Error('フォルダパスが指定されていません');
+      }
+
+      // OSに応じてフォルダを開くコマンドを実行
+      if (process.platform === 'win32') {
+        await shell.openPath(folderPath);
+      } else if (process.platform === 'darwin') {
+        await shell.openPath(folderPath);
+      } else {
+        await shell.openPath(folderPath);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('フォルダを開く際にエラーが発生しました:', error);
+      return { success: false, error: error.message };
+    }
+  });
 }
 
 // プロジェクトデータの保存
