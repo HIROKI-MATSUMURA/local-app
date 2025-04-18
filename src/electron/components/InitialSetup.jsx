@@ -270,6 +270,14 @@ const InitialSetup = () => {
               {loading ? '認証中...' : 'アクティベーションキーを受け取る'}
             </Button>
 
+            <p style={{
+              fontSize: '0.8rem',
+              color: 'rgba(225, 232, 240, 0.6)',
+              margin: '12px 0 20px',
+              textAlign: 'center'
+            }}>
+              認証完了後にメールアドレス宛にアクティベーションキーを送付します
+            </p>
 
             <div style={{ marginTop: '20px' }}>
               <span
