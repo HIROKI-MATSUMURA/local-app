@@ -44,6 +44,7 @@
     "esbuild": "^0.24.2",
     "express": "^4.21.2",
     "face-api.js": "^0.22.2",
+    "framer-motion": "^10.16.4",
     "glob": "^11.0.1",
     "gsap": "^3.12.5",
     "highlight.js": "^11.11.1",
@@ -54,6 +55,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.5.1",
     "react-syntax-highlighter": "^15.6.1",
+    "styled-components": "^6.1.17",
     "tesseract.js": "^6.0.0",
     "uuid": "^11.0.5"
   },

@@ -105,11 +105,7 @@ const ProjectManager = ({ onProjectChange }) => {
 
           // アクティブプロジェクトIDの読み込み
           try {
-            const activeId = await window.api.loadActiveProjectId();
-            if (activeId) {
-              setActiveProjectId(activeId);
-              console.log('アクティブプロジェクトIDを読み込みました:', activeId);
-            }
+
           } catch (error) {
             console.error('アクティブプロジェクトIDの読み込みに失敗:', error);
           }
@@ -126,102 +122,25 @@ const ProjectManager = ({ onProjectChange }) => {
     checkApiAndLoadData();
   }, []);
 
-  // 初期プロジェクトの読み込み - カテゴリとタグの読み込みが完了した後に実行
+  // ——— カテゴリ＆タグの読み込みが終わったら activeProjectId だけセット ———
   useEffect(() => {
-    console.log('初期プロジェクト読み込みの useEffect が実行されました、カテゴリ読み込み状態:', categoriesLoaded);
-
-    // カテゴリとタグが読み込まれた場合のみプロジェクト読み込みを実行
-    if (!categoriesLoaded) {
-      console.log('カテゴリとタグの読み込みが完了していないため、プロジェクト読み込みを待機します');
-      return;
-    }
-
-    const loadInitialProjects = async () => {
-      console.log('loadInitialProjects が呼び出されました');
-      try {
-        console.log('プロジェクト設定を読み込みます...');
-
-        // 保存されていたアクティブプロジェクトIDを読み込む
-        let savedActiveProjectId = null;
-        try {
-          savedActiveProjectId = await window.api.loadActiveProjectId();
-          console.log('保存されていたアクティブプロジェクトID:', savedActiveProjectId);
-        } catch (error) {
-          console.error('アクティブプロジェクトIDの読み込みに失敗:', error);
-        }
-
-        // プロジェクト一覧を読み込む
-        const projectsConfig = await window.api.loadProjectsConfig();
-        console.log('プロジェクト設定を読み込みました:', projectsConfig);
-
-        // 各プロジェクトにカテゴリがなければuncategorizedをデフォルト設定
-        if (projectsConfig.projects && Array.isArray(projectsConfig.projects)) {
-          const updatedProjects = projectsConfig.projects.map(project => {
-            // カテゴリが未設定または空文字の場合、uncategorizedを設定
-            if (!project.category || project.category === '') {
-              console.log(`プロジェクト "${project.name || 'unnamed'}" にデフォルトカテゴリを適用: uncategorized`);
-              return {
-                ...project,
-                category: 'uncategorized'
-              };
-            }
-            return project;
-          });
-
-          // 変更があれば各プロジェクトを保存
-          for (const project of updatedProjects) {
-            if (!projectsConfig.projects.find(p => p.id === project.id)?.category && project.category === 'uncategorized') {
-              console.log(`プロジェクト "${project.name || 'unnamed'}" を更新保存します（カテゴリ: ${project.category}）`);
-              await window.api.saveProjectSettings(project);
-            }
-          }
-
-          // プロジェクトから使用中のすべてのタグを収集し、タグリストを更新
-          const projectTags = new Set();
-          updatedProjects.forEach(project => {
-            if (project.tags && Array.isArray(project.tags)) {
-              project.tags.forEach(tag => projectTags.add(tag));
-            }
-          });
-
-          // タグリストの更新が必要な場合
-          if (projectTags.size > 0) {
-            const allTags = [...new Set([...tags, ...projectTags])];
-            if (allTags.length > tags.length) {
-              console.log('プロジェクトから追加のタグを検出しました:', [...projectTags]);
-              setTags(allTags);
-              try {
-                await window.api.saveTags(allTags);
-                console.log('更新されたタグリストを保存しました:', allTags);
-              } catch (error) {
-                console.error('タグリストの保存に失敗:', error);
-              }
-            }
-          }
-
-          setProjects(updatedProjects);
-        } else {
-          setProjects([]);
-        }
-
-        // アクティブプロジェクトを設定
-        if (savedActiveProjectId) {
-          const activeProject = projectsConfig.projects?.find(p => p.id === savedActiveProjectId);
-          if (activeProject) {
-            setActiveProjectId(savedActiveProjectId);
-            if (onProjectChange) onProjectChange(activeProject);
-            console.log('プロジェクト変更:', activeProject);
-          }
-        }
-      } catch (error) {
-        console.error('プロジェクト設定の読み込みに失敗:', error);
-        setError('プロジェクト設定の読み込みに失敗しました');
+    if (!categoriesLoaded) return;
+    (async () => {
+      const savedId = await window.api.loadActiveProjectId();
+      if (savedId) {
+        setActiveProjectId(savedId);
       }
-    };
+    })();
+  }, [categoriesLoaded]);
+  // ——— activeProjectId が変わったタイミングだけ親に通知 ———
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const p = projects.find(p => p.id === activeProjectId);
+    if (p && onProjectChange) {
+      onProjectChange(p);
+    }
+  }, [activeProjectId, projects, onProjectChange]);
 
-    loadInitialProjects();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoriesLoaded]); // onProjectChangeを依存配列から削除
 
   // デフォルト設定の読み込み
   useEffect(() => {
@@ -666,7 +585,6 @@ const ProjectManager = ({ onProjectChange }) => {
 
       await window.api.saveProjectSettings(updatedProject);
       await window.api.saveActiveProjectId(projectId);
-      if (onProjectChange) onProjectChange(updatedProject);
     } catch (error) {
       console.error('プロジェクトの切り替えに失敗:', error);
       setError('プロジェクトの切り替えに失敗しました');

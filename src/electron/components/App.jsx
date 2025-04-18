@@ -10,13 +10,12 @@ import VariableConfig from "./VariableConfig";
 import AICodeGenerator from "./AICodeGenerator";
 import ProjectManager from "./ProjectManager";
 
-// Electronコンテキストかどうかを判定
-const isElectronContext = typeof window !== 'undefined' && window.api;
 
 // 出力パスの設定
 const OUTPUT_PATH = '../output';
 
 const App = () => {
+  const isElectronContext = typeof window !== 'undefined' && window.api;
   console.log('App コンポーネントがレンダリングされました');  // デバッグログ追加
   const [isLoggedIn, setIsLoggedIn] = useState(false); // ★ログイン判定追加
   const SESSION_TIMEOUT_MINUTES = 180; // 3時間
@@ -67,95 +66,53 @@ const App = () => {
     isPythonAvailable: false
   });
 
-  // Electron環境かどうかをコンソールに出力（デバッグ用）
-  useEffect(() => {
-    console.log('Appコンポーネントがマウントされました');
-    console.log('初期タブ:', activeTab);
-    console.log('Electron API 利用可能:', isElectronContext ? 'はい' : 'いいえ');
-    console.log('現在のプロジェクト:', activeProject);
 
-    // 出力ディレクトリの存在確認と作成（Electron環境の場合）
-    if (isElectronContext && window.api.fs) {
-      try {
-        // API存在確認
-        if (typeof window.api.fs.ensureDir === 'function') {
-          // 正しいAPI関数が存在する場合
-          window.api.fs.ensureDir(OUTPUT_PATH)
-            .then(result => {
-              if (result.success) {
-                console.log(`出力ディレクトリを確認しました: ${OUTPUT_PATH}`);
-              } else {
-                console.error('出力ディレクトリの確認に失敗しました:', result.error);
-              }
-            })
-            .catch(err => console.error('出力ディレクトリの確認でエラーが発生しました:', err));
-        } else {
-          // mkdir関数を使って代替
-          console.log('ensureDir関数が見つからないため、mkdir関数を使用します');
-          window.api.fs.mkdir(OUTPUT_PATH, { recursive: true })
-            .then(result => {
-              if (result.success) {
-                console.log(`出力ディレクトリを作成しました: ${OUTPUT_PATH}`);
-              } else {
-                console.error('出力ディレクトリの作成に失敗しました:', result.error);
-              }
-            })
-            .catch(err => console.error('出力ディレクトリの作成でエラーが発生しました:', err));
-        }
-      } catch (error) {
-        console.error('ディレクトリ確認処理中にエラーが発生しました:', error);
-      }
-    } else {
-      console.log('Electron APIが利用できないか、fsオブジェクトが存在しないため、ディレクトリ確認をスキップします');
+  useEffect(() => {
+    if (!isElectronContext) return;
+    if (!window.api.fs) {
+      console.warn("fs API がまだ来ていません");
+      return;
     }
-  }, [activeProject, activeTab]);
+    window.api.fs
+      .ensureDir(OUTPUT_PATH)
+      .then(() => console.log(`出力ディレクトリ準備OK: ${OUTPUT_PATH}`))
+      .catch((e) => console.error("ensureDir エラー", e));
+  }, [isElectronContext]);
+  // ——— activeProject が変わるたびに、そのプロジェクト内に output フォルダを作成 ———
+
+  useEffect(() => {
+    if (!isElectronContext || !window.api.fs || !activeProject) return;
+    const projectOut = `${activeProject.path}/output`;
+
+    window.api.fs
+      .ensureDir(projectOut)
+      .then(() => console.log(`プロジェクト出力先準備OK: ${projectOut}`))
+      .catch((e) => console.error("プロジェクト用 ensureDir エラー", e));
+  }, [isElectronContext, activeProject]);
 
   // プロジェクト変更時のハンドラー
 
   const handleProjectChange = useCallback((project) => {
-    console.log('プロジェクト変更:', project);
+    if (!project) return;
 
-    if (!project) {
-      console.error('プロジェクトオブジェクトがnullまたはundefinedです');
-      return;
-    }
-
-    let validatedProject = { ...project };
-
-    if (!validatedProject.path) {
-      console.error('プロジェクトのpathが設定されていません');
-      validatedProject.path = '';
-    } else if (typeof validatedProject.path !== 'string') {
-      console.error('プロジェクトのpathが文字列ではありません:', typeof validatedProject.path);
-      console.error('project.pathの内容:', JSON.stringify(validatedProject.path));
-
-      if (typeof validatedProject.path === 'object') {
-        console.error('project.pathがオブジェクトのため、空文字列に変換します');
-        validatedProject.path = '';
-      } else {
-        try {
-          validatedProject.path = String(validatedProject.path || '');
-          console.log('project.pathを文字列に変換しました:', validatedProject.path);
-        } catch (error) {
-          console.error('project.pathの文字列変換に失敗しました:', error);
-          validatedProject.path = '';
-        }
+    setActiveProject(prev => {
+      // 同じプロジェクトなら state を更新しない
+      if (prev?.id === project.id) {
+        console.log('同じプロジェクトなので更新をスキップ');
+        return prev;
       }
-    }
 
-    if (validatedProject.path) {
-      validatedProject.path = validatedProject.path.replace(/\/+/g, '/');
-    }
+      // path を正規化
+      const normalizedPath =
+        typeof project.path === 'string'
+          ? project.path.replace(/\/+/g, '/')
+          : '';
 
-    console.log('セットするプロジェクト情報:', {
-      id: validatedProject.id,
-      name: validatedProject.name,
-      path: validatedProject.path,
-      pathType: typeof validatedProject.path,
-      pathLength: validatedProject.path ? validatedProject.path.length : 0
+      return {
+        ...project,
+        path: normalizedPath
+      };
     });
-
-    setActiveProject(validatedProject);
   }, []);
 
   const menuItems = [
