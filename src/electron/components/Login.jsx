@@ -178,24 +178,7 @@ const Login = ({ onLoginSuccess }) => {
           {loading ? '認証中...' : '認証'}
         </Button>
         <div style={{ marginTop: '20px' }}>
-          <Link
-            to="/setup"
-            style={{
-              color: 'rgb(225, 232, 240)',
-              position: 'relative',
-              textDecoration: 'none',
-              transition: 'color 0.3s ease',
-              padding: '4px 2px'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'white';
-              e.currentTarget.style.textShadow = '0 0 8px rgba(255, 255, 255, 0.5)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'rgb(225, 232, 240)';
-              e.currentTarget.style.textShadow = 'none';
-            }}
-          >
+          <Link to="/setup" style={{ color: 'rgb(225, 232, 240)' }}>
             初めてご利用の方はこちら
           </Link>
         </div>
