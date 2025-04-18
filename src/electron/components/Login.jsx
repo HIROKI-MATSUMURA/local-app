@@ -50,7 +50,7 @@ const Container = styled(motion.div)`
 const GlassForm = styled.form`
   position: relative;
   z-index: 1;
-  width: 340px;
+  width: 420px;
   padding: 48px;
   background: rgba(20, 30, 45, 0.5);
   border-radius: 14px;
