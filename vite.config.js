@@ -65,7 +65,7 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
-    global: {},
+    global: 'globalThis',
   },
   server: {
     port: 3000,
@@ -73,7 +73,7 @@ export default defineConfig({
     headers: {
       'Content-Type': 'application/javascript',
       'Access-Control-Allow-Origin': '*',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
     },
     middlewareMode: false,
     fs: {

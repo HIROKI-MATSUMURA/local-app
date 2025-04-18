@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Login from './Login';
 import "@styles/css/main.css";
 import "@styles/css/components.css";
 import GenerateHTML from "./GenerateHTML";
@@ -16,7 +18,44 @@ const OUTPUT_PATH = '../output';
 
 const App = () => {
   console.log('App コンポーネントがレンダリングされました');  // デバッグログ追加
+  const [isLoggedIn, setIsLoggedIn] = useState(false); // ★ログイン判定追加
+  const SESSION_TIMEOUT_MINUTES = 180; // 3時間
 
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now());
+
+  // アクティビティ（操作）があったら時間更新
+  useEffect(() => {
+    const updateActivity = () => setLastActivityTime(Date.now());
+
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+    };
+  }, []);
+
+  // セッションタイムアウトチェック
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const elapsedMinutes = (now - lastActivityTime) / (1000 * 60);
+      if (elapsedMinutes > SESSION_TIMEOUT_MINUTES) {
+        setIsLoggedIn(false);
+        alert('セッションが切れました。再ログインしてください。');
+      }
+    }, 60000); // 毎分チェック
+
+    return () => clearInterval(interval);
+  }, [lastActivityTime]);
+
+
+  // ログイン成功時に呼ばれる関数
+  const handleLoginSuccess = () => {
+    setIsLoggedIn(true);
+    setActiveTab('project-manager');
+  };
   const [activeTab, setActiveTab] = useState("project-manager");
   console.log('現在のアクティブタブ:', activeTab);  // デバッグログ追加
 
@@ -72,32 +111,28 @@ const App = () => {
   }, [activeProject, activeTab]);
 
   // プロジェクト変更時のハンドラー
-  const handleProjectChange = (project) => {
+
+  const handleProjectChange = useCallback((project) => {
     console.log('プロジェクト変更:', project);
 
-    // プロジェクトオブジェクトの検証
     if (!project) {
       console.error('プロジェクトオブジェクトがnullまたはundefinedです');
       return;
     }
 
-    // 深いコピーを作成して安全に変更できるようにする
     let validatedProject = { ...project };
 
-    // プロジェクトのpathプロパティが文字列であることを確認
     if (!validatedProject.path) {
       console.error('プロジェクトのpathが設定されていません');
-      validatedProject.path = ''; // 空文字をデフォルト値として設定
+      validatedProject.path = '';
     } else if (typeof validatedProject.path !== 'string') {
       console.error('プロジェクトのpathが文字列ではありません:', typeof validatedProject.path);
       console.error('project.pathの内容:', JSON.stringify(validatedProject.path));
 
-      // オブジェクトの場合は空文字列に変換
       if (typeof validatedProject.path === 'object') {
         console.error('project.pathがオブジェクトのため、空文字列に変換します');
         validatedProject.path = '';
       } else {
-        // その他の非文字列型は文字列に変換を試みる
         try {
           validatedProject.path = String(validatedProject.path || '');
           console.log('project.pathを文字列に変換しました:', validatedProject.path);
@@ -108,12 +143,10 @@ const App = () => {
       }
     }
 
-    // 安全のために余分なスラッシュを削除
     if (validatedProject.path) {
       validatedProject.path = validatedProject.path.replace(/\/+/g, '/');
     }
 
-    // プロジェクトオブジェクトの詳細情報をログ出力
     console.log('セットするプロジェクト情報:', {
       id: validatedProject.id,
       name: validatedProject.name,
@@ -123,7 +156,7 @@ const App = () => {
     });
 
     setActiveProject(validatedProject);
-  };
+  }, []);
 
   const menuItems = [
     { id: "project-manager", label: "プロジェクト管理", icon: "📁" },
@@ -166,80 +199,50 @@ const App = () => {
     }
   };
 
+  // activeProjectが存在する場合だけメモ化
+  // activeProjectが存在する場合だけメモ化
+  const memoizedProject = useMemo(() => {
+    if (!activeProject) return null;
+
+    const validated = { ...activeProject };
+
+    validated.id = typeof validated.id === 'string' && validated.id
+      ? validated.id
+      : 'unknown';
+
+    validated.name = typeof validated.name === 'string' && validated.name
+      ? validated.name
+      : 'Unknown Project';
+
+    if (typeof validated.path !== 'string') {
+      console.error('validated.pathが文字列じゃないため、空文字にします:', validated.path);
+      validated.path = '';
+    } else {
+      validated.path = validated.path.replace(/\/+/g, '/');
+    }
+
+    return validated;
+  }, [activeProject]);
+
   const renderContent = () => {
-    console.log('renderContent が呼び出されました。activeTab:', activeTab);  // デバッグログ追加
+    console.log('renderContent が呼び出されました。activeTab:', activeTab);
 
-    // activeProjectをメモ化してResponsiveConfigへの不要な再レンダリングを防止
-    // const memoizedProject = useMemo(() => activeProject, [activeProject?.id]);
-    const memoizedProject = useMemo(() => {
-      if (!activeProject) {
-        console.log('memoizedProject: activeProjectがnullまたはundefinedです');
-        return null;
-      }
+    // project-managerなら無条件で表示
+    if (activeTab === 'project-manager') {
+      console.log('ProjectManager コンポーネントをレンダリングします');
+      return <ProjectManager onProjectChange={handleProjectChange} />;
+    }
 
-      // 深いコピーを作成して安全に変更できるようにする
-      let validatedProject = { ...activeProject };
+    // それ以外で、memoizedProjectがなければ警告
+    if (!memoizedProject) {
+      return <div>プロジェクトが選択されていません</div>;
+    }
 
-      // 必須プロパティが正しい型であることを確認
-      if (typeof validatedProject.id !== 'string' || !validatedProject.id) {
-        console.error('memoizedProject: activeProject.idが文字列でないか空です:', validatedProject.id);
-        // IDの問題は重大だが、できる限り続行を試みる
-        validatedProject.id = String(validatedProject.id || 'unknown');
-      }
-
-      if (typeof validatedProject.name !== 'string') {
-        console.error('memoizedProject: activeProject.nameが文字列ではありません:', validatedProject.name);
-        // 名前を修正
-        validatedProject.name = String(validatedProject.name || 'Unknown Project');
-      }
-
-      if (!validatedProject.path) {
-        console.error('memoizedProject: activeProject.pathが設定されていません');
-        validatedProject.path = ''; // 空文字をデフォルト値として設定
-      } else if (typeof validatedProject.path !== 'string') {
-        console.error('memoizedProject: activeProject.pathが文字列ではありません:', typeof validatedProject.path);
-        console.error('activeProject.pathの内容:', JSON.stringify(validatedProject.path));
-
-        // オブジェクトの場合は空文字列に変換
-        if (typeof validatedProject.path === 'object') {
-          console.error('activeProject.pathがオブジェクトのため、空文字列に変換します');
-          validatedProject.path = '';
-        } else {
-          // その他の非文字列型は文字列に変換を試みる
-          try {
-            validatedProject.path = String(validatedProject.path || '');
-            console.log('activeProject.pathを文字列に変換しました:', validatedProject.path);
-          } catch (error) {
-            console.error('activeProject.pathの文字列変換に失敗しました:', error);
-            validatedProject.path = '';
-          }
-        }
-      }
-
-      // 安全のために余分なスラッシュを削除
-      if (validatedProject.path) {
-        validatedProject.path = validatedProject.path.replace(/\/+/g, '/');
-      }
-
-      console.log('検証済みプロジェクト情報:', {
-        id: validatedProject.id,
-        name: validatedProject.name,
-        path: validatedProject.path,
-        pathType: typeof validatedProject.path,
-        pathLength: validatedProject.path ? validatedProject.path.length : 0
-      });
-
-      return validatedProject;
-    }, [activeProject]);
-
+    // 各タブごとのコンポーネント表示
     switch (activeTab) {
-      case "project-manager":
-        console.log('ProjectManager コンポーネントをレンダリングします');  // デバッグログ追加
-        return <ProjectManager onProjectChange={handleProjectChange} />;
       case "reset-css":
         return <ResetCSS activeProject={memoizedProject} />;
       case "responsive-config":
-        console.log('ResponsiveConfig コンポーネントをレンダリングします（activeTab === responsive-config）');
         return <ResponsiveConfig key="responsive-config-page" activeProject={memoizedProject} />;
       case "variable-config":
         return <VariableConfig ref={variableConfigRef} activeProject={memoizedProject} />;
@@ -250,6 +253,13 @@ const App = () => {
         return <GenerateHTML activeProject={memoizedProject} />;
     }
   };
+
+
+
+
+  if (!isLoggedIn) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className="app-container">
