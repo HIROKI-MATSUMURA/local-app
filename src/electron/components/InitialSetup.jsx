@@ -200,7 +200,7 @@ const InitialSetup = () => {
     setError('');
 
     try {
-      const response = await fetch('https://payments.codeups.jp/register-acid', {
+      const response = await fetch('https://payments.codeups.jp/register-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -224,7 +224,7 @@ const InitialSetup = () => {
 
   return (
     <Container
-      initial={{ opacity: 0 }}
+      initial={{ opacity: 0.5 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.8 }}
     >
@@ -239,7 +239,7 @@ const InitialSetup = () => {
 
         {success ? (
           <>
-            <SuccessText>メールアドレス登録が完了しました！</SuccessText>
+            <SuccessText>メールアドレスに送信しました！</SuccessText>
             <Button onClick={() => safeNavigate('/')}>
               ログイン画面へ戻る
             </Button>
