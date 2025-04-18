@@ -281,6 +281,12 @@ function createMainWindow() {
     frame: true,
     show: false,
     title: 'CreAIte Code',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#001f3f',
+      symbolColor: '#ffffff',
+      height: 32
+    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
