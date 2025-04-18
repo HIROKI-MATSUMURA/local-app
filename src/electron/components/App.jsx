@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, HashRouter } from 'react-router-dom';
 import Login from './Login';
 import "@styles/css/main.css";
 import "@styles/css/components.css";
@@ -9,6 +9,9 @@ import ResponsiveConfig from "./ResponsiveConfig";
 import VariableConfig from "./VariableConfig";
 import AICodeGenerator from "./AICodeGenerator";
 import ProjectManager from "./ProjectManager";
+import InitialSetup from './InitialSetup';
+
+
 
 
 // 出力パスの設定
@@ -211,12 +214,17 @@ const App = () => {
     }
   };
 
-
-
-
   if (!isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<Login onLoginSuccess={handleLoginSuccess} />} />
+          <Route path="/setup" element={<InitialSetup />} />
+        </Routes>
+      </HashRouter>
+    );
   }
+
 
   return (
     <div className="app-container">

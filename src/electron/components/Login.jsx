@@ -4,6 +4,7 @@ import axios from 'axios';
 import styled, { keyframes } from 'styled-components';
 import { motion } from 'framer-motion';
 import logo from '../../assets/CreAIteCodeLogo.png';
+import { Link } from 'react-router-dom';
 
 const float = keyframes`
   0%,100% { transform: translateY(0) scale(1); }
@@ -23,6 +24,7 @@ const Container = styled(motion.div)`
   position: relative;
   display: flex;
   align-items: center;
+  flex-direction: column;
   justify-content: center;
   min-height: 100vh;
   background: linear-gradient(
@@ -175,9 +177,32 @@ const Login = ({ onLoginSuccess }) => {
         <Button type="submit" disabled={loading}>
           {loading ? '認証中...' : '認証'}
         </Button>
+        <div style={{ marginTop: '20px' }}>
+          <Link
+            to="/setup"
+            style={{
+              color: 'rgb(225, 232, 240)',
+              position: 'relative',
+              textDecoration: 'none',
+              transition: 'color 0.3s ease',
+              padding: '4px 2px'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'white';
+              e.currentTarget.style.textShadow = '0 0 8px rgba(255, 255, 255, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'rgb(225, 232, 240)';
+              e.currentTarget.style.textShadow = 'none';
+            }}
+          >
+            初めてご利用の方はこちら
+          </Link>
+        </div>
 
         {error && <ErrorText>{error}</ErrorText>}
       </GlassForm>
+
     </Container>
   );
 };
