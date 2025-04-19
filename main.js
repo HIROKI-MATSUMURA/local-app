@@ -959,7 +959,7 @@ async function loadSelectedTags() {
     }
     return null;
   } catch (error) {
-    console.error('選択中のタグの読み込みに失敗:', error);
+    console.error('選択されたタグの読み込みに失敗:', error);
     return null;
   }
 }
@@ -1155,74 +1155,132 @@ $secondary-color: ${secondaryColor};
   });
 
   // 管理画面からファイルを保存する要求を受け取る
-  ipcMain.on('save-html-file', async (event, { filePath, content }) => {
-    console.log('Received save HTML request:', filePath);
+  ipcMain.on('save-html-file', async (event, { filePath, content, projectId, projectPath }) => {
+    console.log('HTMLファイル保存リクエスト:', { filePath });
 
     try {
-      // アクティブなプロジェクトのIDを取得
-      const projectId = await loadActiveProjectId();
-      if (!projectId) {
-        console.error('アクティブなプロジェクトが見つかりません');
-        event.reply('save-html-file-error', 'アクティブなプロジェクトが見つかりません');
+      // プロジェクト情報のチェック
+      if (!projectId && !projectPath) {
+        // 引数でプロジェクト情報が渡されていない場合はアクティブなプロジェクトを取得
+        const activeProjectId = await loadActiveProjectId();
+        if (!activeProjectId) {
+          console.error('アクティブなプロジェクトが見つかりません');
+          event.reply('save-html-file-error', 'アクティブなプロジェクトが見つかりません');
+          return;
+        }
+
+        // プロジェクト設定を読み込む
+        const project = await loadProjectSettings(activeProjectId);
+        if (!project || !project.path) {
+          console.error('プロジェクトのパスが設定されていません');
+          event.reply('save-html-file-error', 'プロジェクトのパスが設定されていません');
+          return;
+        }
+
+        projectPath = project.path;
+      }
+
+      // プロジェクトパスの確認
+      if (!projectPath) {
+        console.error('プロジェクトパスが指定されていません');
+        event.reply('save-html-file-error', 'プロジェクトパスが指定されていません');
         return;
       }
 
-      // プロジェクト設定を読み込む
-      const project = await loadProjectSettings(projectId);
-      if (!project || !project.path) {
-        console.error('プロジェクトのパスが設定されていません');
-        event.reply('save-html-file-error', 'プロジェクトのパスが設定されていません');
-        return;
+      // 相対パスのチェックと調整
+      let relativeFilePath = filePath;
+
+      // src/が含まれていない場合は追加
+      if (!relativeFilePath.includes('src/')) {
+        relativeFilePath = `src/${relativeFilePath}`;
+      }
+
+      // pages/が含まれていない場合は追加
+      if (!relativeFilePath.includes('pages/') && !relativeFilePath.includes('pages\\')) {
+        // src/の後にpages/を挿入
+        const srcIndex = relativeFilePath.indexOf('src/') + 4;
+        relativeFilePath = `${relativeFilePath.substring(0, srcIndex)}pages/${relativeFilePath.substring(srcIndex)}`;
       }
 
       // 絶対パスに変換
-      const absolutePath = path.join(project.path, 'src', filePath);
+      const absolutePath = path.join(projectPath, relativeFilePath);
+      console.log(`ファイル保存先の絶対パス: ${absolutePath}`);
 
       // ディレクトリが存在しない場合は作成
       const dirPath = path.dirname(absolutePath);
       if (!fs.existsSync(dirPath)) {
+        console.log(`ディレクトリが存在しないため作成します: ${dirPath}`);
         await fs.promises.mkdir(dirPath, { recursive: true });
       }
 
+      // ファイルを書き込む
       await fs.promises.writeFile(absolutePath, content, 'utf8');
-      console.log(`Successfully saved HTML file at: ${absolutePath}`);
+      console.log(`HTMLファイルを保存しました: ${absolutePath}`);
+
+      // 成功レスポンスを送信
       event.reply('save-html-file-success', absolutePath);
+
+      // 他のリスナーにも通知
+      mainWindow.webContents.send('file-updated', { filePath: absolutePath, projectPath });
     } catch (err) {
-      console.error('Error occurred while saving HTML file:', err);
+      console.error('HTMLファイル保存中にエラーが発生しました:', err);
       event.reply('save-html-file-error', err.message);
     }
   });
 
   // ファイル削除処理
-  ipcMain.on('delete-html-file', async (event, { fileName }) => {
+  ipcMain.on('delete-html-file', async (event, { fileName, projectId, projectPath }) => {
     try {
-      // アクティブなプロジェクトのIDを取得
-      const projectId = await loadActiveProjectId();
-      if (!projectId) {
-        console.error('アクティブなプロジェクトが見つかりません');
+      console.log('HTMLファイル削除リクエスト:', { fileName, projectId, projectPath });
+
+      // プロジェクトIDとパスのチェック
+      if (!projectId && !projectPath) {
+        // 引数でプロジェクト情報が渡されていない場合はアクティブなプロジェクトを取得
+        const activeProjectId = await loadActiveProjectId();
+        if (!activeProjectId) {
+          console.error('アクティブなプロジェクトが見つかりません');
+          event.reply('file-delete-error', 'アクティブなプロジェクトが見つかりません');
+          return;
+        }
+
+        // プロジェクト設定を読み込む
+        const activeProject = await loadProjectSettings(activeProjectId);
+        if (!activeProject || !activeProject.path) {
+          console.error('プロジェクトのパスが設定されていません');
+          event.reply('file-delete-error', 'プロジェクトのパスが設定されていません');
+          return;
+        }
+
+        projectPath = activeProject.path;
+      }
+
+      // プロジェクトパスの確認
+      if (!projectPath) {
+        console.error('プロジェクトパスが指定されていません');
+        event.reply('file-delete-error', 'プロジェクトパスが指定されていません');
         return;
       }
 
-      // プロジェクト設定を読み込む
-      const project = await loadProjectSettings(projectId);
-      if (!project || !project.path) {
-        console.error('プロジェクトのパスが設定されていません');
-        return;
-      }
+      // ファイル名がpages/以下を含んでいる場合と含んでいない場合を処理
+      const relativePath = fileName.includes('pages/') ? fileName : `pages/${fileName}`;
+      const filePath = path.join(projectPath, 'src', relativePath);
 
-      const filePath = path.join(project.path, 'src', `${fileName}`);
-      console.log(`取得しているファイルパス: ${filePath}`);
+      console.log(`削除予定のファイルパス: ${filePath}`);
 
+      // ファイルの存在確認
       if (fs.existsSync(filePath)) {
         await fs.promises.unlink(filePath);  // ファイル削除
-        console.log(`Successfully deleted file: ${filePath}`);
+        console.log(`ファイルを削除しました: ${filePath}`);
         event.reply('file-deleted', fileName);
         mainWindow.webContents.send('file-deleted', fileName); // 監視しているレンダラープロセスに通知
       } else {
-        console.log(`File not found(Delete Path): ${filePath}`);
+        console.log(`ファイルが見つかりません: ${filePath}`);
+        // エラーではなく通知として返す
+        event.reply('file-deleted', fileName);
+        mainWindow.webContents.send('file-deleted', fileName);
       }
     } catch (error) {
-      console.error('Error during file deletion:', error);
+      console.error('ファイル削除中にエラーが発生しました:', error);
       event.reply('file-delete-error', error.message);
     }
   });

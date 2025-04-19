@@ -972,14 +972,31 @@ const ProjectManager = ({ onProjectChange }) => {
 
   // プロジェクトのカテゴリを変更
   const changeProjectCategory = async (projectId, category) => {
+    console.log(`プロジェクト[${projectId}]のカテゴリを変更します:`, category);
+
     const project = projects.find(p => p.id === projectId);
-    if (!project) return;
+    if (!project) {
+      console.error(`プロジェクト[${projectId}]が見つかりません`);
+      return;
+    }
+
+    console.log('変更前のプロジェクト情報:', {
+      id: project.id,
+      name: project.name,
+      category: project.category
+    });
 
     const updatedProject = {
       ...project,
       category
       // lastModified を更新しない - カテゴリ変更はメタデータの変更のみ
     };
+
+    console.log('更新後のプロジェクト情報:', {
+      id: updatedProject.id,
+      name: updatedProject.name,
+      category: updatedProject.category
+    });
 
     const updatedProjects = projects.map(p =>
       p.id === projectId ? updatedProject : p
@@ -988,6 +1005,22 @@ const ProjectManager = ({ onProjectChange }) => {
 
     // プロジェクト設定を保存
     await window.api.saveProjectSettings(updatedProject);
+
+    // プロジェクトがアクティブなら親コンポーネントに通知
+    if (projectId === activeProjectId && onProjectChange) {
+      console.log('アクティブプロジェクトのカテゴリが変更されました。親コンポーネントに通知します:', {
+        id: updatedProject.id,
+        name: updatedProject.name,
+        category: updatedProject.category
+      });
+      onProjectChange(updatedProject);
+    } else {
+      console.log('このプロジェクトはアクティブではないため、親コンポーネントには通知しません:', {
+        projectId,
+        activeProjectId,
+        onProjectChangeExists: !!onProjectChange
+      });
+    }
   };
 
   // プロジェクトのタグを編集ダイアログを表示
@@ -1022,6 +1055,11 @@ const ProjectManager = ({ onProjectChange }) => {
 
       // プロジェクト設定を保存
       await window.api.saveProjectSettings(updatedProject);
+
+      // プロジェクトがアクティブなら親コンポーネントに通知
+      if (projectForTags.id === activeProjectId && onProjectChange) {
+        onProjectChange(updatedProject);
+      }
 
       // 新しいタグをグローバルタグリストに追加
       const allTags = [...new Set([...tags, ...newTags])];

@@ -729,19 +729,22 @@ const GenerateHTML = ({ activeProject }) => {
 
         // プロジェクト固有のパスを生成
         // src/pagesディレクトリに保存するパスを指定
-        const filePath = `src/pages/${updatedFile.name}`;
+        const filePath = `pages/${updatedFile.name}`;
         console.log(`ファイルを保存します: ${filePath}`);
 
         if (filePath && isElectronContext) {
           try {
-            // プロジェクトIDも一緒に送信
+            // プロジェクト情報も一緒に送信
             window.api.send('save-html-file', {
               projectId: activeProject.id,
               projectPath: activeProject.path,
               filePath,
               content
             });
-            console.log(`ファイル保存リクエストを送信しました: ${filePath}`);
+            console.log(`ファイル保存リクエストを送信しました:`, {
+              filePath,
+              projectPath: activeProject.path
+            });
           } catch (error) {
             console.error(`ファイル保存エラー: ${error}`);
           }
@@ -807,8 +810,8 @@ const GenerateHTML = ({ activeProject }) => {
     // ファイル名を変更するためにメインプロセスに送信
     if (isElectronContext) {
       window.api.send('rename-file', {
-        oldPath: `src/pages/${editingFile.name}`,
-        newPath: `src/pages/${newFileName}`
+        oldFileName: `pages/${editingFile.name}`,
+        newFileName: `pages/${newFileName}`
       });
     }
   };
@@ -824,18 +827,27 @@ const GenerateHTML = ({ activeProject }) => {
         return;
       }
 
-      if (isElectronContext) {
-        console.log(`Delete request sent for: ${fileName}`);
+      if (isElectronContext && activeProject) {
+        console.log(`削除リクエストを送信: ${fileName}`, {
+          projectId: activeProject.id,
+          projectPath: activeProject.path
+        });
 
         // プロジェクト情報を含める
         window.api.send('delete-html-file', {
           projectId: activeProject.id,
           projectPath: activeProject.path,
-          fileName
+          fileName: `pages/${fileName}` // pages/ディレクトリを明示的に指定
         });
 
         // 削除処理を実行
         removeFileFromState(fileName);
+      } else {
+        console.error('プロジェクト情報が不足しているため削除できません', {
+          isElectronContext,
+          hasActiveProject: !!activeProject
+        });
+        setError('プロジェクト情報が不足しているため削除できません');
       }
     } catch (error) {
       console.error('ファイル削除処理中にエラーが発生しました:', error);

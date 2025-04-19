@@ -93,10 +93,15 @@ const App = () => {
       .catch((e) => console.error("プロジェクト用 ensureDir エラー", e));
   }, [isElectronContext, activeProject]);
 
-  // プロジェクト変更時のハンドラー
+  // activeProjectの変更をログに出力
+  useEffect(() => {
+    console.log('activeProject更新:', activeProject);
+  }, [activeProject]);
 
   const handleProjectChange = useCallback((project) => {
     if (!project) return;
+
+    console.log('handleProjectChange called with:', project);
 
     setActiveProject(prev => {
       // 同じプロジェクトなら state を更新しない
@@ -104,6 +109,14 @@ const App = () => {
         console.log('同じプロジェクトなので更新をスキップ');
         return prev;
       }
+
+      // 新しいプロジェクト情報を詳細にログ出力
+      console.log('プロジェクト情報更新:', {
+        id: project.id,
+        name: project.name,
+        category: project.category,
+        tags: project.tags
+      });
 
       // path を正規化
       const normalizedPath =
@@ -231,26 +244,26 @@ const App = () => {
       <aside className="sidebar">
         <div className="sidebar-header">
           <h2>CreAIte Code</h2>
-          {activeProject && (
+          {memoizedProject && (
             <div
               className="current-project"
               onClick={() => handleTabChange("project-manager")}
               style={{ cursor: 'pointer' }}
               title="クリックでプロジェクト管理ページに移動"
             >
-              <span className="project-name">{activeProject.name}</span>
+              <span className="project-name">{memoizedProject.name}</span>
               <div className="project-meta">
-                {activeProject.category && (
+                {memoizedProject.category && (
                   <span
                     className="project-category"
                     style={{}}
                   >
-                    {activeProject.category}
+                    {memoizedProject.category}
                   </span>
                 )}
-                {activeProject.tags && activeProject.tags.length > 0 && (
+                {memoizedProject.tags && memoizedProject.tags.length > 0 && (
                   <div className="project-tags">
-                    {activeProject.tags.map(tag => (
+                    {memoizedProject.tags.map(tag => (
                       <span key={tag} className="project-tag">{tag}</span>
                     ))}
                   </div>
