@@ -21,6 +21,8 @@ import 'highlight.js/styles/github.css';
 import Header from './Header';
 import { detectScssBlocks, detectHtmlBlocks } from "../utils/codeParser";
 // import * as sass from 'sass'; // SCSSコンパイル用にsassをインポート
+// import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+// import { faImage } from '@fortawesome/free-solid-svg-icons';
 
 const LOCAL_STORAGE_KEY = "ai_code_generator_state";
 
@@ -347,6 +349,9 @@ const compileAndUpdatePreview = async (htmlCode, scssCode, iframeRef, viewportWi
             width: 100%;
             height: 100%;
           }
+          img {
+            display: block;
+          }
           ${compiled}
         </style>
       </head>
@@ -394,6 +399,9 @@ const updateIframeWithCSS = (htmlCode, cssCode, iframeRef, viewportWidth = 375, 
             box-sizing: border-box;
             width: 100%;
             height: 100%;
+          }
+          img {
+            display: block;
           }
           ${cssCode}
         </style>
@@ -516,38 +524,66 @@ const AICodeGenerator = () => {
   // プレビュー関連の状態管理
 
   // プレビュー更新を強制的に走らせる用（サイズ変更後すぐ）
-  const forceUpdatePreview = async (width) => {
+  const forceUpdatePreview = (width) => {
     if (!previewRef.current) return;
     const iframe = previewRef.current;
     iframe.style.width = `${width}px`;
 
     try {
-      let success = false;
+      // 常に3ステップの変換処理を適用
+      console.log('SCSSを3ステップで処理します');
 
-      // Sass.jsが利用可能かチェック
-      if (window.Sass) {
-        // Sass.jsを使ってSCSSをコンパイル
-        console.log('Sass.jsを使用してSCSSをコンパイルします');
-        success = await compileAndUpdatePreview(editingHTML || '', editingCSS || '', previewRef, width, setProcessedCSS);
-      } else {
-        // Sass.jsがない場合はprocessSCSSでフォールバック
-        console.log('Sass.jsが利用できないため、フォールバック処理を使用します');
-        const fallbackCSS = processSCSS(editingCSS || '', breakpoints);
-        success = updateIframeWithCSS(editingHTML || '', fallbackCSS, previewRef, width, setProcessedCSS);
-      }
+      // 1. ネスト解除
+      let css = flattenSCSS(editingCSS || '');
+
+      // 2. px→rem変換
+      css = convertPxToRem(css);
+
+      // 3. @include mq→@media変換
+      css = processMediaQueries(css, breakpoints, responsiveMode);
+
+      // 処理したCSSを保存
+      setProcessedCSS(css);
+
+      // iframeに書き込み
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      iframeDoc.open();
+      iframeDoc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=${width}">
+          <style>
+            html, body {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              width: 100%;
+              height: 100%;
+            }
+            ${css}
+          </style>
+        </head>
+        <body>
+          ${editingHTML || ''}
+        </body>
+        </html>
+      `);
+      iframeDoc.close();
 
       // 高さを調整
-      if (success) {
-        setTimeout(() => {
-          adjustIframeHeight();
-          adjustPreviewContainerHeight();
-        }, 200);
-      } else {
-        // どちらのアプローチも失敗した場合
-        console.error('プレビュー更新に失敗しました。生のCSSを使用します。');
+      setTimeout(() => {
+        adjustIframeHeight();
+        adjustPreviewContainerHeight();
+      }, 200);
 
-        // 最終手段としてスタイルなしでHTMLを表示
-        setProcessedCSS(editingCSS); // 処理前のCSSで更新
+      console.log('✅ プレビュー更新完了');
+    } catch (error) {
+      console.error('プレビュー更新中にエラーが発生しました:', error);
+
+      // エラー時のフォールバック（最低限の表示を保証）
+      try {
         const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
         iframeDoc.open();
         iframeDoc.write(`
@@ -564,6 +600,7 @@ const AICodeGenerator = () => {
                 width: 100%;
                 height: 100%;
               }
+              /* 最低限のスタイル */
               ${editingCSS || ''}
             </style>
           </head>
@@ -573,15 +610,9 @@ const AICodeGenerator = () => {
           </html>
         `);
         iframeDoc.close();
-
-        // 高さを調整
-        setTimeout(() => {
-          adjustIframeHeight();
-          adjustPreviewContainerHeight();
-        }, 200);
+      } catch (fallbackError) {
+        console.error('フォールバック表示にも失敗しました:', fallbackError);
       }
-    } catch (error) {
-      console.error('プレビュー更新中にエラーが発生しました:', error);
     }
   };
 
@@ -613,8 +644,8 @@ const AICodeGenerator = () => {
     setPreviewWidth(width);
 
     // プレビューを即時更新
-    setTimeout(async () => {
-      await forceUpdatePreview(width);
+    setTimeout(() => {
+      forceUpdatePreview(width);
     }, 0);
   };
 
@@ -722,8 +753,8 @@ const AICodeGenerator = () => {
     loadResponsiveSettings();
 
     // 初期表示のためにプレビューを更新
-    setTimeout(async () => {
-      await forceUpdatePreview(previewWidth);
+    setTimeout(() => {
+      forceUpdatePreview(previewWidth);
     }, 500); // 初回は少し長めの遅延
   }, []);
 
@@ -4112,23 +4143,23 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         <div className="uploader-container sp-uploader">
           <h3>SP画像 <span className="help-text">（モバイルレイアウト）</span></h3>
-          <div className="image-upload-area" onClick={() => document.getElementById('sp-image-input').click()}>
-            <input
-              type="file"
-              id="sp-image-input"
-              accept="image/*"
-              onChange={(e) => handleImageUpload(e, 'sp')}
-              style={{ display: 'none' }}
-            />
+          <div className="image-upload-area" onClick={() => document.getElementById('sp-image-upload').click()}>
             {spImage ? (
               <div className="preview-container">
-                <img src={spImage.preview} alt="SP layout preview" className="image-preview" />
+                <img
+                  src={spImage.preview}
+                  alt="SP Preview"
+                  className="preview-image"
+                  onError={(e) => {
+                    console.error("画像の読み込みに失敗しました", e);
+                    e.target.style.display = 'none';
+                  }}
+                />
                 <button
-                  className="remove-image-btn"
-                  onClick={handleRemoveSpImage}
-                  title="画像を削除"
+                  className="remove-image-button"
+                  onClick={(e) => handleRemoveSpImage(e)}
                 >
-                  ✕
+                  <span>×</span>
                 </button>
                 <button
                   className="analyze-image-btn"
@@ -4151,12 +4182,19 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 )}
               </div>
             ) : (
-              <div className="upload-placeholder">
-                <span className="upload-icon">📷</span>
-                <span className="upload-text">クリックして画像をアップロード</span>
-                <span className="upload-subtext">または、ここにドラッグ&ドロップ</span>
-              </div>
+              <>
+                <div className="upload-icon">📱</div>
+                <div className="upload-text">SP用デザイン画像をアップロード</div>
+                <div className="upload-hint">クリックまたはドラッグ＆ドロップ</div>
+              </>
             )}
+            <input
+              type="file"
+              id="sp-image-upload"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, 'sp')}
+              style={{ display: 'none' }}
+            />
           </div>
           {spColors.length > 0 && (
             <div className="color-palette">
@@ -4549,6 +4587,95 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
     return true;
   };
 
+  // SCSSの@include mqを@mediaクエリに変換する関数
+  const processMediaQueries = (css, breakpoints, mode) => {
+    if (!css) return '';
+
+    // ブレークポイントのマップを作成
+    const bpMap = Array.isArray(breakpoints)
+      ? breakpoints.reduce((map, bp) => {
+        if (bp.active) map[bp.name] = bp.value;
+        return map;
+      }, {})
+      : { 'sm': 576, 'md': 768, 'lg': 992, 'xl': 1200 }; // デフォルト値
+
+    // @include mqパターンを検出して置換
+    const pattern = /@include\s+mq\(([a-z]+)\)\s*{([^}]+)}/g;
+    let result = css;
+    let match;
+
+    while ((match = pattern.exec(css)) !== null) {
+      const [fullMatch, bpName, body] = match;
+      if (!bpMap[bpName]) continue;
+
+      // レスポンシブモードに応じたメディアクエリを生成
+      const mediaQuery = mode === 'sp'
+        ? `@media (min-width: ${bpMap[bpName]}px)`
+        : `@media (max-width: ${bpMap[bpName]}px)`;
+
+      // コンテンツを整形
+      const content = body
+        .trim()
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join('\n  ');
+
+      // 元のコードを置換
+      result = result.replace(fullMatch, `${mediaQuery} {\n  ${content}\n}`);
+    }
+
+    return result;
+  };
+
+  // iframe内のHTMLとCSSを直接更新する関数（シンプルな注入）
+  const updateIframeWithCSS = (htmlCode, cssCode, iframeRef, viewportWidth = 375, setProcessedCSSFunc = null) => {
+    try {
+      const iframe = iframeRef.current;
+      if (!iframe) {
+        console.error('iframeが見つかりません');
+        return false;
+      }
+
+      // 保存用のデータも更新
+      if (setProcessedCSSFunc && typeof setProcessedCSSFunc === 'function') {
+        setProcessedCSSFunc(cssCode);
+      }
+
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      iframeDoc.open();
+      iframeDoc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=${viewportWidth}">
+          <style>
+            html, body {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              width: 100%;
+              height: 100%;
+            }
+            ${cssCode}
+          </style>
+        </head>
+        <body>
+          ${htmlCode}
+        </body>
+        </html>
+      `);
+      iframeDoc.close();
+
+      console.log('✅ プレビュー更新完了');
+      return true;
+    } catch (error) {
+      console.error('❌ プレビュー更新失敗:', error);
+      return false;
+    }
+  };
+
   return (
     <div className="ai-code-generator">
       <Header
@@ -4559,7 +4686,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       <div className="upload-section">
         <div
           className={`upload-area ${pcImage ? 'has-image' : ''}`}
-          onClick={() => document.getElementById('pc-image-input').click()}
+          onClick={() => document.getElementById('pc-image-upload').click()}
         >
           {pcImage ? (
             <div className="image-preview-container">
@@ -4588,7 +4715,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           )}
           <input
             type="file"
-            id="pc-image-input"
+            id="pc-image-upload"
             accept="image/*"
             onChange={(e) => handleImageUpload(e, 'pc')}
             style={{ display: 'none' }}
@@ -4597,19 +4724,11 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         <div
           className={`upload-area ${spImage ? 'has-image' : ''}`}
-          onClick={() => document.getElementById('sp-image-input').click()}
+          onClick={() => document.getElementById('sp-image-upload').click()}
         >
           {spImage ? (
             <div className="image-preview-container">
-              <img
-                src={spImage.preview}
-                alt="SP Preview"
-                className="preview-image"
-                onError={(e) => {
-                  console.error("画像の読み込みに失敗しました", e);
-                  e.target.style.display = 'none';
-                }}
-              />
+              <img src={spImage.preview} alt="SP Preview" className="preview-image" />
               <button
                 className="remove-image-button"
                 onClick={(e) => handleRemoveSpImage(e)}
@@ -4626,7 +4745,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           )}
           <input
             type="file"
-            id="sp-image-input"
+            id="sp-image-upload"
             accept="image/*"
             onChange={(e) => handleImageUpload(e, 'sp')}
             style={{ display: 'none' }}
