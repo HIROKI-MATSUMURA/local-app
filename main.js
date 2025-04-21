@@ -377,7 +377,7 @@ function createMainWindow() {
   // ファイル監視対象
   const watchFiles = [
     path.join(__dirname, 'src/scss/base/_reset.scss'),
-    path.join(__dirname, 'src/scss/global/_breakpoints.scss'),
+    path.join(__dirname, 'src/scss/globals/_breakpoints.scss'),
   ];
 
   // ファイルの監視処理
@@ -1144,7 +1144,7 @@ $primary-color: ${primaryColor};
 $secondary-color: ${secondaryColor};
 `;
 
-    const filePath = path.join(__dirname, 'src/scss/global/_settings.scss');
+    const filePath = path.join(__dirname, 'src/scss/globals/_settings.scss');
     fs.writeFile(filePath, scssContent, 'utf8', (err) => {
       if (err) {
         console.error(`Error writing to ${filePath}:`, err);
@@ -1760,7 +1760,7 @@ $mediaquerys: (
       if (!scssNeedsRename && scssCode && scssCode.trim() !== '') {
         try {
           console.log(`SCSSファイル保存開始: ${scssFilePath}`);
-          const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+          const scssContent = `@use "../../globals" as *;\n\n${scssCode}`;
           await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
           console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
           result.savedFiles.scss = scssFileName;
@@ -2021,7 +2021,7 @@ $mediaquerys: (
         const scssFilePath = path.join(scssDir, scssFileName);
 
         try {
-          const scssContent = `@use "../../global" as *;\n\n${scssCode}`;
+          const scssContent = `@use "../../globals" as *;\n\n${scssCode}`;
           await fs.promises.writeFile(scssFilePath, scssContent, 'utf8');
           console.log(`SCSSファイルを保存しました: ${scssFilePath}`);
           result.savedFiles.scss = scssFileName;
