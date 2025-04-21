@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
@@ -157,7 +157,7 @@ let isAICodeSaving = false; // AIコード保存中のフラグ
 const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
 
 // 監視するディレクトリ
-const htmlDirectory = path.join(__dirname, 'src');
+const htmlDirectory = path.join(__dirname);
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
 let previousFiles = [];
 
@@ -211,7 +211,7 @@ function watchDirectory() {
 
 // ファイル変更監視ハンドラー - Viteのリロードに頼らずElectronで独自に処理
 function setupFileWatcher() {
-  const htmlDirectory = path.join(__dirname, 'src');
+  const htmlDirectory = path.join(__dirname);
 
   // HTMLファイルの変更を監視
   fs.watch(htmlDirectory, { recursive: true }, (eventType, filename) => {
@@ -252,7 +252,7 @@ function createSplashWindow() {
     }
   });
 
-  splashWindow.loadFile(path.join(__dirname, 'src/electron/splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
 
   splashWindow.on('closed', () => {
     console.log('スプラッシュウィンドウが閉じられました');
@@ -321,11 +321,11 @@ function createMainWindow() {
 
   if (isDevelopment) {
     // 開発環境では、Viteによってビルドされたファイルを使用
-    filePath = path.join(__dirname, 'dist', 'index.html');
+    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
     console.log('開発モード: ビルド済みファイルを読み込みます:', filePath);
   } else {
     // 本番環境では、パッケージ化されたファイルを使用
-    filePath = path.join(__dirname, 'dist', 'index.html');
+    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
     console.log('本番モード: ビルド済みファイルを読み込みます:', filePath);
   }
 
@@ -339,7 +339,7 @@ function createMainWindow() {
     console.error('ファイル読み込みエラー:', err);
 
     // 読み込み失敗時のフォールバック
-    const fallbackPath = path.join(__dirname, 'src', 'electron', 'index.html');
+    const fallbackPath = path.join(__dirname, 'index.html');
     console.log('フォールバックファイルを読み込みます:', fallbackPath);
     mainWindow.loadFile(fallbackPath).catch(fallbackErr => {
       console.error('フォールバックファイルの読み込みにも失敗:', fallbackErr);
@@ -409,6 +409,53 @@ function createMainWindow() {
 
 // アプリの起動が完了したら
 app.whenReady().then(async () => {
+  // JSXファイルのMIMEタイプを設定
+  protocol.registerFileProtocol('file', (request, callback) => {
+    const url = request.url.substr(7); // 'file://'を取り除く
+    const filePath = decodeURI(url);
+
+    try {
+      // MIMEタイプを拡張子に基づいて設定
+      let mimeType = '';
+      if (filePath.endsWith('.jsx')) {
+        mimeType = 'application/javascript';
+        console.log('JSXファイルのMIMEタイプを設定:', filePath, mimeType);
+
+        // JSXファイルの内容を読み込んで直接返す
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          callback({
+            mimeType: 'application/javascript',
+            data: Buffer.from(content)
+          });
+          return;
+        }
+      } else if (filePath.endsWith('.js')) {
+        mimeType = 'application/javascript';
+      } else if (filePath.endsWith('.html')) {
+        mimeType = 'text/html';
+      } else if (filePath.endsWith('.css')) {
+        mimeType = 'text/css';
+      }
+
+      // ファイルが存在するか確認
+      if (fs.existsSync(filePath)) {
+        callback({
+          path: filePath,
+          headers: {
+            'Content-Type': mimeType
+          }
+        });
+      } else {
+        console.error(`ファイルが見つかりません: ${filePath}`);
+        callback({ error: -6 }); // ファイルが見つかりません
+      }
+    } catch (error) {
+      console.error('プロトコルハンドラーエラー:', error);
+      callback({ error: -2 }); // 一般的なエラー
+    }
+  });
+
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
   console.log('ユーザーデータディレクトリ:', userDataPath);
@@ -530,17 +577,6 @@ app.whenReady().then(async () => {
   console.log('アプリ起動時にIPCハンドラーを設定します');
   setupIPCHandlers();
   setupFileWatcher();
-
-  // 出力ディレクトリの準備
-  const outputPath = path.join(__dirname, 'output');
-  try {
-    if (!fs.existsSync(outputPath)) {
-      fs.mkdirSync(outputPath, { recursive: true });
-      console.log('出力ディレクトリを作成しました:', outputPath);
-    }
-  } catch (err) {
-    console.error('出力ディレクトリの作成に失敗しました:', err);
-  }
 
   // スプラッシュウィンドウを作成
   createSplashWindow();
@@ -966,26 +1002,6 @@ async function loadSelectedTags() {
 
 // IPC ハンドラーを設定する関数
 function setupIPCHandlers() {
-  // 必要なディレクトリの作成
-  const ensureDirectories = () => {
-    const directories = [
-      path.join(__dirname, 'src'),
-      path.join(__dirname, 'src/scss'),
-      path.join(__dirname, 'src/scss/object'),
-      path.join(__dirname, 'src/scss/object/AI_Component'),
-      path.join(__dirname, 'src/partsHTML')
-    ];
-
-    directories.forEach(dir => {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`ディレクトリを作成しました: ${dir}`);
-      }
-    });
-  };
-
-  // 起動時にディレクトリを確認・作成
-  ensureDirectories();
 
   // 選択されたカテゴリを同期的に保存するハンドラー
   ipcMain.on('save-selected-category-sync', (event, category) => {

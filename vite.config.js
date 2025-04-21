@@ -61,7 +61,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src/electron'),
       '@components': path.resolve(__dirname, 'src/electron/components'),
       '@styles': path.resolve(__dirname, 'src/electron/styles'),
+      '@utils': path.resolve(__dirname, 'src/electron/utils'),
     },
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.json', '.css', '.scss']
   },
   define: {
     'process.env': {},
@@ -73,7 +75,7 @@ export default defineConfig({
     headers: {
       'Content-Type': 'application/javascript',
       'Access-Control-Allow-Origin': '*',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
     },
     middlewareMode: false,
     fs: {

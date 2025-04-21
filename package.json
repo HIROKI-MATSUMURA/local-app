@@ -2,33 +2,30 @@
   "name": "creait-code",
   "version": "1.0.0",
   "description": "AIを活用したコード生成・変換ツール",
-  "main": "main.js",
+  "main": "src/electron/main.js",
   "scripts": {
     "start": "electron .",
     "electron-dev": "NODE_ENV=development electron .",
     "electron-dev:win": "set NODE_ENV=development && electron .",
     "vite-dev": "vite",
-    "vite-dev:force": "vite --force",
     "vite-build": "vite build",
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
     "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron .",
-    "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run vite-build && npm run electron-dev",
-    "package-mac": "electron-builder --mac",
-    "package-win": "electron-builder --win",
-    "package-linux": "electron-builder --linux",
+    "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
+    "package-mac": "npm run vite-build && electron-builder --mac",
+    "package-win": "npm run vite-build && electron-builder --win",
+    "package-linux": "npm run vite-build && electron-builder --linux",
     "package": "npm run vite-build && electron-builder",
-    "check-python": "node -e \"require('./python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
-    "setup-python": "node -e \"require('./python_bridge').setupPythonEnvironment().then(result => console.log('Python環境セットアップ結果:', result)).catch(err => console.error('Python環境セットアップエラー:', err))\""
+    "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
+    "setup-python": "node -e \"require('./src/electron/python_bridge').setupPythonEnvironment().then(result => console.log('Python環境セットアップ結果:', result)).catch(err => console.error('Python環境セットアップエラー:', err))\""
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "7.6.0",
     "electron": "33.3.1",
     "electron-builder": "^24.13.3",
     "python-shell": "^5.0.0",
     "sass": "^1.86.3",
-    "vite": "^4.5.2",
     "wait-on": "^8.0.3"
   },
   "keywords": [],
@@ -37,6 +34,7 @@
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
     "antd": "^5.24.6",
     "axios": "^0.27.2",
     "chokidar": "^4.0.3",
@@ -57,10 +55,11 @@
     "react-syntax-highlighter": "^15.6.1",
     "styled-components": "^6.1.17",
     "tesseract.js": "^6.0.0",
-    "uuid": "^11.0.5"
+    "uuid": "^11.0.5",
+    "vite": "^6.3.2"
   },
   "volta": {
-    "node": "18.17.0"
+    "node": "23.11.0"
   },
   "build": {
     "appId": "com.creait.code",
@@ -70,12 +69,12 @@
     },
     "files": [
       "dist/**/*",
-      "main.js",
-      "preload.js",
+      "src/electron/main.js",
+      "src/electron/preload.js",
       "node_modules/**/*",
       "package.json",
-      "python_bridge.js",
-      "python_bridge_adapter.js"
+      "src/electron/python_bridge.js",
+      "src/electron/python_bridge_adapter.js"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -102,7 +101,7 @@
     },
     "extraResources": [
       {
-        "from": "./",
+        "from": "./src/electron",
         "to": ".",
         "filter": [
           "python_check.py",
@@ -110,14 +109,19 @@
           "python_setup.py",
           "python_server.py",
           "image_analyzer.py",
-          "requirements.txt",
-          "python_bridge.js",
-          "python_bridge_adapter.js"
+          "python_scripts/**/*"
+        ]
+      },
+      {
+        "from": "./",
+        "to": ".",
+        "filter": [
+          "requirements.txt"
         ]
       }
     ],
     "extraMetadata": {
-      "main": "main.js"
+      "main": "src/electron/main.js"
     }
   },
   "electronWebpack": {

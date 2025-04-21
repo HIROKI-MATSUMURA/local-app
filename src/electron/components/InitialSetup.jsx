@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { motion } from 'framer-motion';
-import logo from '../../assets/CreAIteCodeLogo.png';
+import logo from '../assets/icon.png';
 
 // アニメーションの定義
 const float = keyframes`

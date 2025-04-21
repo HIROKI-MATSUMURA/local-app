@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import styled, { keyframes } from 'styled-components';
 import { motion } from 'framer-motion';
-import logo from '../../assets/CreAIteCodeLogo.png';
+import logo from '../assets/icon.png';
 import { Link } from 'react-router-dom';
 
 const float = keyframes`

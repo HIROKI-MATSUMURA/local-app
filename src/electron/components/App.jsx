@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { BrowserRouter, Routes, Route, HashRouter } from 'react-router-dom';
 import Login from './Login';
-import "@styles/css/main.css";
-import "@styles/css/components.css";
+import "../styles/main.css";
+// スタイルファイルの存在を確認し、存在しない場合はコメントアウト
+// import "../styles/components.css";
 import GenerateHTML from "./GenerateHTML";
 import ResetCSS from "./ResetCSS";
 import ResponsiveConfig from "./ResponsiveConfig";

@@ -3,9 +3,10 @@ import ReactDOM from 'react-dom/client';
 import App from './components/App';
 
 // アプリケーション用スタイルのインポート
-import './styles/css/main.css';
-import './styles/css/components.css';
-import './styles/App.scss';
+import './styles/main.css';
+// 他のスタイルファイルもパスを確認
+// import './styles/components.css';
+// import './styles/App.scss';
 
 /**
  * ElectronAPIの検出を行う関数
@@ -78,17 +79,7 @@ function setupElectronFallback() {
         message: 'ブラウザ環境ではPythonブリッジの起動は利用できません'
       }),
 
-      // // 画像処理関連のダミー関数
-      // extractColorsFromImage: () => Promise.resolve({
-      //   success: false,
-      //   data: [],
-      //   error: 'ブラウザ環境ではPython画像処理は利用できません'
-      // }),
-      // extractTextFromImage: () => Promise.resolve({
-      //   success: false,
-      //   data: '',
-      //   error: 'ブラウザ環境ではPython OCR処理は利用できません'
-      // }),
+      // 画像処理関連のダミー関数
       analyzeImageSections: () => Promise.resolve({
         success: false,
         data: [],
@@ -140,8 +131,21 @@ function hideLoadingScreen() {
   }
 }
 
-// エラーハンドリング関数
-function handleRenderError(error) {
+// Reactアプリケーションをレンダリング
+try {
+  const rootElement = document.getElementById('root');
+  if (!rootElement) {
+    throw new Error('Root element not found');
+  }
+
+  // ReactDOMを使用してAppコンポーネントをレンダリング
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(App));
+  console.log('React app rendered successfully');
+
+  // レンダリング成功後にローディング画面を非表示
+  setTimeout(hideLoadingScreen, 300);
+} catch (error) {
   console.error('Failed to render React app:', error);
   const rootElement = document.getElementById('root');
   if (rootElement) {
@@ -152,36 +156,4 @@ function handleRenderError(error) {
       </div>
     `;
   }
-  // エラー時もローディング画面を非表示に
-  hideLoadingScreen();
-}
-
-// アプリケーションの初期化
-const initApp = () => {
-  console.log('Initializing React application');
-  try {
-    const rootElement = document.getElementById('root');
-    if (!rootElement) {
-      throw new Error('Root element not found');
-    }
-
-    const root = ReactDOM.createRoot(rootElement);
-    root.render(
-      <App />
-    );
-    console.log('React app rendered successfully');
-
-    // レンダリング成功後にローディング画面を非表示
-    setTimeout(hideLoadingScreen, 300);
-  } catch (error) {
-    handleRenderError(error);
-  }
-};
-
-// DOMContentLoadedイベントでアプリケーションを初期化
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initApp);
-} else {
-  // DOMがすでに読み込まれている場合は直接初期化
-  initApp();
 }
