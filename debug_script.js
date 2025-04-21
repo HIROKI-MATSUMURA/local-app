@@ -1,1 +1,0 @@
-const originalGenerateCode = window.api.generateCode; window.api.generateCode = function(params) { console.log("=== FULL PROMPT ==="); console.log(params.prompt); console.log("=== END FULL PROMPT ==="); return originalGenerateCode.apply(this, arguments); };
