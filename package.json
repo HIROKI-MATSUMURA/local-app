@@ -1,7 +1,7 @@
 {
   "name": "creait-code",
   "version": "1.0.0",
-  "description": "AIを活用したコード生成・変換ツール",
+  "description": "AIを活用したウェブコンテンツ生成ツール。デザインから高品質なHTMLとSCSSを自動生成します。",
   "main": "src/electron/main.js",
   "scripts": {
     "start": "electron .",
@@ -28,9 +28,16 @@
     "sass": "^1.86.3",
     "wait-on": "^8.0.3"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "AI",
+    "code-generation",
+    "web-development",
+    "html-generator",
+    "scss-generator",
+    "design-to-code"
+  ],
+  "author": "CreAIte Code Team <info@creait.code>",
+  "license": "MIT",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -67,6 +74,10 @@
     "directories": {
       "output": "release"
     },
+    "executableArgs": [
+      "--expose-gc",
+      "--js-flags=--expose-gc"
+    ],
     "files": [
       "dist/**/*",
       "src/electron/main.js",

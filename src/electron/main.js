@@ -290,7 +290,8 @@ function createMainWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true,
+      webSecurity: !isDevelopment,                 // 開発環境では無効、本番環境では有効
+      allowRunningInsecureContent: isDevelopment,  // 開発環境では許可、本番環境では禁止
       sandbox: false,  // falseに変更
       preload: preloadPath
     }
