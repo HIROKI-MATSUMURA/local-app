@@ -62,7 +62,24 @@ def initialize_image_analyzer():
     try:
         # 画像解析モジュールのパスを特定
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        analyzer_path = os.path.join(script_dir, 'image_analyzer.py')
+        analyzer_path = os.path.join(script_dir, 'modules', 'image_analyzer.py')
+
+        logger.info(f"画像解析モジュールのパス: {analyzer_path}")
+
+        # パスが見つからない場合の代替パスを試す（パッケージ化されたアプリケーション用）
+        if not os.path.exists(analyzer_path):
+            logger.warning(f"標準パスで画像解析モジュールが見つかりません。代替パスを試行します。")
+            # 親ディレクトリのmodulesディレクトリを試す
+            parent_dir = os.path.dirname(script_dir)
+            analyzer_path = os.path.join(parent_dir, 'modules', 'image_analyzer.py')
+            logger.info(f"代替パス: {analyzer_path}")
+
+            # それでも見つからない場合は、extraResourcesの相対パスを試す
+            if not os.path.exists(analyzer_path):
+                logger.warning(f"代替パスでも見つかりません。リソースパスを試行します。")
+                analyzer_path = os.path.join(script_dir, '..', 'modules', 'image_analyzer.py')
+                analyzer_path = os.path.abspath(analyzer_path)
+                logger.info(f"リソースパス: {analyzer_path}")
 
         if not os.path.exists(analyzer_path):
             logger.error(f"image_analyzer.py が見つかりません: {analyzer_path}")

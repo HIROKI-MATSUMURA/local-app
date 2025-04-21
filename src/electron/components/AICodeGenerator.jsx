@@ -1753,7 +1753,7 @@ const AICodeGenerator = () => {
       // APIキーのチェック
       if (!apiKeyResponse || !apiKeyResponse.success || !apiKeyResponse.claudeKey) {
         console.error("APIキー取得エラー:", apiKeyResponse?.error || "不明なエラー");
-        alert("APIキーが取得できませんでした。secret/api_key.json に有効なAPIキーが設定されているか確認してください。");
+        alert("APIキーが取得できませんでした。src/config/api-keys.js に有効なAPIキーが設定されているか確認してください。");
         setLoading(false);
         clearInterval(progressTimer);
         return;
@@ -1765,7 +1765,7 @@ const AICodeGenerator = () => {
 
       if (!apiKey) {
         console.error("APIキーが空です");
-        alert("有効なAPIキーがありません。/secret/api_key.json を確認してください。");
+        alert("有効なAPIキーがありません。src/config/api-keys.js を確認してください。");
         setLoading(false);
         clearInterval(progressTimer);
         return;
@@ -2034,7 +2034,7 @@ ${editingCSS}
       // APIキーのチェック
       if (!apiKeyResponse || !apiKeyResponse.success || !apiKeyResponse.claudeKey) {
         console.error("APIキー取得エラー:", apiKeyResponse?.error || "不明なエラー");
-        alert("APIキーが取得できませんでした。secret/api_key.json に有効なAPIキーが設定されているか確認してください。");
+        alert("APIキーが取得できませんでした。src/config/api-keys.js に有効なAPIキーが設定されているか確認してください。");
         return;
       }
 

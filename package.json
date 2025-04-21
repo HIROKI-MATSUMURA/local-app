@@ -74,7 +74,8 @@
       "node_modules/**/*",
       "package.json",
       "src/electron/python_bridge.js",
-      "src/electron/python_bridge_adapter.js"
+      "src/electron/python_bridge_adapter.js",
+      "src/config/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -101,15 +102,11 @@
     },
     "extraResources": [
       {
-        "from": "./src/electron",
-        "to": ".",
+        "from": "./src/python",
+        "to": "python",
         "filter": [
-          "python_check.py",
-          "python_installer.py",
-          "python_setup.py",
-          "python_server.py",
-          "image_analyzer.py",
-          "python_scripts/**/*"
+          "*.py",
+          "modules/**/*"
         ]
       },
       {

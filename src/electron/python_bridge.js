@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 
 // ブラウザ環境でエラーが出ないように条件付きでrequire
 let spawn, path, fs, os, crypto;
+let app, isDevelopment;
 
 if (isNode) {
   // Node.js環境でのみ必要なモジュールをロード
@@ -16,6 +17,16 @@ if (isNode) {
   fs = require('fs').promises;
   os = require('os');
   crypto = require('crypto');
+
+  // Electronの環境変数を取得
+  try {
+    const electron = require('electron');
+    app = electron.app || (electron.remote && electron.remote.app);
+    isDevelopment = process.env.NODE_ENV === 'development' || (app && !app.isPackaged);
+  } catch (e) {
+    console.log('Electron環境ではないようです:', e.message);
+    isDevelopment = process.env.NODE_ENV === 'development';
+  }
 } else {
   // ブラウザ環境用のダミーオブジェクト
   console.log('ブラウザ環境を検出しました：Pythonブリッジは限定機能で動作します');
@@ -40,8 +51,21 @@ if (isNode) {
   };
 }
 
-// Pythonコマンド（OSによって異なる）
-const PYTHON_CMD = isNode && os.platform() === 'win32' ? 'python' : 'python3';
+// Pythonコマンド（開発環境と本番環境で一貫性を持たせる）
+let PYTHON_CMD;
+if (isNode) {
+  if (isDevelopment) {
+    // 開発環境ではシステムのPythonを使用
+    PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3';
+  } else {
+    // 本番環境ではバンドルされたPythonを使用
+    PYTHON_CMD = path.join(process.resourcesPath, 'python', 'python');
+  }
+} else {
+  PYTHON_CMD = 'python3'; // ブラウザ環境（通常は使用されない）
+}
+
+console.log(`Python実行コマンド: ${PYTHON_CMD}, 開発環境: ${isDevelopment}`);
 
 /**
  * Python処理ブリッジクラス
@@ -87,7 +111,16 @@ class PythonBridge {
     try {
       console.log('Pythonプロセスを起動中...');
       // Pythonサーバープロセスを起動
-      const scriptPath = path.join(__dirname, 'python_server.py');
+      let scriptPath;
+      if (process.env.PYTHON_RESOURCES_PATH) {
+        // 環境変数から直接パスを取得（package化されている場合に対応）
+        scriptPath = path.join(process.env.PYTHON_RESOURCES_PATH, 'python_server.py');
+      } else {
+        // 環境変数がない場合はアプリルートから相対パスで解決
+        const appRoot = process.env.APP_ROOT_PATH || (isNode ? path.resolve(__dirname, '..', '..') : '');
+        scriptPath = path.join(appRoot, 'src', 'python', 'python_server.py');
+      }
+      console.log(`Pythonサーバーのパス: ${scriptPath}`);
 
       // カスタム環境変数を設定
       const env = { ...process.env };

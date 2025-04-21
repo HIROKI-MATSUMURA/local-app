@@ -100,9 +100,9 @@ const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、
 let pythonBridge;
 try {
   // python_scriptsディレクトリの存在を確認し、必要なら作成
-  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
+  const pythonScriptsDir = path.join(app.getAppPath(), 'src', 'python');
   if (!fs.existsSync(pythonScriptsDir)) {
-    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
+    console.log(`pythonディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
     fs.mkdirSync(pythonScriptsDir, { recursive: true });
   }
 
@@ -483,6 +483,21 @@ app.whenReady().then(async () => {
   try {
     console.log('Pythonブリッジを初期化しています...');
 
+    // アプリケーションのルートパスを環境変数に設定
+    process.env.APP_ROOT_PATH = app.getAppPath();
+    console.log(`アプリケーションルートパス: ${process.env.APP_ROOT_PATH}`);
+
+    // パッケージ済みアプリケーションの場合、extraResourcesから正しいパスを取得
+    if (!isDevelopment && app.isPackaged) {
+      // extraResourcesのパスを設定
+      process.env.PYTHON_RESOURCES_PATH = path.join(process.resourcesPath, 'python');
+      console.log(`Python リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+    } else {
+      // 開発環境ではソースコードのパスを使用
+      process.env.PYTHON_RESOURCES_PATH = path.join(app.getAppPath(), 'src', 'python');
+      console.log(`Python 開発リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+    }
+
     // Pythonの実行パスを設定
     const pythonPath = isDevelopment
       ? 'python' // 開発環境ではシステムのPythonを使用
@@ -493,7 +508,7 @@ app.whenReady().then(async () => {
       mode: 'text',
       pythonPath: pythonPath,
       pythonOptions: ['-u'], // 出力をバッファリングしない
-      scriptPath: path.join(__dirname, 'python_scripts'),
+      scriptPath: path.join(app.getAppPath(), 'src', 'python'),
     };
 
     // Pythonブリッジの動作確認
@@ -1422,8 +1437,12 @@ $mediaquerys: (
   // APIキー取得関数
   const getApiKey = () => {
     try {
-      // src/config/api-keys.js からのみAPIキーを読み込む
-      const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+      // デバッグ情報
+      console.log(`__dirname = ${__dirname}`);
+      console.log(`app.getAppPath() = ${app.getAppPath()}`);
+
+      // アプリケーションルートからのパスを構築
+      const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
       console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
 
       // ファイルが存在するか確認
@@ -1489,7 +1508,12 @@ $mediaquerys: (
 
       // 最初にsrc/config/api-keys.jsから取得を試みる
       try {
-        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        // デバッグ情報
+        console.log(`get-claude-api-key: __dirname = ${__dirname}`);
+        console.log(`get-claude-api-key: app.getAppPath() = ${app.getAppPath()}`);
+
+        // アプリケーションルートからのパスを構築
+        const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
         console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {
@@ -1499,16 +1523,27 @@ $mediaquerys: (
 
           // Anthropicキーが設定されていれば、それを使用
           if (apiConfig.ANTHROPIC_API_KEY) {
-            console.log(`Claude APIキーの取得に成功: ${apiConfig.ANTHROPIC_API_KEY.substring(0, 10)}...`);
-            return { success: true, claudeKey: apiConfig.ANTHROPIC_API_KEY };
+            console.log('Anthropic APIキーを発見しました');
+            return {
+              openaiKey: null,
+              claudeKey: apiConfig.ANTHROPIC_API_KEY,
+              selectedProvider: 'claude',
+              anthropicVersion: apiConfig.API_VERSION || '2023-06-01',
+              anthropicBaseUrl: apiConfig.API_BASE_URL || 'https://api.anthropic.com/v1',
+              success: true
+            };
+          } else {
+            console.error('Anthropic APIキーが設定されていません');
           }
+        } else {
+          console.error(`APIキー設定ファイルが見つかりません: ${apiConfigPath}`);
         }
       } catch (configError) {
         console.error('Anthropic API設定の読み込みに失敗:', configError);
       }
 
       // 従来のパスから取得を試みる（フォールバック）
-      const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
+      const secretApiKeyPath = path.join(app.getAppPath(), 'secret', 'api-key.json');
       console.log(`従来のAPIキーファイルパス: ${secretApiKeyPath}`);
       console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
 
@@ -1550,8 +1585,13 @@ $mediaquerys: (
 
       // APIキーを取得
       try {
+        // デバッグ情報
+        console.log(`generate-code: __dirname = ${__dirname}`);
+        console.log(`generate-code: app.getAppPath() = ${app.getAppPath()}`);
+
         console.log('src/config/api-keys.jsからAPIキーを読み込みます');
-        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        // アプリケーションルートからのパスを構築
+        const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
         console.log(`設定ファイルパス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {

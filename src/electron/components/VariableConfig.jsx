@@ -825,10 +825,20 @@ const VariableConfig = forwardRef((props, ref) => {
   const handleColorChange = (index, value) => {
     const updatedColors = [...variables.customColors];
     updatedColors[index].color = value;
-    setVariables({ ...variables, customColors: updatedColors });
+    setVariables({
+      ...variables,
+      customColors: updatedColors
+    });
   };
 
-  // 色の追加ハンドラ
+  // 変数値を更新する関数
+  const handleVariableChange = (name, value) => {
+    setVariables({
+      ...variables,
+      [name]: value
+    });
+  };
+
   const addColor = () => {
     setVariables({ ...variables, customColors: [...variables.customColors, { name: '', color: '#000000' }] });
   };
