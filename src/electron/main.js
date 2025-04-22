@@ -14,7 +14,7 @@ const chokidar = require('chokidar');
 if (process.env.NODE_ENV === 'development') {
   require('dotenv').config();
 }
-
+app.commandLine.appendSwitch('js-flags', '--expose-gc');
 // GC機能の確認とフラグ設定
 // package.jsonのelectron-builder設定例:
 // "build": {
@@ -161,7 +161,9 @@ let isAICodeSaving = false; // AIコード保存中のフラグ
 const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
 
 // 監視するディレクトリ
-const htmlDirectory = path.join(__dirname, 'src');
+const htmlDirectory = isDevelopment
+  ? path.join(__dirname, '..', 'renderer')
+  : path.join(process.resourcesPath, 'app', 'dist');
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
 let previousFiles = [];
 
@@ -367,7 +369,7 @@ function createSplashWindow() {
     }
   });
 
-  splashWindow.loadFile(path.join(__dirname, 'src/electron/splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
 
   splashWindow.on('closed', () => {
     console.log('スプラッシュウィンドウが閉じられました');
@@ -440,7 +442,7 @@ function createMainWindow() {
   // 開発環境と本番環境で適切なパスを使い分ける
   let filePath;
 
-  
+
   if (isDevelopment) {
     filePath = path.join(__dirname, 'dist/electron', 'index.html');
   } else {
@@ -466,7 +468,9 @@ function createMainWindow() {
     console.error('ファイル読み込みエラー:', err);
 
     // 読み込み失敗時のフォールバック
-    const fallbackPath = path.join(__dirname, 'src', 'electron', 'index.html');
+    const fallbackPath = isDevelopment
+      ? path.join(__dirname, 'index.html')
+      : path.join(process.resourcesPath, 'app', 'dist', 'index.html');
     console.log('フォールバックファイルを読み込みます:', fallbackPath);
     mainWindow.loadFile(fallbackPath).catch(fallbackErr => {
       console.error('フォールバックファイルの読み込みにも失敗:', fallbackErr);
@@ -1564,7 +1568,9 @@ $mediaquerys: (
   const getApiKey = () => {
     try {
       // src/config/api-keys.js からのみAPIキーを読み込む
-      const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+      const apiConfigPath = isDevelopment
+        ? path.join(__dirname, '..', 'config', 'api-keys.js')
+        : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js');
       console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
 
       // ファイルが存在するか確認
@@ -1630,7 +1636,9 @@ $mediaquerys: (
 
       // 最初にsrc/config/api-keys.jsから取得を試みる
       try {
-        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        const apiConfigPath = isDevelopment
+          ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
+          : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境：リソースディレクトリ内のビルド済みファイル
         console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {
@@ -1649,7 +1657,7 @@ $mediaquerys: (
       }
 
       // 従来のパスから取得を試みる（フォールバック）
-      const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
+      const secretApiKeyPath = path.join(__dirname, '..', 'secret', 'api-keys.json');
       console.log(`従来のAPIキーファイルパス: ${secretApiKeyPath}`);
       console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
 
@@ -1692,7 +1700,9 @@ $mediaquerys: (
       // APIキーを取得
       try {
         console.log('src/config/api-keys.jsからAPIキーを読み込みます');
-        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
+        const apiConfigPath = isDevelopment
+          ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
+          : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境：リソースディレクトリ内のビルド済みファイル
         console.log(`設定ファイルパス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {
@@ -3249,9 +3259,9 @@ $mediaquerys: (
         console.log(`開発環境: システムのPythonを使用します: ${pythonPath}`);
       } else {
         // 本番環境ではバンドルされたPythonを使用試行
-        pythonPath = process.platform === 'win32'
-          ? path.join(process.resourcesPath, 'python', 'python.exe') // Windows
-          : path.join(process.resourcesPath, 'python', 'python'); // macOS/Linux
+        const pythonPath = isDevelopment
+          ? process.platform === 'win32' ? 'python' : 'python3'
+          : path.join(process.resourcesPath, 'app', 'python', process.platform === 'win32' ? 'python.exe' : 'python');
 
         console.log(`本番環境: バンドルされたPythonパス: ${pythonPath}`);
 

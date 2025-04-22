@@ -129,6 +129,10 @@
       {
         "from": "dist",
         "to": "app/dist"
+      },
+      {
+        "from": "src/config",
+        "to": "app/dist/config"
       }
     ],
     "extraMetadata": {

@@ -1174,64 +1174,17 @@ class PythonBridge {
  * バッファプールクラス - 大きなバッファを再利用して不要なメモリ割り当てを減らす
  */
 class BufferPool {
-  constructor(maxBuffers = 3, bufferSize = 5 * 1024 * 1024) { // 5MB
-    this.pool = [];
-    this.maxBuffers = maxBuffers;
-    this.bufferSize = bufferSize;
-  }
-
-  getBuffer() {
-    if (this.pool.length > 0) {
-      return this.pool.pop();
-    }
-    return Buffer.allocUnsafe(this.bufferSize);
-  }
-
-  releaseBuffer(buffer) {
-    if (this.pool.length < this.maxBuffers) {
-      // バッファ内容をゼロにクリア
-      buffer.fill(0);
-      this.pool.push(buffer);
-    }
-    // プールが一杯ならバッファは破棄され、GCの対象になる
-  }
+      return {
+  success: true,
+  this.maxBuffers = maxBuffers;
+  this.bufferSize = bufferSize;
 }
 
-if (isNode) {
-  // Node.js環境のみで実際のインスタンスをエクスポート
-  const pythonBridge = new PythonBridge();
-  module.exports = pythonBridge;
-} else {
-  // ブラウザ環境の場合はダミー実装を提供
-  const dummyBridge = {
-    checkPythonEnvironment: async () => {
-      console.warn('ブラウザ環境ではPython環境チェックは利用できません');
-      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
-    },
-    setupPythonEnvironment: async () => {
-      console.warn('ブラウザ環境ではPython環境セットアップは利用できません');
-      return { success: false, message: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
-    },
-    start: async () => {
-      console.warn('ブラウザ環境ではPython処理は利用できません');
-      return false;
-    },
-    stop: async () => {
-      console.warn('ブラウザ環境ではPython処理は利用できません');
-      return false;
-    },
-    sendCommand: async () => {
-      console.warn('ブラウザ環境ではPython処理は利用できません');
-      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
-    },
-  };
-
-  // ES ModulesとCommonJSの両方に対応
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = dummyBridge;
-  } else if (typeof define === 'function' && define.amd) {
-    define([], function () { return dummyBridge; });
-  } else {
-    window.pythonBridge = dummyBridge;
+getBuffer() {
+  if (this.pool.length > 0) {
+    return this.pool.pop();
   }
+  return Buffer.allocUnsafe(this.bufferSize);
 }
+
+releaseBuffer(buffer) {
