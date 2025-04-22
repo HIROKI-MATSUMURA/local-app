@@ -4,27 +4,27 @@
   "description": "AIを活用したウェブコンテンツ生成ツール。デザインから高品質なHTMLとSCSSを自動生成します。",
   "main": "src/electron/main.js",
   "scripts": {
-    "start": "electron .",
-    "electron-dev": "NODE_ENV=development electron .",
-    "electron-dev:win": "set NODE_ENV=development && electron .",
+    "start": "electron --js-flags=\"--expose-gc\" .",
+    "electron-dev": "NODE_ENV=development electron --js-flags=\"--expose-gc\" .",
+    "electron-dev:win": "set NODE_ENV=development && electron --js-flags=\"--expose-gc\" .",
     "vite-dev": "vite",
     "vite-build": "vite build",
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
-    "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron .",
+    "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
     "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
     "package-mac": "npm run vite-build && electron-builder --mac",
     "package-win": "npm run vite-build && electron-builder --win",
     "package-linux": "npm run vite-build && electron-builder --linux",
     "package": "npm run vite-build && electron-builder",
-    "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
-    "setup-python": "node -e \"require('./src/electron/python_bridge').setupPythonEnvironment().then(result => console.log('Python環境セットアップ結果:', result)).catch(err => console.error('Python環境セットアップエラー:', err))\""
+    "setup-python": "node scripts/setup-python-runtime.js",
+    "postinstall": "npm run setup-python",
+    "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\""
   },
   "devDependencies": {
     "concurrently": "7.6.0",
     "electron": "33.3.1",
     "electron-builder": "^24.13.3",
-    "python-shell": "^5.0.0",
     "sass": "^1.86.3",
     "wait-on": "^8.0.3"
   },
@@ -36,7 +36,7 @@
     "scss-generator",
     "design-to-code"
   ],
-  "author": "CreAIte Code Team <info@creait.code>",
+  "author": "CreAIteCode Team <info@creait.code>",
   "license": "MIT",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -55,6 +55,7 @@
     "highlight.js": "^11.11.1",
     "lodash": "^4.17.21",
     "openai": "^4.93.0",
+    "python-shell": "^5.0.0",
     "react": "^18.2.0",
     "react-codemirror2": "^8.0.1",
     "react-dom": "^18.2.0",
@@ -69,24 +70,25 @@
     "node": "23.11.0"
   },
   "build": {
-    "appId": "com.creait.code",
-    "productName": "CreAIte Code",
+    "appId": "com.creaite.code",
+    "productName": "CreAIteCode",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
-    "executableArgs": [
-      "--expose-gc",
-      "--js-flags=--expose-gc"
+    "asar": true,
+    "asarUnpack": [
+      "src/electron/**",
+      "src/python/**",
+      "node_modules/python-shell/**"
     ],
     "files": [
       "dist/**/*",
-      "src/electron/main.js",
-      "src/electron/preload.js",
+      "src/electron/**/*",
+      "src/config/**/*",
+      "src/python/**/*",
       "node_modules/**/*",
-      "package.json",
-      "src/electron/python_bridge.js",
-      "src/electron/python_bridge_adapter.js",
-      "src/config/**/*"
+      "package.json"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -113,19 +115,20 @@
     },
     "extraResources": [
       {
-        "from": "./src/python",
-        "to": "python",
-        "filter": [
-          "*.py",
-          "modules/**/*"
-        ]
+        "from": "src/python",
+        "to": "app/python"
       },
       {
-        "from": "./",
-        "to": ".",
-        "filter": [
-          "requirements.txt"
-        ]
+        "from": "python-runtime/${os}",
+        "to": "app/python-runtime"
+      },
+      {
+        "from": "requirements.txt",
+        "to": "app/requirements.txt"
+      },
+      {
+        "from": "dist",
+        "to": "app/dist"
       }
     ],
     "extraMetadata": {

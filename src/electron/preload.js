@@ -389,7 +389,16 @@ contextBridge.exposeInMainWorld('api', {
   analyzeImage: async (data) => {
     console.warn('[非推奨] analyzeImage は使用されました。analyzeAll をご利用ください。');
     return await window.api.analyzeAll(data);
-  }
+  },
+
+  getProjectContent: (projectPath, fileName) => ipcRenderer.invoke('get-project-content', { projectPath, fileName }),
+  getProjectStructure: (projectPath) => ipcRenderer.invoke('get-project-structure', projectPath),
+
+  // メモリ管理
+  gc: () => ipcRenderer.invoke('gc'),
+
+  // 現在のディレクトリを開く
+  openCurrentDirectory: () => ipcRenderer.invoke('open-current-directory'),
 
 });
 

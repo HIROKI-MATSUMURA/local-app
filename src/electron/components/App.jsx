@@ -244,7 +244,7 @@ const App = () => {
     <div className="app-container">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h2>CreAIte Code</h2>
+          <h2>CreAIteCode</h2>
           {memoizedProject && (
             <div
               className="current-project"

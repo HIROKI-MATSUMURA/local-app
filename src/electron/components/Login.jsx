@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import styled, { keyframes } from 'styled-components';
 import { motion } from 'framer-motion';
-import logo from '../assets/icon.png';
+import logo from '../../../public/icon.png';
 import { Link } from 'react-router-dom';
 
 const float = keyframes`
@@ -165,7 +165,7 @@ const Login = ({ onLoginSuccess }) => {
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 25, ease: 'linear' }}
         />
-        <Title>CreAIte Code ログイン</Title>
+        <Title>CreAIteCode ログイン</Title>
 
         <Input
           type="text"

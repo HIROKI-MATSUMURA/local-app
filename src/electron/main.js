@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, shell, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
@@ -9,7 +9,11 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
+const chokidar = require('chokidar');
+// dotenvを開発モードだけ読み込む
+if (process.env.NODE_ENV === 'development') {
+  require('dotenv').config();
+}
 
 // GC機能の確認とフラグ設定
 // package.jsonのelectron-builder設定例:
@@ -100,9 +104,9 @@ const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、
 let pythonBridge;
 try {
   // python_scriptsディレクトリの存在を確認し、必要なら作成
-  const pythonScriptsDir = path.join(app.getAppPath(), 'src', 'python');
+  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
   if (!fs.existsSync(pythonScriptsDir)) {
-    console.log(`pythonディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
+    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
     fs.mkdirSync(pythonScriptsDir, { recursive: true });
   }
 
@@ -157,84 +161,195 @@ let isAICodeSaving = false; // AIコード保存中のフラグ
 const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
 
 // 監視するディレクトリ
-const htmlDirectory = path.join(__dirname);
+const htmlDirectory = path.join(__dirname, 'src');
 // previousFilesをグローバルに宣言して、前回のファイルリストを保持
 let previousFiles = [];
 
 // アプリ起動時に監視を開始するフラグ
 let isDirectoryWatcherInitialized = false;
 
-// HTMLファイルの作成を監視する
-function watchDirectory() {
-  if (!isDirectoryWatcherInitialized) {
-    console.log('ディレクトリ監視を初期化します');
-    isDirectoryWatcherInitialized = true;
+/**
+ * 指定されたディレクトリを監視する
+ * @param {string} directoryPath 監視するディレクトリパス
+ * @param {function} callback 変更があった時に呼び出されるコールバック関数
+ * @returns {FSWatcher|null} ファイル監視インスタンスまたはnull
+ */
+function watchDirectory(directoryPath, callback) {
+  try {
+    // 本番環境ではasar内のパスを監視できないため、監視をスキップ
+    if (!isDevelopment && directoryPath.includes('.asar')) {
+      console.log(`本番環境のため監視をスキップ: ${directoryPath}`);
+      return null;
+    }
 
-    // 監視を1秒ごとにチェック - mainWindowが使用可能になるまで遅延
-    const watchIntervalId = setInterval(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        return; // mainWindowがまだ利用できない場合はスキップ
+    // ディレクトリの存在確認
+    if (!fs.existsSync(directoryPath)) {
+      console.warn(`監視対象ディレクトリが存在しません: ${directoryPath}`);
+      return null;
+    }
+
+    // ディレクトリ監視を設定
+    const watcher = chokidar.watch(directoryPath, {
+      ignored: /(^|[\/\\])\../, // ドットファイルを無視
+      persistent: true,
+      depth: 2, // 再帰的に監視する深さを制限
+      awaitWriteFinish: {
+        stabilityThreshold: 2000,
+        pollInterval: 100
       }
-
-      fs.readdir(htmlDirectory, (err, files) => {
-        if (err) {
-          console.error('Error reading directory:', err);
-          return;
-        }
-
-        const htmlFiles = files.filter(file => file.endsWith('.html'));
-        // 新しいファイルを検出
-        const newFiles = htmlFiles.filter(file => !previousFiles.includes(file));
-
-        // 新規ファイルのみを処理
-        if (newFiles.length > 0) {
-          newFiles.forEach(fileName => {
-            console.log(`Detected new HTML file: ${fileName}`);
-            // フロントエンドに新しいHTMLファイルを通知（mainWindowが存在する場合のみ）
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('new-html-file', fileName);
-            }
-          });
-        }
-
-        // 今回のファイルリストを保存
-        previousFiles = htmlFiles;
-      });
-    }, 1000); // 1秒ごとにチェック
-
-    // アプリ終了時に監視を停止
-    app.on('will-quit', () => {
-      clearInterval(watchIntervalId);
     });
+
+    // 変更イベントを検知したらコールバックを呼び出す
+    watcher.on('all', (event, path) => {
+      if (event === 'change' || event === 'add' || event === 'unlink') {
+        callback(path, event);
+      }
+    });
+
+    console.log(`ディレクトリの監視を開始: ${directoryPath}`);
+    return watcher;
+  } catch (error) {
+    console.error(`ディレクトリ監視の設定エラー: ${directoryPath}`, error);
+    return null;
   }
 }
 
-// ファイル変更監視ハンドラー - Viteのリロードに頼らずElectronで独自に処理
-function setupFileWatcher() {
-  const htmlDirectory = path.join(__dirname);
-
-  // HTMLファイルの変更を監視
-  fs.watch(htmlDirectory, { recursive: true }, (eventType, filename) => {
-    if (!filename) return;
-
-    // HTMLファイルの変更のみを処理
-    if (filename.endsWith('.html')) {
-      console.log(`ファイル変更を検出: ${filename} - イベント: ${eventType} - AIコード保存フラグ: ${isAICodeSaving}`);
-
-      // AIコード保存中でない場合のみ通知を送信（保存中のリロードを防止）
-      if (mainWindow && !mainWindow.isDestroyed() && !isAICodeSaving) {
-        mainWindow.webContents.send('file-changed', {
-          type: 'html',
-          filename: filename,
-          path: path.join(htmlDirectory, filename)
-        });
-      } else if (isAICodeSaving) {
-        console.log(`AIコード保存中のため、ファイル変更通知をスキップしました: ${filename}`);
+/**
+ * ファイル監視システムをセットアップ
+ * @param {BrowserWindow} mainWindow メインウィンドウインスタンス
+ */
+function setupFileWatcher(mainWindow) {
+  // 開発環境でのみソースコードの変更を監視
+  if (isDevelopment) {
+    // フロントエンドのソースコードを監視
+    const frontendWatcher = watchDirectory(
+      path.join(__dirname, '..', 'renderer'),
+      (changedPath, event) => {
+        console.log(`フロントエンドファイルが変更されました: ${changedPath} (${event})`);
+        mainWindow.webContents.send('reload-renderer');
       }
-    }
-  });
+    );
 
-  console.log('ファイル監視を設定しました');
+    // バックエンドのPythonコードを監視
+    const pythonWatcher = watchDirectory(
+      path.join(__dirname, '..', 'python'),
+      (changedPath, event) => {
+        if (path.extname(changedPath) === '.py') {
+          console.log(`Pythonファイルが変更されました: ${changedPath} (${event})`);
+          mainWindow.webContents.send('python-file-changed', {
+            path: changedPath,
+            event: event
+          });
+        }
+      }
+    );
+
+    // 環境設定ファイルを監視
+    const configWatcher = watchDirectory(
+      app.getPath('userData'),
+      (changedPath, event) => {
+        if (path.basename(changedPath) === 'settings.json') {
+          console.log(`設定ファイルが変更されました: ${changedPath} (${event})`);
+          loadSettings();
+          mainWindow.webContents.send('settings-changed', appSettings);
+        }
+      }
+    );
+
+    // アプリ終了時に監視を停止
+    app.on('will-quit', () => {
+      if (frontendWatcher) frontendWatcher.close();
+      if (pythonWatcher) pythonWatcher.close();
+      if (configWatcher) configWatcher.close();
+      console.log('ファイル監視を停止しました');
+    });
+  } else {
+    console.log('本番環境のためファイル監視システムは無効化されています');
+  }
+}
+
+/**
+ * プロジェクトファイルを監視
+ * @param {string} projectDir プロジェクトディレクトリ
+ * @param {BrowserWindow} mainWindow メインウィンドウ
+ * @returns {function} 監視を停止する関数
+ */
+function watchProjectFiles(projectDir, mainWindow) {
+  console.log(`プロジェクトディレクトリの監視を設定: ${projectDir}`);
+
+  // 本番環境でasar内のパスが含まれる場合は監視をスキップ
+  if (!isDevelopment && (
+    projectDir.includes('.asar') ||
+    projectDir.includes(app.getAppPath())
+  )) {
+    console.log('本番環境のasarパスのため、プロジェクト監視をスキップします');
+    return () => { }; // ダミーの停止関数を返す
+  }
+
+  try {
+    // プロジェクトディレクトリが存在するか確認
+    if (!fs.existsSync(projectDir)) {
+      console.warn(`プロジェクトディレクトリが存在しません: ${projectDir}`);
+      return () => { };
+    }
+
+    // 監視設定
+    const watcher = chokidar.watch(projectDir, {
+      ignored: [
+        /(^|[\/\\])\../, // ドットファイル
+        '**/node_modules/**', // node_modules
+        '**/.git/**', // git
+        '**/dist/**', // ビルド成果物
+        '**/build/**' // ビルド成果物
+      ],
+      persistent: true,
+      ignoreInitial: true,
+      depth: 3, // 再帰的に監視する深さを制限
+      awaitWriteFinish: {
+        stabilityThreshold: 1000,
+        pollInterval: 100
+      }
+    });
+
+    // ファイル変更イベントを検知
+    watcher.on('all', (event, filePath) => {
+      // 重要なファイルに対するイベントのみ処理
+      if (['add', 'change', 'unlink'].includes(event)) {
+        // HTMLやCSS、JS、画像ファイルの変更を監視
+        const ext = path.extname(filePath).toLowerCase();
+        const watchedExts = ['.html', '.htm', '.css', '.scss', '.sass', '.js', '.ts', '.jsx', '.tsx', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg'];
+
+        if (watchedExts.includes(ext)) {
+          console.log(`プロジェクトファイルの変更を検出: ${filePath} (${event})`);
+
+          // レンダラープロセスに通知
+          mainWindow.webContents.send('project-file-changed', {
+            path: filePath,
+            event: event,
+            ext: ext
+          });
+        }
+      }
+    });
+
+    // エラーイベント処理
+    watcher.on('error', error => {
+      console.error('プロジェクトファイル監視エラー:', error);
+    });
+
+    // 監視を停止する関数を返す
+    return () => {
+      try {
+        watcher.close();
+        console.log(`プロジェクト監視を停止: ${projectDir}`);
+      } catch (error) {
+        console.error('プロジェクト監視の停止に失敗:', error);
+      }
+    };
+  } catch (error) {
+    console.error('プロジェクト監視の設定に失敗:', error);
+    return () => { }; // ダミーの停止関数を返す
+  }
 }
 
 // スプラッシュウィンドウを作成する関数
@@ -252,7 +367,7 @@ function createSplashWindow() {
     }
   });
 
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'src/electron/splash.html'));
 
   splashWindow.on('closed', () => {
     console.log('スプラッシュウィンドウが閉じられました');
@@ -262,7 +377,20 @@ function createSplashWindow() {
 
 // メインウィンドウ作成関数
 function createMainWindow() {
-  console.log('メインウィンドウの作成を開始します');  // デバッグログ追加
+  console.log('メインウィンドウの作成を開始します');
+
+  // アップロードディレクトリを作成（userData内に作成してasarの制限を回避）
+  const uploadDir = path.join(app.getPath('userData'), 'uploads');
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      console.log(`アップロードディレクトリを作成します: ${uploadDir}`);
+      fs.mkdirSync(uploadDir, { recursive: true });
+    } else {
+      console.log(`アップロードディレクトリが既に存在します: ${uploadDir}`);
+    }
+  } catch (err) {
+    console.error('アップロードディレクトリの作成に失敗しました:', err);
+  }
 
   const windowWidth = 1280;
   const windowHeight = 800;
@@ -290,8 +418,7 @@ function createMainWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: !isDevelopment,                 // 開発環境では無効、本番環境では有効
-      allowRunningInsecureContent: isDevelopment,  // 開発環境では許可、本番環境では禁止
+      webSecurity: true,
       sandbox: false,  // falseに変更
       preload: preloadPath
     }
@@ -301,13 +428,6 @@ function createMainWindow() {
 
   // メインウィンドウの作成
   mainWindow = new BrowserWindow(windowOptions);
-
-  // uploadsディレクトリを作成
-  const uploadsDir = path.join(__dirname, "uploads");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-    console.log(`Created uploads directory at: ${uploadsDir}`);
-  }
 
   // ブラウザの開発者ツールを開く（開発時のみ）
   if (isDevelopment) {
@@ -320,14 +440,20 @@ function createMainWindow() {
   // 開発環境と本番環境で適切なパスを使い分ける
   let filePath;
 
+  
   if (isDevelopment) {
-    // 開発環境では、Viteによってビルドされたファイルを使用
-    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
-    console.log('開発モード: ビルド済みファイルを読み込みます:', filePath);
+    filePath = path.join(__dirname, 'dist/electron', 'index.html');
   } else {
-    // 本番環境では、パッケージ化されたファイルを使用
-    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
-    console.log('本番モード: ビルド済みファイルを読み込みます:', filePath);
+    // 複数の候補パスを試す
+    const possiblePaths = [
+      path.join(app.getAppPath(), 'dist/electron', 'index.html'), // asarパッケージ内
+      path.join(process.resourcesPath, 'app/dist', 'index.html'), // extraResourcesからのパス
+      path.join(process.resourcesPath, 'dist/electron', 'index.html') // 直接Resourcesディレクトリ
+    ];
+
+    // 存在する最初のパスを使用
+    filePath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+    console.log('本番モード: HTMLファイルを読み込みます:', filePath);
   }
 
   // ブラウザコンソールのログを表示
@@ -340,7 +466,7 @@ function createMainWindow() {
     console.error('ファイル読み込みエラー:', err);
 
     // 読み込み失敗時のフォールバック
-    const fallbackPath = path.join(__dirname, 'index.html');
+    const fallbackPath = path.join(__dirname, 'src', 'electron', 'index.html');
     console.log('フォールバックファイルを読み込みます:', fallbackPath);
     mainWindow.loadFile(fallbackPath).catch(fallbackErr => {
       console.error('フォールバックファイルの読み込みにも失敗:', fallbackErr);
@@ -410,53 +536,6 @@ function createMainWindow() {
 
 // アプリの起動が完了したら
 app.whenReady().then(async () => {
-  // JSXファイルのMIMEタイプを設定
-  protocol.registerFileProtocol('file', (request, callback) => {
-    const url = request.url.substr(7); // 'file://'を取り除く
-    const filePath = decodeURI(url);
-
-    try {
-      // MIMEタイプを拡張子に基づいて設定
-      let mimeType = '';
-      if (filePath.endsWith('.jsx')) {
-        mimeType = 'application/javascript';
-        console.log('JSXファイルのMIMEタイプを設定:', filePath, mimeType);
-
-        // JSXファイルの内容を読み込んで直接返す
-        if (fs.existsSync(filePath)) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          callback({
-            mimeType: 'application/javascript',
-            data: Buffer.from(content)
-          });
-          return;
-        }
-      } else if (filePath.endsWith('.js')) {
-        mimeType = 'application/javascript';
-      } else if (filePath.endsWith('.html')) {
-        mimeType = 'text/html';
-      } else if (filePath.endsWith('.css')) {
-        mimeType = 'text/css';
-      }
-
-      // ファイルが存在するか確認
-      if (fs.existsSync(filePath)) {
-        callback({
-          path: filePath,
-          headers: {
-            'Content-Type': mimeType
-          }
-        });
-      } else {
-        console.error(`ファイルが見つかりません: ${filePath}`);
-        callback({ error: -6 }); // ファイルが見つかりません
-      }
-    } catch (error) {
-      console.error('プロトコルハンドラーエラー:', error);
-      callback({ error: -2 }); // 一般的なエラー
-    }
-  });
-
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
   console.log('ユーザーデータディレクトリ:', userDataPath);
@@ -488,39 +567,93 @@ app.whenReady().then(async () => {
     process.env.APP_ROOT_PATH = app.getAppPath();
     console.log(`アプリケーションルートパス: ${process.env.APP_ROOT_PATH}`);
 
+    // リソースパスをログ出力
+    console.log(`process.resourcesPath: ${process.resourcesPath}`);
+
     // パッケージ済みアプリケーションの場合、extraResourcesから正しいパスを取得
     if (!isDevelopment && app.isPackaged) {
       // extraResourcesのパスを設定
-      process.env.PYTHON_RESOURCES_PATH = path.join(process.resourcesPath, 'python');
+      process.env.PYTHON_RESOURCES_PATH = path.join(process.resourcesPath, 'app', 'python');
       console.log(`Python リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+
+      // ディレクトリ内容を確認
+      if (fs.existsSync(process.resourcesPath)) {
+        try {
+          const resourcesDir = fs.readdirSync(process.resourcesPath);
+          console.log('リソースディレクトリ内容:', resourcesDir);
+
+          const pythonPath = path.join(process.resourcesPath, 'python');
+          if (fs.existsSync(pythonPath)) {
+            console.log('Pythonディレクトリ内容:', fs.readdirSync(pythonPath));
+          } else {
+            console.log('Pythonディレクトリが見つかりません:', pythonPath);
+          }
+        } catch (dirErr) {
+          console.error('ディレクトリ内容の確認中にエラーが発生しました:', dirErr);
+        }
+      }
     } else {
       // 開発環境ではソースコードのパスを使用
       process.env.PYTHON_RESOURCES_PATH = path.join(app.getAppPath(), 'src', 'python');
       console.log(`Python 開発リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
     }
 
-    // Pythonの実行パスを設定
-    const pythonPath = isDevelopment
-      ? 'python' // 開発環境ではシステムのPythonを使用
-      : path.join(process.resourcesPath, 'python', 'python'); // 本番環境ではバンドルされたPythonを使用
+    // Pythonの実行パスを設定 - ベストプラクティス
+    // 開発環境ではシステムのPython、本番環境ではバンドルされたPythonを使用
+    const pythonPath = process.platform === 'win32'
+      ? path.join(process.resourcesPath, 'app', 'python', 'python.exe') // Windows
+      : path.join(process.resourcesPath, 'app', 'python', 'python'); // macOS/Linux
+
+    console.log(`使用するPythonパス: ${pythonPath}`);
 
     // PythonShellの設定
     let options = {
       mode: 'text',
       pythonPath: pythonPath,
       pythonOptions: ['-u'], // 出力をバッファリングしない
-      scriptPath: path.join(app.getAppPath(), 'src', 'python'),
+      scriptPath: process.env.PYTHON_RESOURCES_PATH || path.join(app.getAppPath(), 'src', 'python')
     };
 
-    // Pythonブリッジの動作確認
-    PythonShell.run('test_bridge.py', options, function (err, results) {
-      if (err) {
-        console.error('Pythonブリッジの初期化中にエラーが発生しました:', err);
-      } else {
-        console.log('Pythonブリッジが正常に初期化されました');
-        console.log('Pythonからの応答:', results);
-      }
-    });
+    console.log('PythonShell設定:', options);
+
+    // test_bridge.pyを作成 - ユーザーデータフォルダに作成してasarの制限を回避
+    const userDataPath = app.getPath('userData');
+    const pythonTestDir = path.join(userDataPath, 'python_temp');
+    if (!fs.existsSync(pythonTestDir)) {
+      fs.mkdirSync(pythonTestDir, { recursive: true });
+    }
+
+    const testBridgePath = path.join(pythonTestDir, 'test_bridge.py');
+    const testBridgeContent = `
+import sys
+import platform
+
+print("Python bridge test - Success!")
+print(f"Python version: {sys.version}")
+print(f"Platform: {platform.platform()}")
+print("==== End of test ====")
+sys.exit(0)
+`;
+
+    fs.writeFileSync(testBridgePath, testBridgeContent);
+    console.log(`テスト用Pythonスクリプトを作成しました: ${testBridgePath}`);
+
+    // テスト設定を更新
+    options.scriptPath = pythonTestDir;
+
+    // Pythonブリッジのテスト実行
+    console.log('Pythonブリッジのテスト実行を開始します...');
+    try {
+      PythonShell.run('test_bridge.py', options, function (err, results) {
+        if (err) {
+          console.error('Pythonブリッジのテストに失敗しました:', err);
+        } else {
+          console.log('Pythonブリッジのテスト結果:', results);
+        }
+      });
+    } catch (testErr) {
+      console.error('Pythonブリッジのテスト実行中にエラーが発生しました:', testErr);
+    }
   } catch (error) {
     console.error('Pythonブリッジの設定中にエラーが発生しました:', error);
   }
@@ -592,7 +725,7 @@ app.whenReady().then(async () => {
 
   console.log('アプリ起動時にIPCハンドラーを設定します');
   setupIPCHandlers();
-  setupFileWatcher();
+  setupFileWatcher(mainWindow);
 
   // スプラッシュウィンドウを作成
   createSplashWindow();
@@ -602,7 +735,14 @@ app.whenReady().then(async () => {
     createMainWindow();
 
     // ディレクトリ監視を開始
-    watchDirectory();
+    watchDirectory(htmlDirectory, (changedPath, event) => {
+      console.log(`ファイルが変更されました: ${changedPath} (${event})`);
+      mainWindow.webContents.send('file-changed', {
+        type: path.extname(changedPath).toLowerCase(),
+        filename: path.basename(changedPath),
+        path: changedPath
+      });
+    });
   }, 1000);
 
   // Mac OS の場合、アプリがアクティブ化されたらメインウィンドウを作成
@@ -611,6 +751,44 @@ app.whenReady().then(async () => {
       createMainWindow();
     }
   });
+  function startPeriodicGC() {
+    console.log('定期的なガベージコレクションを開始します');
+
+    // メモリ使用状況をチェックし、必要に応じてGCを実行
+    const gcInterval = setInterval(() => {
+      try {
+        if (global.gc) {
+          // メモリ使用状況をログ
+          const memUsage = process.memoryUsage();
+          const heapUsedMB = Math.round(memUsage.heapUsed / (1024 * 1024));
+          const rssMemoryMB = Math.round(memUsage.rss / (1024 * 1024));
+
+          // メモリ使用量が一定のしきい値を超えた場合のみGCを実行
+          const HEAP_THRESHOLD_MB = 300; // 300MB
+
+          if (heapUsedMB > HEAP_THRESHOLD_MB) {
+            console.log(`メモリ使用量しきい値超過 (${heapUsedMB}MB)。ガベージコレクションを実行します`);
+            global.gc();
+
+            // GC後のメモリ使用状況をログ
+            const afterGcMemUsage = process.memoryUsage();
+            const afterHeapUsedMB = Math.round(afterGcMemUsage.heapUsed / (1024 * 1024));
+            console.log(`GC後のメモリ使用量: ${afterHeapUsedMB}MB (解放: ${heapUsedMB - afterHeapUsedMB}MB)`);
+          } else {
+            console.log(`現在のメモリ使用量: ${heapUsedMB}MB (ヒープ), ${rssMemoryMB}MB (RSS)`);
+          }
+        }
+      } catch (error) {
+        console.error('定期的なガベージコレクション中にエラーが発生しました:', error);
+      }
+    }, 60000); // 1分ごとにチェック
+
+    // アプリケーション終了時にインターバルをクリア
+    app.on('quit', () => {
+      clearInterval(gcInterval);
+      console.log('定期的なガベージコレクションを停止しました');
+    });
+  }
 
   // コンソール情報を取得する関数
   function getConsoleInfo() {
@@ -643,6 +821,21 @@ app.whenReady().then(async () => {
 
   // コンソール監視を開始
   startConsoleMonitoring();
+
+  // メモリ管理を開始
+  if (global.gc) {
+    console.log('メモリ管理: ガベージコレクション機能が有効です');
+    startPeriodicGC();
+  } else {
+    console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
+  }
+
+  // Python実行環境のチェック
+  const pythonStatus = await checkPythonRuntime();
+  console.log(`Python実行環境ステータス: ${pythonStatus}`);
+
+  // JSXファイルのMIMEタイプを設定
+  // ... existing code ...
 });
 
 // Macでアプリケーションが閉じられる際の処理
@@ -676,74 +869,6 @@ function saveDefaultSettings(settings) {
     return true;
   } catch (error) {
     console.error('デフォルト設定の保存に失敗:', error);
-    return false;
-  }
-}
-
-function watchProjectFiles(projectId, projectPath, patterns = ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json']) {
-  try {
-    console.log(`プロジェクト[${projectId}]のファイル監視を開始します。パス: ${projectPath}`);
-    console.log(`監視パターン: ${patterns.join(', ')}`);
-
-    if (projectWatchers.has(projectId)) {
-      console.log(`プロジェクト[${projectId}]の以前の監視を停止して再開します`);
-      unwatchProjectFiles(projectId);
-    }
-
-    // chokidar または fs.watch を使用してファイル監視を実装
-    const watcher = fs.watch(projectPath, { recursive: true }, (eventType, filename) => {
-      if (!filename) return;
-
-      // パターンマッチングを簡易的に実装
-      const matchesPattern = patterns.some(pattern => {
-        // 簡易ワイルドカードマッチング
-        const regexPattern = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*\*/g, '.*')
-          .replace(/\*/g, '[^/]*');
-        return new RegExp(regexPattern).test(filename);
-      });
-
-      if (matchesPattern) {
-        console.log(`ファイル変更を検出: ${filename} (${eventType})`);
-        // 必要に応じてレンダラープロセスに通知
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('project-file-changed', {
-            projectId,
-            eventType,
-            filename,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-    });
-
-    // ウォッチャーを保存
-    projectWatchers.set(projectId, watcher);
-    console.log(`プロジェクト[${projectId}]のファイル監視を開始しました`);
-    return true;
-  } catch (error) {
-    console.error('ファイル監視の設定中にエラーが発生しました:', error);
-    return false;
-  }
-}
-
-// ファイル監視の停止
-function unwatchProjectFiles(projectId) {
-  try {
-    console.log(`プロジェクト[${projectId}]のファイル監視を停止します`);
-    if (projectWatchers.has(projectId)) {
-      // ウォッチャーを閉じる
-      projectWatchers.get(projectId).close();
-      projectWatchers.delete(projectId);
-      console.log(`プロジェクト[${projectId}]のファイル監視を停止しました`);
-      return true;
-    } else {
-      console.log(`プロジェクト[${projectId}]の監視は既に停止しています`);
-      return false;
-    }
-  } catch (error) {
-    console.error('ファイル監視の停止中にエラーが発生しました:', error);
     return false;
   }
 }
@@ -1438,12 +1563,8 @@ $mediaquerys: (
   // APIキー取得関数
   const getApiKey = () => {
     try {
-      // デバッグ情報
-      console.log(`__dirname = ${__dirname}`);
-      console.log(`app.getAppPath() = ${app.getAppPath()}`);
-
-      // アプリケーションルートからのパスを構築
-      const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
+      // src/config/api-keys.js からのみAPIキーを読み込む
+      const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
       console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
 
       // ファイルが存在するか確認
@@ -1509,12 +1630,7 @@ $mediaquerys: (
 
       // 最初にsrc/config/api-keys.jsから取得を試みる
       try {
-        // デバッグ情報
-        console.log(`get-claude-api-key: __dirname = ${__dirname}`);
-        console.log(`get-claude-api-key: app.getAppPath() = ${app.getAppPath()}`);
-
-        // アプリケーションルートからのパスを構築
-        const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
+        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
         console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {
@@ -1524,27 +1640,16 @@ $mediaquerys: (
 
           // Anthropicキーが設定されていれば、それを使用
           if (apiConfig.ANTHROPIC_API_KEY) {
-            console.log('Anthropic APIキーを発見しました');
-            return {
-              openaiKey: null,
-              claudeKey: apiConfig.ANTHROPIC_API_KEY,
-              selectedProvider: 'claude',
-              anthropicVersion: apiConfig.API_VERSION || '2023-06-01',
-              anthropicBaseUrl: apiConfig.API_BASE_URL || 'https://api.anthropic.com/v1',
-              success: true
-            };
-          } else {
-            console.error('Anthropic APIキーが設定されていません');
+            console.log(`Claude APIキーの取得に成功: ${apiConfig.ANTHROPIC_API_KEY.substring(0, 10)}...`);
+            return { success: true, claudeKey: apiConfig.ANTHROPIC_API_KEY };
           }
-        } else {
-          console.error(`APIキー設定ファイルが見つかりません: ${apiConfigPath}`);
         }
       } catch (configError) {
         console.error('Anthropic API設定の読み込みに失敗:', configError);
       }
 
       // 従来のパスから取得を試みる（フォールバック）
-      const secretApiKeyPath = path.join(app.getAppPath(), 'secret', 'api-key.json');
+      const secretApiKeyPath = path.join(__dirname, 'secret', 'api-key.json');
       console.log(`従来のAPIキーファイルパス: ${secretApiKeyPath}`);
       console.log(`ファイルの存在確認: ${fs.existsSync(secretApiKeyPath)}`);
 
@@ -1586,13 +1691,8 @@ $mediaquerys: (
 
       // APIキーを取得
       try {
-        // デバッグ情報
-        console.log(`generate-code: __dirname = ${__dirname}`);
-        console.log(`generate-code: app.getAppPath() = ${app.getAppPath()}`);
-
         console.log('src/config/api-keys.jsからAPIキーを読み込みます');
-        // アプリケーションルートからのパスを構築
-        const apiConfigPath = path.join(app.getAppPath(), 'src', 'config', 'api-keys.js');
+        const apiConfigPath = path.join(__dirname, 'src', 'config', 'api-keys.js');
         console.log(`設定ファイルパス: ${apiConfigPath}`);
 
         if (fs.existsSync(apiConfigPath)) {
@@ -2490,8 +2590,11 @@ $mediaquerys: (
 
   // プロジェクトファイルの監視
   ipcMain.handle('watchProjectFiles', async (event, projectId) => {
-    return watchProjectFiles(projectId, (changes) => {
-      event.sender.send('project-files-changed', changes);
+    return watchProjectFiles(projectId, (changedPath, event) => {
+      mainWindow.webContents.send('project-files-changed', {
+        path: changedPath,
+        event: event
+      });
     });
   });
 
@@ -3130,6 +3233,79 @@ $mediaquerys: (
       console.error('ガベージコレクション実行中にエラーが発生しました:', error);
       return { success: false, error: error.message };
     }
+  });
+
+  // Python実行環境をチェックする関数
+  async function checkPythonRuntime() {
+    console.log('Python実行環境をチェックしています...');
+
+    try {
+      // 開発環境と本番環境で異なるPythonパスを使用
+      let pythonPath;
+
+      if (isDevelopment) {
+        // 開発環境ではシステムのPythonを使用
+        pythonPath = process.platform === 'win32' ? 'python' : 'python3';
+        console.log(`開発環境: システムのPythonを使用します: ${pythonPath}`);
+      } else {
+        // 本番環境ではバンドルされたPythonを使用試行
+        pythonPath = process.platform === 'win32'
+          ? path.join(process.resourcesPath, 'python', 'python.exe') // Windows
+          : path.join(process.resourcesPath, 'python', 'python'); // macOS/Linux
+
+        console.log(`本番環境: バンドルされたPythonパス: ${pythonPath}`);
+
+        // バンドルされたPythonが存在するか確認
+        if (!fs.existsSync(pythonPath)) {
+          console.warn(`警告: バンドルされたPython実行ファイルが見つかりません: ${pythonPath}`);
+
+          // フォールバック: システムのPythonを使用
+          const systemPython = process.platform === 'win32' ? 'python' : 'python3';
+          console.log(`フォールバック: システムのPythonを使用します: ${systemPython}`);
+
+          try {
+            // システムPythonの存在確認
+            const { stdout } = await execAsync(`${systemPython} --version`);
+            console.log(`システムPythonのバージョン: ${stdout.trim()}`);
+            pythonPath = systemPython; // システムPythonを使用
+          } catch (error) {
+            console.error(`システムPythonの実行に失敗しました: ${error.message}`);
+            return 'system_not_found';
+          }
+        }
+      }
+
+      // Pythonのバージョンをチェック
+      try {
+        const { stdout } = await execAsync(`"${pythonPath}" --version`);
+        console.log(`Python バージョン: ${stdout.trim()}`);
+        return 'ok';
+      } catch (error) {
+        console.error(`Pythonバージョンチェックエラー: ${error.message}`);
+        return 'version_error';
+      }
+    } catch (error) {
+      console.error('Python実行環境チェックエラー:', error);
+      return 'error';
+    }
+  }
+
+  // アプリの起動が完了したら
+  app.whenReady().then(async () => {
+    // メモリ管理を開始
+    if (global.gc) {
+      console.log('メモリ管理: ガベージコレクション機能が有効です');
+      startPeriodicGC();
+    } else {
+      console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
+    }
+
+    // Python実行環境のチェック
+    const pythonStatus = await checkPythonRuntime();
+    console.log(`Python実行環境ステータス: ${pythonStatus}`);
+
+    // JSXファイルのMIMEタイプを設定
+    // ... existing code ...
   });
 }
 

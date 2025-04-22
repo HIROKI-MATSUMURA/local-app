@@ -5,10 +5,13 @@
 // Node.js環境かブラウザ環境かを判定
 const isNode = typeof window === 'undefined' || typeof process !== 'undefined' && process.versions && process.versions.node;
 const { v4: uuidv4 } = require('uuid');
-
+const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+// python_bridge.js の冒頭
+const electron = require('electron');
+// app の参照を遅延させる
+const getApp = () => electron.app;
 // ブラウザ環境でエラーが出ないように条件付きでrequire
 let spawn, path, fs, os, crypto;
-let app, isDevelopment;
 
 if (isNode) {
   // Node.js環境でのみ必要なモジュールをロード
@@ -17,16 +20,6 @@ if (isNode) {
   fs = require('fs').promises;
   os = require('os');
   crypto = require('crypto');
-
-  // Electronの環境変数を取得
-  try {
-    const electron = require('electron');
-    app = electron.app || (electron.remote && electron.remote.app);
-    isDevelopment = process.env.NODE_ENV === 'development' || (app && !app.isPackaged);
-  } catch (e) {
-    console.log('Electron環境ではないようです:', e.message);
-    isDevelopment = process.env.NODE_ENV === 'development';
-  }
 } else {
   // ブラウザ環境用のダミーオブジェクト
   console.log('ブラウザ環境を検出しました：Pythonブリッジは限定機能で動作します');
@@ -51,18 +44,106 @@ if (isNode) {
   };
 }
 
-// Pythonコマンド（開発環境と本番環境で一貫性を持たせる）
-let PYTHON_CMD;
-if (isNode) {
-  if (isDevelopment) {
-    // 開発環境ではシステムのPythonを使用
-    PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3';
-  } else {
-    // 本番環境ではバンドルされたPythonを使用
-    PYTHON_CMD = path.join(process.resourcesPath, 'python', 'python');
+// Python実行環境の検出関数
+async function detectPythonExecutable() {
+  console.log('Python実行環境を検出しています...');
+
+  // 候補となるPythonコマンド
+  const candidates = process.platform === 'win32'
+    ? ['python', 'python3', 'py -3', 'py']
+    : ['python3', 'python3.9', 'python3.10', 'python3.11', 'python'];
+
+  // 環境変数PATHから検索するコマンド
+  const candidateResults = [];
+
+  for (const cmd of candidates) {
+    try {
+      // バージョン確認コマンドを実行
+      const { stdout } = await execAsync(`${cmd} --version`);
+      const version = stdout.trim();
+      candidateResults.push({ cmd, version, valid: true });
+      console.log(`Python検出: ${cmd} -> ${version}`);
+    } catch (error) {
+      candidateResults.push({ cmd, valid: false, error: error.message });
+      console.log(`Python検出失敗: ${cmd} -> ${error.message}`);
+    }
   }
-} else {
-  PYTHON_CMD = 'python3'; // ブラウザ環境（通常は使用されない）
+
+  // 有効なPythonコマンドを探す
+  const validPython = candidateResults.find(result => result.valid);
+
+  if (validPython) {
+    console.log(`有効なPython実行環境を検出: ${validPython.cmd} (${validPython.version})`);
+    return validPython.cmd;
+  }
+
+  // 開発環境の場合は追加の検索
+  if (!app.isPackaged) {
+    // プロジェクトのvenvを確認
+    const venvPaths = [
+      path.join(APP_ROOT, 'venv', 'bin', 'python'),
+      path.join(APP_ROOT, 'venv', 'Scripts', 'python.exe'),
+      path.join(APP_ROOT, '.venv', 'bin', 'python'),
+      path.join(APP_ROOT, '.venv', 'Scripts', 'python.exe')
+    ];
+
+    for (const venvPath of venvPaths) {
+      if (fs.existsSync(venvPath)) {
+        console.log(`仮想環境のPythonを検出: ${venvPath}`);
+        return venvPath;
+      }
+    }
+  }
+
+  // 本番環境の場合はバンドルされたPythonを確認
+  if (app.isPackaged) {
+    const bundledPythonPaths = process.platform === 'win32'
+      ? [
+        path.join(APP_ROOT, 'python_env', 'python.exe'),
+        path.join(app.getPath('userData'), 'python_env', 'python.exe')
+      ]
+      : [
+        path.join(APP_ROOT, 'python_env', 'bin', 'python3'),
+        path.join(app.getPath('userData'), 'python_env', 'bin', 'python3')
+      ];
+
+    for (const bundledPath of bundledPythonPaths) {
+      if (fs.existsSync(bundledPath)) {
+        console.log(`バンドルされたPythonを検出: ${bundledPath}`);
+        return bundledPath;
+      }
+    }
+  }
+
+  // デフォルトのコマンドを返す
+  console.warn('有効なPython実行環境を検出できませんでした。デフォルトを使用します。');
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+// Pythonコマンドの初期化（実行前に検出）
+let PYTHON_CMD = null;
+let pythonDetectionPromise = null;
+
+// Python検出の遅延初期化
+function initPythonCmd() {
+  if (pythonDetectionPromise === null) {
+    pythonDetectionPromise = detectPythonExecutable()
+      .then(pythonPath => {
+        PYTHON_CMD = pythonPath;
+        if (!PYTHON_CMD) {
+          console.error('Python実行環境が見つかりませんでした。アプリケーションの一部機能が制限されます。');
+          PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // 最後の手段
+        }
+        console.log(`Python実行コマンド設定: ${PYTHON_CMD}`);
+        return PYTHON_CMD;
+      })
+      .catch(err => {
+        console.error('Python検出中にエラーが発生しました:', err);
+        PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // エラー時のフォールバック
+        return PYTHON_CMD;
+      });
+  }
+  return pythonDetectionPromise;
 }
 
 console.log(`Python実行コマンド: ${PYTHON_CMD}, 開発環境: ${isDevelopment}`);
@@ -110,17 +191,40 @@ class PythonBridge {
 
     try {
       console.log('Pythonプロセスを起動中...');
-      // Pythonサーバープロセスを起動
+
+      // Python実行コマンドの初期化を確認
+      await initPythonCmd();
+
+      // Pythonサーバープロセスのスクリプトパス
       let scriptPath;
-      if (process.env.PYTHON_RESOURCES_PATH) {
-        // 環境変数から直接パスを取得（package化されている場合に対応）
-        scriptPath = path.join(process.env.PYTHON_RESOURCES_PATH, 'python_server.py');
+
+      if (isDevelopment) {
+        scriptPath = path.join(__dirname, 'python_server.py');
       } else {
-        // 環境変数がない場合はアプリルートから相対パスで解決
-        const appRoot = process.env.APP_ROOT_PATH || (isNode ? path.resolve(__dirname, '..', '..') : '');
-        scriptPath = path.join(appRoot, 'src', 'python', 'python_server.py');
+        // 本番環境ではリソースディレクトリからの相対パスも考慮
+        const scriptPathsToTry = [
+          path.join(__dirname, 'python_server.py'),
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
+        ].filter(Boolean);
+
+        // 存在するスクリプトを探す
+        for (const pathToTry of scriptPathsToTry) {
+          try {
+            await fs.access(pathToTry);
+            scriptPath = pathToTry;
+            console.log(`Python実行スクリプトを発見: ${scriptPath}`);
+            break;
+          } catch (e) {
+            console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+          }
+        }
+
+        if (!scriptPath) {
+          throw new Error('Python実行スクリプトが見つかりません');
+        }
       }
-      console.log(`Pythonサーバーのパス: ${scriptPath}`);
 
       // カスタム環境変数を設定
       const env = { ...process.env };
@@ -135,6 +239,7 @@ class PythonBridge {
         env.MALLOC_TRIM_THRESHOLD_ = '65536'; // 64KB以上の未使用メモリを解放
       }
 
+      console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
       this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
 
       // 標準出力からデータを読み取る設定

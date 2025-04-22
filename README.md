@@ -1,8 +1,8 @@
-# CreAIte Code
+# CreAIteCode
 
 AIを活用したデザインからコード生成ツール。画像や指示からHTML/SCSSコードを自動生成します。
 
-![CreAIte Code](public/banner.png)
+![CreAIteCode](public/banner.png)
 
 ## 主な機能
 

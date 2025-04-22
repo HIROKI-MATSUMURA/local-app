@@ -22,7 +22,7 @@ export default defineConfig({
   },
   build: {
     target: 'chrome105',
-    outDir: '../../dist',
+    outDir: 'dist/electron',
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -30,9 +30,9 @@ export default defineConfig({
       },
       output: {
         format: 'es',
-        entryFileNames: '[name].[hash].js',
-        chunkFileNames: '[name].[hash].js',
-        assetFileNames: '[name].[hash].[ext]'
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name].[ext]'
       },
       external: [
         'electron',
