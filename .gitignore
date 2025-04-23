@@ -1,6 +1,7 @@
 # ビルド成果物
 dist/
 release/
+build/*.exe
 
 # 開発環境
 node_modules/
