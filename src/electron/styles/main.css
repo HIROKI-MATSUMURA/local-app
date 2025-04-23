@@ -1,0 +1,279 @@
+/* メインCSS */
+@import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&family=Fira+Code&display=swap");
+
+/* カラーパレット */
+:root {
+  /* メインカラー */
+  --primary-color: #4361ee;
+  --primary-light: #4895ef;
+  --primary-dark: #3a0ca3;
+
+  /* アクセントカラー */
+  --accent-color: #f72585;
+  --accent-light: #ff9e00;
+  --accent-dark: #b5179e;
+
+  /* ニュートラルカラー */
+  --background-color: #f8f9fe;
+  --surface-color: #ffffff;
+  --border-color: #e2e8f0;
+
+  /* テキストカラー */
+  --text-primary: #1a202c;
+  --text-secondary: #4a5568;
+  --text-tertiary: #718096;
+
+  /* 状態カラー */
+  --success-color: #36b37e;
+  --error-color: #ff5252;
+  --warning-color: #ffab00;
+  --info-color: #2684ff;
+
+  /* スペーシング */
+  --spacing-unit: 0.25rem;
+  --spacing-xs: var(--spacing-unit);
+  --spacing-sm: calc(var(--spacing-unit) * 2);
+  --spacing-md: calc(var(--spacing-unit) * 4);
+  --spacing-lg: calc(var(--spacing-unit) * 6);
+  --spacing-xl: calc(var(--spacing-unit) * 8);
+  --spacing-2xl: calc(var(--spacing-unit) * 12);
+
+  /* ボーダー */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+/* グローバルスタイル */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: var(--background-color);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "M PLUS Rounded 1c", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-top: 0;
+  color: var(--text-primary);
+}
+
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+a:hover {
+  color: var(--primary-dark);
+}
+
+code,
+pre {
+  font-family: "Fira Code", monospace;
+}
+
+/* アプリケーションレイアウト */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--background-color);
+}
+
+.sidebar {
+  width: 240px;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: white;
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header-title-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.github-link {
+  color: rgba(255, 255, 255, 0.8);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(255, 255, 255, 0.1);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.github-link:hover {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-header h2 {
+  margin: 0;
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.sidebar-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-item {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+}
+
+.nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.nav-item.active {
+  background-color: rgba(255, 255, 255, 0.2);
+  font-weight: 500;
+}
+
+.nav-icon {
+  margin-right: var(--spacing-sm);
+  font-size: 1.2rem;
+}
+
+.main-content {
+  flex: 1;
+  padding: var(--spacing-xl);
+  margin-left: 240px;
+}
+
+.content-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 64px;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .main-content {
+    margin-left: 64px;
+  }
+}
+
+/* プロジェクト表示 */
+.current-project {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: rgba(77, 171, 247, 0.2);
+  border-radius: 6px;
+  border-left: 3px solid #4dabf7;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.current-project:hover {
+  background-color: rgba(77, 171, 247, 0.3);
+  border-left: 3px solid #2196f3;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.current-project::before {
+  content: "操作中ファイル";
+  display: block;
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  font-size: 9px;
+  background-color: rgba(77, 171, 247, 0.9);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.current-project .project-name {
+  display: block;
+  font-weight: bold;
+  color: #fff;
+  font-size: 1em;
+  margin-bottom: 8px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.current-project .project-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.current-project .project-category {
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  background-color: rgba(255, 255, 255, 0.25);
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.5px;
+}
+
+.current-project .project-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.current-project .project-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-radius: 10px;
+  white-space: nowrap;
+}

@@ -1,4 +1,32 @@
-@import "./global.scss";
+@import "@styles/global.scss";
+
+// アニメーションのキーフレーム定義
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
 
 .responsive-config {
   padding: $spacing-xl;
@@ -8,7 +36,15 @@
   max-width: 1000px;
   margin: 0 auto;
   position: relative;
-  overflow: hidden;
+  overflow: auto;
+  max-height: calc(100vh - 100px);
+  will-change: contents;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+
+  &:active {
+    transition: none !important;
+  }
 
   &::before {
     content: "";
@@ -23,9 +59,15 @@
     transform: scaleX(1.2);
   }
 
-  // レスポンシブモード選択
+  .responsive-container {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
   .radio-group {
     display: flex;
+    flex-direction: column;
     gap: $spacing-xl;
     margin-bottom: $spacing-xl;
     background: linear-gradient(145deg, #ffffff, rgba($background-color, 0.5));
@@ -35,317 +77,203 @@
     border: 1px solid rgba($border-color, 0.5);
     position: relative;
     overflow: hidden;
-    transition: all 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      box-shadow 0.3s ease;
+    will-change: transform;
 
     &:hover {
       box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-      transform: translateY(-3px);
     }
 
-    label {
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: $font-size-lg;
+    h3 {
+      width: 100%;
+      margin-bottom: $spacing-md;
+      font-size: $font-size-xl;
+      font-weight: 700;
       color: $text-primary;
-      padding: $spacing-md $spacing-lg;
-      border-radius: $radius-md;
-      transition: all 0.3s ease;
-      position: relative;
-      background: rgba($surface-color, 0.6);
-      border: 1px solid transparent;
+    }
 
-      &:hover {
-        background: $surface-color;
-        box-shadow: $shadow-sm;
-      }
+    .radio-options {
+      display: flex;
+      gap: $spacing-lg;
+      will-change: contents;
 
-      input {
-        appearance: none;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        border: 2px solid $border-color;
-        margin-right: $spacing-md;
+      label {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: $font-size-lg;
+        color: $text-primary;
+        padding: $spacing-md $spacing-lg;
+        border-radius: $radius-md;
+        transition:
+          background-color 0.2s ease,
+          color 0.2s ease;
         position: relative;
-        transition: all 0.2s ease;
+        background: rgba($surface-color, 0.6);
+        border: 1px solid transparent;
+        flex: 1;
+        will-change: contents;
 
-        &:checked {
-          border-color: $accent-color;
-          background-color: rgba($accent-color, 0.1);
+        &:hover {
+          background: $surface-color;
+          box-shadow: $shadow-sm;
+        }
 
-          &::after {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background-color: $accent-color;
+        input[type="radio"] {
+          margin-right: $spacing-sm;
+          appearance: none;
+          -webkit-appearance: none;
+          width: 1.2em;
+          height: 1.2em;
+          border: 2px solid $border-color;
+          border-radius: 50%;
+          outline: none;
+          position: relative;
+          display: grid;
+          place-content: center;
+
+          &:checked {
+            border-color: $accent-color;
+
+            &::after {
+              content: "";
+              width: 0.6em;
+              height: 0.6em;
+              border-radius: 50%;
+              background-color: $accent-color;
+              position: absolute;
+            }
           }
         }
 
-        &:focus {
-          outline: none;
-          box-shadow: 0 0 0 3px rgba($accent-color, 0.2);
+        span {
+          font-weight: 500;
         }
       }
+    }
 
-      &:has(input:checked) {
-        background: rgba($accent-color, 0.05);
-        border-color: rgba($accent-color, 0.2);
-        box-shadow: $shadow-md;
-      }
+    .radio-options label:has(input[type="radio"]:checked) {
+      background: rgba($accent-color, 0.05);
+      border-color: rgba($accent-color, 0.2);
+      box-shadow: $shadow-md;
+    }
+
+    .radio-options label.active-radio {
+      background: rgba($accent-color, 0.05);
+      border-color: rgba($accent-color, 0.2);
+      box-shadow: $shadow-md;
+      color: $accent-color;
     }
   }
 
-  // ブレークポイント設定
   .breakpoints-container {
-    margin-bottom: $spacing-xl;
-    background: linear-gradient(145deg, #ffffff, rgba($background-color, 0.5));
+    background: rgba($background-color, 0.7);
     border-radius: $radius-lg;
     padding: $spacing-xl;
-    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
-    border: 1px solid rgba($border-color, 0.5);
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s ease;
+    box-shadow: $shadow-md;
+    margin-bottom: $spacing-xl;
 
     h3 {
+      margin-bottom: $spacing-lg;
       font-size: $font-size-xl;
       font-weight: 700;
-      margin-bottom: $spacing-lg;
       color: $text-primary;
-      border-bottom: 1px solid $border-color;
-      padding-bottom: $spacing-md;
-      position: relative;
-      display: flex;
-      align-items: center;
-
-      &::before {
-        content: "📱";
-        margin-right: $spacing-md;
-        font-size: $font-size-md;
-      }
-    }
-
-    &:hover {
-      box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-      transform: translateY(-3px);
     }
 
     .breakpoints-table {
       width: 100%;
       border-collapse: separate;
-      border-spacing: 0 6px;
+      border-spacing: 0;
       margin-bottom: $spacing-lg;
 
-      th {
-        text-align: left;
-        padding: $spacing-sm $spacing-md;
-        background-color: rgba($primary-color, 0.05);
-        font-weight: 600;
-        color: $text-primary;
-        border-bottom: 2px solid rgba($primary-color, 0.1);
-        font-size: $font-size-md;
-
-        &:first-child {
-          border-top-left-radius: $radius-md;
-          width: 80px;
-          text-align: center;
-        }
-
-        &:nth-child(2) {
-          width: 25%;
-        }
-
-        &:nth-child(3) {
-          width: 45%;
-        }
-
-        &:last-child {
-          border-top-right-radius: $radius-md;
-          width: 15%;
-          text-align: center;
-        }
-      }
-
+      th,
       td {
         padding: $spacing-md;
-        border-bottom: 1px solid $border-color;
-        vertical-align: middle;
-        transition: all 0.2s ease;
-
-        &:first-child {
-          text-align: center;
-        }
-
-        &:last-child {
-          text-align: center;
-        }
+        text-align: left;
+        border-bottom: 1px solid rgba($border-color, 0.3);
       }
 
-      tr {
-        &:hover td {
-          background-color: rgba($accent-color, 0.05);
-          box-shadow: 0 2px 8px rgba($accent-color, 0.1);
-          transform: translateY(-1px);
-        }
-
-        &:last-child td {
-          border-bottom: none;
-
-          &:first-child {
-            border-bottom-left-radius: $radius-md;
-          }
-
-          &:last-child {
-            border-bottom-right-radius: $radius-md;
-          }
-        }
+      th {
+        font-weight: 600;
+        color: $text-primary;
+        background-color: rgba($surface-color, 0.5);
       }
 
-      input[type="checkbox"] {
-        appearance: none;
-        width: 20px;
-        height: 20px;
-        border-radius: 4px;
-        border: 2px solid $border-color;
-        position: relative;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: block;
-        margin: 0 auto;
-
-        &:checked {
-          background-color: $accent-color;
-          border-color: $accent-color;
-
-          &::after {
-            content: "";
-            position: absolute;
-            top: 2px;
-            left: 6px;
-            width: 5px;
-            height: 10px;
-            border: solid white;
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg);
-          }
-        }
-
-        &:focus {
-          outline: none;
-          box-shadow: 0 0 0 3px rgba($accent-color, 0.2);
-        }
-
-        &:disabled {
-          background-color: rgba($accent-color, 0.2);
-          border-color: rgba($accent-color, 0.3);
-          cursor: not-allowed;
-
-          &::after {
-            border-color: rgba(255, 255, 255, 0.8);
-          }
-        }
+      tr.inactive {
+        opacity: 0.6;
       }
 
-      input[type="text"],
-      input[type="number"] {
-        width: 100%;
-        padding: $spacing-sm $spacing-md;
-        border: 1px solid $border-color;
-        border-radius: $radius-md;
-        font-size: $font-size-md;
-        transition: all 0.3s ease;
+      .bp-checkbox {
+        width: 1.2em;
+        height: 1.2em;
+      }
+
+      .bp-name,
+      .bp-value {
+        padding: $spacing-sm;
+        border: 1px solid rgba($border-color, 0.5);
+        border-radius: $radius-sm;
         background-color: $surface-color;
-        max-width: 100%;
-        box-sizing: border-box;
-        height: 40px;
-
-        &:focus {
-          outline: none;
-          border-color: $accent-color;
-          box-shadow: 0 0 0 3px rgba($accent-color, 0.1);
-        }
+        width: 100%;
+        font-size: $font-size-md;
 
         &:disabled {
-          background-color: rgba($background-color, 0.5);
+          background-color: rgba($surface-color, 0.7);
+          color: rgba($text-primary, 0.7);
           cursor: not-allowed;
-          color: $text-tertiary;
+          border-color: rgba($border-color, 0.3);
         }
       }
 
       .remove-button {
-        background-color: rgba($error-color, 0.08);
-        color: $error-color;
-        border: 1px solid rgba($error-color, 0.15);
-        border-radius: $radius-md;
         padding: $spacing-sm $spacing-md;
-        font-weight: 600;
+        background-color: $error-color;
+        color: white;
+        border: none;
+        border-radius: $radius-sm;
         cursor: pointer;
-        transition: all 0.3s ease;
-        min-width: 80px;
-        margin: 0 auto;
-        display: block;
+        font-weight: 500;
+        transition: background-color 0.2s ease;
 
-        &:hover {
-          background-color: $error-color;
-          color: white;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 8px rgba($error-color, 0.3);
+        &:hover:not(:disabled) {
+          background-color: darken($error-color, 10%);
         }
 
-        &:active {
-          transform: translateY(0);
+        &:disabled {
+          background-color: rgba($error-color, 0.5);
+          cursor: not-allowed;
         }
       }
     }
 
     .add-button {
-      background: linear-gradient(145deg, rgba($accent-color, 0.05), rgba($accent-light, 0.08));
-      color: $accent-color;
-      border: 1px dashed rgba($accent-color, 0.3);
-      border-radius: $radius-lg;
       padding: $spacing-md $spacing-lg;
-      text-align: center;
-      font-weight: 600;
+      background-color: $primary-color;
+      color: white;
+      border: none;
+      border-radius: $radius-md;
       cursor: pointer;
-      transition: all 0.3s ease;
-      font-size: $font-size-md;
-      display: flex;
+      font-weight: 600;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-top: $spacing-xl;
-      width: 100%;
-      max-width: 350px;
-      margin-left: auto;
-      margin-right: auto;
-      height: 50px;
+      transition: background-color 0.2s ease;
+
+      &:hover {
+        background-color: darken($primary-color, 10%);
+      }
 
       &::before {
         content: "+";
         margin-right: $spacing-sm;
-        font-size: $font-size-xl;
-      }
-
-      &:hover {
-        background: linear-gradient(145deg, rgba($accent-color, 0.1), rgba($accent-light, 0.15));
-        transform: translateY(-2px);
-        box-shadow: 0 8px 15px rgba($accent-color, 0.1);
-        border-color: rgba($accent-color, 0.5);
-      }
-
-      &:active {
-        transform: translateY(0);
+        font-size: 1.2em;
       }
     }
   }
 
-  // 保存ボタン
   .save-button {
     background: linear-gradient(135deg, #7c3aed, #4c1d95);
     background-image: linear-gradient(135deg, #8b5cf6, #6d28d9, #4c1d95);
@@ -427,6 +355,90 @@
         0 1px 2px rgba(0, 0, 0, 0.1),
         inset 0 1px 1px rgba(0, 0, 0, 0.15);
       background-image: linear-gradient(135deg, #7c3aed, #6d28d9, #4c1d95);
+    }
+  }
+
+  // エディター操作エリア
+  .editor-actions {
+    margin-top: $spacing-xl;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-lg;
+    background-color: rgba($background-color, 0.7);
+    border-radius: $radius-lg;
+
+    .editor-status {
+      display: flex;
+      flex-direction: column;
+      gap: $spacing-sm;
+
+      .status-message {
+        margin: 0;
+        padding: $spacing-sm $spacing-md;
+        background-color: rgba($primary-color, 0.1);
+        color: $primary-color;
+        border-radius: $radius-md;
+        font-weight: 500;
+        animation: fadeInOut 3s ease-in-out;
+      }
+
+      .save-status {
+        margin: 0;
+
+        .unsaved {
+          color: $warning-color;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          animation: pulse 2s infinite;
+
+          &::before {
+            content: "";
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: $warning-color;
+            margin-right: $spacing-sm;
+          }
+        }
+      }
+    }
+
+    .save-button {
+      padding: $spacing-md $spacing-lg;
+      background: linear-gradient(135deg, $primary-color, darken($primary-color, 15%));
+      color: white;
+      border: none;
+      border-radius: $radius-md;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      min-width: 140px;
+      box-shadow: $shadow-md;
+
+      &:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: $shadow-lg;
+        background: linear-gradient(135deg, lighten($primary-color, 5%), darken($primary-color, 10%));
+      }
+
+      &:active:not(:disabled) {
+        transform: translateY(0);
+        box-shadow: $shadow-sm;
+      }
+
+      &:disabled {
+        background: linear-gradient(
+          135deg,
+          desaturate($primary-color, 50%),
+          desaturate(darken($primary-color, 15%), 50%)
+        );
+        cursor: not-allowed;
+        opacity: 0.7;
+        box-shadow: none;
+      }
     }
   }
 }

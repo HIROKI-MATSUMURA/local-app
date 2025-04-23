@@ -59,8 +59,20 @@ $danger-color: $error-color;
 
 // ======= タイポグラフィ =======
 // フォントファミリー
-$font-base: "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
-$font-heading: "M PLUS Rounded 1c", "Helvetica Neue", Arial, sans-serif;
+$font-base:
+  "Inter",
+  "Noto Sans JP",
+  -apple-system,
+  BlinkMacSystemFont,
+  "Segoe UI",
+  sans-serif;
+$font-heading:
+  "Inter",
+  "Noto Sans JP",
+  -apple-system,
+  BlinkMacSystemFont,
+  "Segoe UI",
+  sans-serif;
 $font-code: "Fira Code", monospace;
 $font-mono: $font-code; // $font-codeの別名として追加
 

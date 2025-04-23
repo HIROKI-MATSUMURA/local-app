@@ -1780,3 +1780,93 @@ Integrate the header and drawer menu components into a unified, functional solut
 `;
   }
 };
+
+// アクティブプロジェクトから設定を取得する関数（非同期）
+const getSettingsFromActiveProject = async () => {
+  try {
+    console.log('プロジェクト設定の取得を開始します...');
+
+    // アクティブプロジェクトIDの取得
+    if (!window.api || !window.api.loadActiveProjectId) {
+      console.warn('window.api.loadActiveProjectIdが利用できません。デフォルト設定を使用します。');
+      return {
+        resetCSS: '',
+        cssVariables: '',
+        responsiveSettings: ''
+      };
+    }
+
+    const projectId = await window.api.loadActiveProjectId();
+    if (!projectId) {
+      console.warn('アクティブプロジェクトが設定されていません。デフォルト設定を使用します。');
+      return {
+        resetCSS: '',
+        cssVariables: '',
+        responsiveSettings: ''
+      };
+    }
+
+    console.log(`アクティブプロジェクトID: ${projectId} の設定を読み込みます`);
+
+    // 各設定の取得（並列処理）
+    const [resetCSSResult, variableSettingsResult, responsiveSettingsResult] = await Promise.all([
+      window.api.loadProjectData(projectId, 'resetCSS'),
+      window.api.loadProjectData(projectId, 'variableSettings'),
+      window.api.loadProjectData(projectId, 'responsiveSettings')
+    ]);
+
+    // 結果のサニタイズと処理
+    const resetCSS = resetCSSResult?.data || '';
+    const variableSettings = variableSettingsResult?.data || '';
+    const responsiveSettings = responsiveSettingsResult?.data || '';
+
+    return {
+      resetCSS,
+      cssVariables: generateCssVariablesFromSettings(variableSettings),
+      responsiveSettings
+    };
+  } catch (error) {
+    console.error('プロジェクト設定の取得エラー:', error);
+    return {
+      resetCSS: '',
+      cssVariables: '',
+      responsiveSettings: ''
+    };
+  }
+};
+
+// variableSettings形式からCSS変数文字列に変換する関数
+const generateCssVariablesFromSettings = (settings) => {
+  if (!settings) return '';
+
+  try {
+    let cssVariablesStr = '';
+
+    // customColorsから変数を抽出
+    if (settings.customColors && Array.isArray(settings.customColors)) {
+      settings.customColors.forEach(item => {
+        if (item && item.name && item.color) {
+          cssVariablesStr += `${item.name}: ${item.color};\n`;
+        }
+      });
+    } else {
+      // 旧形式や、customColorsがない場合は直接プロパティから生成
+      if (settings.primaryColor) {
+        cssVariablesStr += `$primary-color: ${settings.primaryColor};\n`;
+      }
+      if (settings.secondaryColor) {
+        cssVariablesStr += `$secondary-color: ${settings.secondaryColor};\n`;
+      }
+      if (settings.accentColor) {
+        cssVariablesStr += `$accent-color: ${settings.accentColor};\n`;
+      }
+      cssVariablesStr += `$blue: #408F95;\n`;
+      cssVariablesStr += `$text-color: #000000;\n`;
+    }
+
+    return cssVariablesStr;
+  } catch (error) {
+    console.error('CSS変数生成エラー:', error);
+    return '';
+  }
+};

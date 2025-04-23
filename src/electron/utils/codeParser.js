@@ -12,8 +12,31 @@ export const detectScssBlocks = (scssCode) => {
 
   // ブロックを格納する配列
   const blocks = [];
+  // 見つかったブロック名を追跡
+  const foundBlockNames = new Set();
 
   try {
+    // 最初にすべての[pcl]-プレフィックスのクラスをスキャン
+    const allBlocks = scssCode.match(/\.[pcl]-[a-zA-Z0-9_-]+(?:__[a-zA-Z0-9_-]+)?(?::[a-zA-Z0-9_-]+)?/g) || [];
+
+    // ブロック名を抽出（. と :hover などを除く、__パーツの場合はメインブロック名のみ）
+    allBlocks.forEach(block => {
+      // 先頭の「.」を削除
+      let blockName = block.substring(1);
+
+      // エレメント（__xxx）や疑似クラス（:xxx）を持つ場合はメインブロック名を抽出
+      if (blockName.includes('__')) {
+        blockName = blockName.split('__')[0];
+      } else if (blockName.includes(':')) {
+        blockName = blockName.split(':')[0];
+      }
+
+      // すでに見つかっていなければ追加
+      if (!foundBlockNames.has(blockName)) {
+        foundBlockNames.add(blockName);
+      }
+    });
+
     // CSSのルールを行ごとに分解
     const lines = scssCode.split('\n');
 
@@ -43,8 +66,8 @@ export const detectScssBlocks = (scssCode) => {
         continue;
       }
 
-      // ブロックの開始を検出（.p-XXX { や .c-XXX { パターン）
-      const blockMatch = line.match(/^\.([pc]-[a-zA-Z0-9_-]+)\s*{/);
+      // ブロックの開始を検出（.p-XXX { や .c-XXX { や .l-XXX { パターン）
+      const blockMatch = line.match(/^\.([pcl]-[a-zA-Z0-9_-]+)\s*{/);
       if (blockMatch && bracketCount === 0) {
         // 既存のブロックを保存
         if (currentBlock) {
@@ -61,8 +84,8 @@ export const detectScssBlocks = (scssCode) => {
         continue;
       }
 
-      // 擬似クラスの検出（.p-xxx:hover { や .c-xxx:active { のパターン）
-      const pseudoClassMatch = line.match(/^\.([pc]-[a-zA-Z0-9_-]+)(:[\w-]+)\s*{/);
+      // 擬似クラスの検出（.p-xxx:hover { や .c-xxx:active { や .l-xxx:hover { のパターン）
+      const pseudoClassMatch = line.match(/^\.([pcl]-[a-zA-Z0-9_-]+)(:[\w-]+)\s*{/);
       if (pseudoClassMatch && bracketCount === 0) {
         // 既存のブロックを保存
         if (currentBlock) {
@@ -90,9 +113,9 @@ export const detectScssBlocks = (scssCode) => {
       // 他のエレメントやブロックの検出
       if (line.match(/^\.[a-zA-Z0-9_.-]+\s*{/)) {
         // 既存ブロックのエレメントでない場合は、新しいブロックとして処理
-        const elementMatch = line.match(/^\.([pc]-[a-zA-Z0-9_-]+)__[a-zA-Z0-9_-]+\s*{/);
-        const newBlockMatch = line.match(/^\.([pc]-[a-zA-Z0-9_-]+)\s*{/);
-        const pseudoClassElementMatch = line.match(/^\.([pc]-[a-zA-Z0-9_-]+)(:[\w-]+)\s*{/);
+        const elementMatch = line.match(/^\.([pcl]-[a-zA-Z0-9_-]+)__[a-zA-Z0-9_-]+\s*{/);
+        const newBlockMatch = line.match(/^\.([pcl]-[a-zA-Z0-9_-]+)\s*{/);
+        const pseudoClassElementMatch = line.match(/^\.([pcl]-[a-zA-Z0-9_-]+)(:[\w-]+)\s*{/);
 
         if (elementMatch) {
           // 既存ブロックがあれば保存
@@ -181,6 +204,16 @@ export const detectScssBlocks = (scssCode) => {
       });
     }
 
+    // SCSSでは検出できなかったが、HTMLに存在するブロックのスケルトンコードを生成
+    foundBlockNames.forEach(blockName => {
+      if (!blocks.some(block => block.name === blockName)) {
+        blocks.push({
+          name: blockName,
+          code: `.${blockName} {\n  // HTMLから検出されたブロック\n}`
+        });
+      }
+    });
+
     return blocks;
   } catch (error) {
     console.error('SCSSブロックの検出中にエラーが発生しました:', error);
@@ -197,23 +230,62 @@ export const detectHtmlBlocks = (htmlCode) => {
   if (!htmlCode) return [];
 
   const blocks = [];
+  const blockNames = new Set(); // 重複を避けるためのセット
 
   try {
-    // ブロックレベルのクラスを検出（p-XXXやc-XXX）
-    const blockRegex = /<([a-z0-9]+)[^>]*class="[^"]*\b([pc]-[a-zA-Z0-9_-]+)\b[^"]*"[^>]*>/g;
-    let match;
+    // HTML全体からすべての[pcl]-プレフィックスクラスを検出
+    const classRegex = /class=["']([^"']*)["']/g;
+    let classMatch;
 
-    while ((match = blockRegex.exec(htmlCode)) !== null) {
-      const element = match[1]; // HTML要素（div, section等）
-      const blockName = match[2]; // クラス名（p-XXX, c-XXX）
+    while ((classMatch = classRegex.exec(htmlCode)) !== null) {
+      const classStr = classMatch[1];
+      const classes = classStr.split(/\s+/);
 
-      // 既に同じブロック名が登録されていない場合のみ追加
-      if (!blocks.some(block => block.name === blockName)) {
-        blocks.push({
-          name: blockName,
-          element: element
-        });
-      }
+      // [pcl]-プレフィックスを持つクラスをフィルタリング
+      classes.forEach(className => {
+        if (/^[pcl]-[a-zA-Z0-9_-]+$/.test(className) && !blockNames.has(className)) {
+          blockNames.add(className);
+
+          // 要素の種類を特定
+          const elementRegex = new RegExp(`<([a-z0-9]+)[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>`, 'i');
+          const elementMatch = htmlCode.match(elementRegex);
+          const element = elementMatch ? elementMatch[1] : 'div'; // デフォルトはdiv
+
+          blocks.push({
+            name: className,
+            element: element
+          });
+        }
+      });
+    }
+
+    // class属性を持つ要素を検索（バックアップ方法）
+    const elementRegex = /<([a-z0-9]+)[^>]*class="([^"]*)"[^>]*>/g;
+    let elementMatch;
+
+    while ((elementMatch = elementRegex.exec(htmlCode)) !== null) {
+      const element = elementMatch[1]; // HTML要素（div, section等）
+      const classAttribute = elementMatch[2]; // クラス属性の値（スペース区切りの複数クラス）
+
+      // クラス名を空白で分割して配列に
+      const classNames = classAttribute.split(/\s+/);
+
+      // [pcl]-プレフィックスを持つクラスをフィルタリング
+      const blockClasses = classNames.filter(className =>
+        /^[pcl]-[a-zA-Z0-9_-]+$/.test(className)
+      );
+
+      // 検出されたブロッククラスをそれぞれ登録
+      blockClasses.forEach(blockName => {
+        // 既に同じブロック名が登録されていない場合のみ追加
+        if (!blockNames.has(blockName)) {
+          blockNames.add(blockName);
+          blocks.push({
+            name: blockName,
+            element: element
+          });
+        }
+      });
     }
 
     return blocks;

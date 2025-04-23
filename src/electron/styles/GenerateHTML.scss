@@ -6,7 +6,7 @@
   background: linear-gradient(170deg, rgba($background-color, 0.8), rgba($surface-color, 0.9));
   border-radius: $radius-lg;
   box-shadow: $shadow-lg;
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   position: relative;
   overflow: hidden;
@@ -51,6 +51,8 @@
       font-size: $font-size-md;
       transition: all 0.3s ease;
       box-shadow: 0 2px 5px rgba(15, 23, 42, 0.03);
+      box-sizing: border-box;
+      margin-right: $spacing-lg;
 
       &:focus {
         outline: none;
@@ -105,41 +107,99 @@
     transition: all 0.3s ease;
     margin-bottom: $spacing-lg;
 
+    &::before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 120px;
+      height: 120px;
+      background: linear-gradient(135deg, rgba($primary-color, 0.08), rgba($accent-color, 0.05));
+      border-radius: 50%;
+      z-index: 0;
+    }
+
     h3 {
       font-size: $font-size-xl;
       font-weight: 700;
       margin-bottom: $spacing-lg;
       color: $text-primary;
-      border-bottom: 1px solid $border-color;
+      border-bottom: 2px solid rgba($primary-color, 0.3);
       padding-bottom: $spacing-md;
       position: relative;
       display: flex;
       align-items: center;
+      letter-spacing: 0.5px;
 
       &::before {
         content: "📄";
         margin-right: $spacing-md;
         font-size: $font-size-md;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
       }
     }
 
-    .file-item {
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-gap: $spacing-md;
+    }
+
+    li {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       padding: $spacing-md $spacing-lg;
-      background-color: rgba($surface-color, 0.8);
+      background: linear-gradient(135deg, rgba(white, 0.8), rgba($surface-color, 0.7));
       border-radius: $radius-md;
       margin-bottom: $spacing-sm;
       border: 1px solid rgba($border-color, 0.7);
-      transition: all 0.3s ease;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       position: relative;
-      box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04);
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 3px;
+        height: 100%;
+        background: linear-gradient(to bottom, $primary-color, $accent-color);
+        opacity: 0.8;
+        transition: width 0.3s ease;
+      }
 
       &:hover {
-        background-color: $surface-color;
-        transform: translateY(-2px);
-        box-shadow: 0 8px 15px rgba(15, 23, 42, 0.06);
-        border-color: rgba($accent-color, 0.2);
+        background: linear-gradient(135deg, rgba(white, 0.9), rgba($surface-color, 0.8));
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+        border-color: rgba($accent-color, 0.3);
+
+        &::before {
+          width: 5px;
+        }
+      }
+
+      &.unsaved {
+        border-color: rgba($warning-color, 0.4);
+        background: linear-gradient(135deg, rgba(white, 0.8), rgba($warning-color, 0.05));
+
+        &::before {
+          background: linear-gradient(to bottom, $warning-color, darken($warning-color, 10%));
+        }
+
+        .file-status {
+          color: $warning-color;
+          font-weight: 600;
+        }
       }
 
       .file-name {
@@ -147,26 +207,38 @@
         font-weight: 600;
         font-size: $font-size-md;
         color: $text-primary;
+        position: relative;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60%;
+        padding-left: $spacing-sm;
+      }
 
-        .saved-badge {
-          display: inline-block;
-          margin-left: $spacing-sm;
-          padding: $spacing-xs $spacing-sm;
-          font-size: $font-size-xs;
-          color: white;
-          background-color: $success-color;
-          border-radius: $radius-sm;
-          font-weight: 500;
-        }
+      .file-status {
+        font-size: $font-size-sm;
+        color: $success-color;
+        background-color: rgba($success-color, 0.1);
+        padding: $spacing-xs $spacing-sm;
+        border-radius: $radius-sm;
+        margin-right: $spacing-md;
+        font-weight: 500;
+        letter-spacing: 0.5px;
       }
 
       .file-actions {
         display: flex;
         gap: $spacing-sm;
+        opacity: 0.8;
+        transition: opacity 0.3s ease;
+      }
+
+      &:hover .file-actions {
+        opacity: 1;
       }
 
       .delete-button {
-        background-color: rgba($error-color, 0.1);
+        background: linear-gradient(135deg, rgba($error-color, 0.1), rgba($error-color, 0.2));
         color: $error-color;
         border: none;
         border-radius: $radius-md;
@@ -174,9 +246,10 @@
         font-weight: 500;
         cursor: pointer;
         transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba($error-color, 0.1);
 
         &:hover {
-          background-color: $error-color;
+          background: linear-gradient(135deg, $error-color, darken($error-color, 10%));
           color: white;
           transform: translateY(-2px);
           box-shadow: 0 4px 8px rgba($error-color, 0.3);
@@ -184,7 +257,7 @@
       }
 
       .edit-button {
-        background-color: rgba($primary-color, 0.1);
+        background: linear-gradient(135deg, rgba($primary-color, 0.1), rgba($primary-color, 0.2));
         color: $primary-color;
         border: none;
         border-radius: $radius-md;
@@ -192,9 +265,10 @@
         font-weight: 500;
         cursor: pointer;
         transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba($primary-color, 0.1);
 
         &:hover {
-          background-color: $primary-color;
+          background: linear-gradient(135deg, $primary-color, darken($primary-color, 10%));
           color: white;
           transform: translateY(-2px);
           box-shadow: 0 4px 8px rgba($primary-color, 0.3);

@@ -2,14 +2,62 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://fonts.googleapis.com; img-src 'self' data:;">
-  <title>Electron 管理画面</title>
-  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&family=Fira+Code&display=swap" rel="stylesheet">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://payments.codeups.jp; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; media-src 'self'; object-src 'none';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- sass.js CDN - 最初に読み込む -->
+  <script src="https://cdn.jsdelivr.net/npm/sass.js@0.11.1/dist/sass.sync.min.js" defer></script>
+  <title>CreAIteCode - HTMLコード生成ツール</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <!-- Node.jsモジュールをブラウザで使用できるようにするスクリプト -->
+  <script>
+    // contextIsolationが有効な場合でもNodeモジュールにアクセスするためのヘルパー
+    function checkElectronAvailability() {
+      console.log('Electronの可用性をチェックしています...');
+      if (window.electron) {
+        console.log('Electron API が見つかりました');
+        return true;
+      } else {
+        console.log('Electron API が見つかりません');
+        return false;
+      }
+    }
+
+    // APIインターフェースの検証
+    function validateAPI() {
+      console.log('API インターフェースを検証しています...');
+      if (window.api) {
+        console.log('window.api が見つかりました:', Object.keys(window.api));
+        return true;
+      } else {
+        console.log('window.api が見つかりません。フォールバックをセットアップします...');
+        return false;
+      }
+    }
+
+    // Sass.jsのロードチェック
+    function checkSassAvailability() {
+      console.log('Sass.jsの可用性をチェックしています...');
+      if (window.Sass) {
+        console.log('Sass.js が正常に読み込まれました');
+        return true;
+      } else {
+        console.error('Sass.js が読み込まれていません');
+        return false;
+      }
+    }
+
+    // ページ読み込み完了時に実行
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('ページが読み込まれました');
+      checkElectronAvailability();
+      validateAPI();
+      checkSassAvailability();
+    });
+  </script>
 </head>
 <body>
-  <div id="root">
-    <h1 style="display:none">Electron 管理画面</h1>
-  </div>
-  <script src="./renderer.jsx" type="module"></script>
+  <h1 style="display: none;">CreAIteCode</h1>
+  <div id="root"></div>
+  <script type="module" src="./main.jsx"></script>
 </body>
 </html>
