@@ -14,7 +14,7 @@
     "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
     "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
     "package-mac": "npm run vite-build && electron-builder --mac",
-    "package-win": "npm run vite-build && electron-builder --win",
+    "package-win": "npm run vite-build && electron-builder --win --x64 --ia32",
     "package-linux": "npm run vite-build && electron-builder --linux",
     "package": "npm run vite-build && electron-builder",
     "setup-python": "node scripts/setup-python-runtime.js",
@@ -83,27 +83,47 @@
       "node_modules/python-shell/**"
     ],
     "files": [
-      "dist/**/*",
-      "src/electron/**/*",
-      "src/config/**/*",
-      "src/python/**/*",
-      "node_modules/**/*",
-      "package.json"
+      "**/*",
+      "!**/*.map",
+      "!**/node_modules/*/{test,__tests__}/**"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "public/icon.icns",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
       ]
     },
     "win": {
       "icon": "public/icon.ico",
       "target": [
-        "nsis",
-        "portable"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "artifactName": "${productName}_Setup_${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "CreAIteCode",
+      "artifactName": "${productName}_Setup_${version}.exe",
+      "include": "build/installer.nsh",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico"
     },
     "linux": {
       "icon": "public/icon.png",
