@@ -444,13 +444,13 @@ function createMainWindow() {
 
 
   if (isDevelopment) {
-    filePath = path.join(__dirname, 'dist/electron', 'index.html');
+    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
   } else {
     // 複数の候補パスを試す
     const possiblePaths = [
-      path.join(app.getAppPath(), 'dist/electron', 'index.html'), // asarパッケージ内
+      path.join(app.getAppPath(), 'dist', 'index.html'), // asarパッケージ内
       path.join(process.resourcesPath, 'app/dist', 'index.html'), // extraResourcesからのパス
-      path.join(process.resourcesPath, 'dist/electron', 'index.html') // 直接Resourcesディレクトリ
+      path.join(process.resourcesPath, 'dist', 'index.html') // 直接Resourcesディレクトリ
     ];
 
     // 存在する最初のパスを使用
