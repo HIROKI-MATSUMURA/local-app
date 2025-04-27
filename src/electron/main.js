@@ -94,9 +94,9 @@ const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
 // 新しいファイルパスを追加（app.getName()を使用）
 const appName = app.getName() || 'electron-app';
 
-// ハードコードされたAPIキー
+// 環境変数からAPIキーを取得
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
 const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
 
@@ -1566,12 +1566,27 @@ $mediaquerys: (
 
   // APIキー取得関数
   const getApiKey = () => {
+    // まず環境変数からAPIキーを確認
+    if (process.env.ANTHROPIC_API_KEY) {
+      console.log('環境変数からAnthropicキーを発見しました');
+      return {
+        openaiKey: null,
+        claudeKey: process.env.ANTHROPIC_API_KEY,
+        selectedProvider: 'claude',
+        anthropicVersion: process.env.API_VERSION || '2023-06-01',
+        anthropicBaseUrl: process.env.API_BASE_URL || 'https://api.anthropic.com/v1',
+        success: true
+      };
+    }
+
+    // 環境変数にキーがなければ設定ファイルから読み込む
     try {
-      // src/config/api-keys.js からのみAPIキーを読み込む
+      console.log('設定ファイルからAPIキーを読み込みます');
       const apiConfigPath = isDevelopment
-        ? path.join(__dirname, '..', 'config', 'api-keys.js')
-        : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js');
-      console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
+        ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
+        : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境
+
+      console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
 
       // ファイルが存在するか確認
       if (fs.existsSync(apiConfigPath)) {
