@@ -1,22 +1,22 @@
-/**
- * Python処理と連携するためのブリッジモジュール
- * 単一の長時間実行Pythonプロセスを使用して効率的に画像処理を行います
- */
-// Node.js環境かブラウザ環境かを判定
-const isNode = typeof window === 'undefined' || typeof process !== 'undefined' && process.versions && process.versions.node;
+// Electron と基本モジュールの読み込み
+const { app } = require('electron');
 const { v4: uuidv4 } = require('uuid');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const path = require('path');
+const fsSync = require('fs');
+// 環境フラグ
+const isNode = typeof window === 'undefined' || (process && process.versions && process.versions.node);
 const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
-// python_bridge.js の冒頭
-const electron = require('electron');
-// app の参照を遅延させる
-const getApp = () => electron.app;
-// ブラウザ環境でエラーが出ないように条件付きでrequire
-let spawn, path, fs, os, crypto;
 
+// プロジェクトルート（python_server.py の参照に使用）
+const APP_ROOT = path.resolve(__dirname, '..', '..');
+
+// Node.js 専用モジュール
+let spawn, fs, os, crypto;
 if (isNode) {
-  // Node.js環境でのみ必要なモジュールをロード
   spawn = require('child_process').spawn;
-  path = require('path');
   fs = require('fs').promises;
   os = require('os');
   crypto = require('crypto');
@@ -88,7 +88,7 @@ async function detectPythonExecutable() {
     ];
 
     for (const venvPath of venvPaths) {
-      if (fs.existsSync(venvPath)) {
+      if (fsSync.existsSync(venvPath)) {
         console.log(`仮想環境のPythonを検出: ${venvPath}`);
         return venvPath;
       }
@@ -108,7 +108,7 @@ async function detectPythonExecutable() {
       ];
 
     for (const bundledPath of bundledPythonPaths) {
-      if (fs.existsSync(bundledPath)) {
+      if (fsSync.existsSync(bundledPath)) {
         console.log(`バンドルされたPythonを検出: ${bundledPath}`);
         return bundledPath;
       }
@@ -199,7 +199,7 @@ class PythonBridge {
       let scriptPath;
 
       if (isDevelopment) {
-        scriptPath = path.join(__dirname, 'python_server.py');
+        scriptPath = path.join(APP_ROOT, 'src', 'python', 'python_server.py');
       } else {
         // 本番環境ではリソースディレクトリからの相対パスも考慮
         const scriptPathsToTry = [
@@ -1174,17 +1174,69 @@ class PythonBridge {
  * バッファプールクラス - 大きなバッファを再利用して不要なメモリ割り当てを減らす
  */
 class BufferPool {
-      return {
-  success: true,
-  this.maxBuffers = maxBuffers;
-  this.bufferSize = bufferSize;
-}
-
-getBuffer() {
-  if (this.pool.length > 0) {
-    return this.pool.pop();
+  constructor(maxBuffers = 3, bufferSize = 5 * 1024 * 1024) { // 5MB
+    this.pool = [];
+    this.maxBuffers = maxBuffers;
+    this.bufferSize = bufferSize;
   }
-  return Buffer.allocUnsafe(this.bufferSize);
+
+  getBuffer() {
+    if (this.pool.length > 0) {
+      return this.pool.pop();
+    }
+    return Buffer.allocUnsafe(this.bufferSize);
+  }
+
+  releaseBuffer(buffer) {
+    if (this.pool.length < this.maxBuffers) {
+      // バッファ内容をゼロにクリア
+      buffer.fill(0);
+      this.pool.push(buffer);
+    }
+    // プールが一杯ならバッファは破棄され、GCの対象になる
+  }
 }
 
-releaseBuffer(buffer) {
+if (isNode) {
+  // Node.js環境のみで実際のインスタンスをエクスポート
+  const pythonBridge = new PythonBridge();
+  module.exports = pythonBridge;
+} else {
+  // ブラウザ環境の場合はダミー実装を提供
+  const dummyBridge = {
+    checkPythonEnvironment: async () => {
+      console.warn('ブラウザ環境ではPython環境チェックは利用できません');
+      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+    setupPythonEnvironment: async () => {
+      console.warn('ブラウザ環境ではPython環境セットアップは利用できません');
+      return { success: false, message: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+    start: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return false;
+    },
+    stop: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return false;
+    },
+    sendCommand: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+  };
+
+  // ES ModulesとCommonJSの両方に対応
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = dummyBridge;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return dummyBridge; });
+  } else {
+    window.pythonBridge = dummyBridge;
+  }
+}
+
+
+// PythonBridge のインスタンスをエクスポート
+const pythonBridge = new PythonBridge();
+module.exports = pythonBridge;
