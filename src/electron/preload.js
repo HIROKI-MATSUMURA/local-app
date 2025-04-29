@@ -283,18 +283,20 @@ contextBridge.exposeInMainWorld('api', {
       const requestData = {
         projectId: String(projectId),
         projectPath: String(projectPath),
-        patterns: Array.isArray(patterns) ? patterns : ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json']
+        patterns: Array.isArray(patterns) ?
+          // ディープコピーを避けてパターンを直接コピーする
+          patterns.map(p => String(p)) :
+          ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json']
       };
 
-      // 安全なシリアライズ可能なオブジェクトに変換
-      const safeData = JSON.parse(JSON.stringify(requestData));
-      console.log('ファイル監視リクエストを送信:', safeData);
+      // JSON.stringify/parseを使わず、単純なオブジェクトとして送信
+      console.log('ファイル監視リクエストを送信:', requestData);
 
-      return ipcRenderer.invoke('watch-project-files', safeData);
+      return ipcRenderer.invoke('watch-project-files', requestData);
     } catch (error) {
       console.error('watchProjectFiles呼び出しエラー:', error);
       // エラーの場合はfalseを返す
-      return Promise.resolve(false);
+      return Promise.resolve({ success: false, error: error.message || String(error) });
     }
   },
 
