@@ -3,12 +3,14 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('src/python/modules', 'modules')]
 binaries = []
-hiddenimports = ['io', 'base64', 'json', 're', 'datetime', 'traceback', 'logging', 'math', 'collections']
+hiddenimports = ['io', 'base64', 'json', 're', 'datetime', 'traceback', 'logging', 'math', 'collections', 'requests']
 tmp_ret = collect_all('PIL')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('cv2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('numpy')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('requests')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
