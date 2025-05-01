@@ -192,6 +192,31 @@ async function shutdown() {
   isShuttingDown = false;
 }
 
+/**
+ * Python環境をチェックする
+ * @returns {Promise<Object>} 環境チェック結果
+ */
+export const checkPythonEnvironment = async () => {
+  try {
+    return await sendRequest('checkPythonEnvironment');
+  } catch (error) {
+    logger.error('Python環境チェックエラー:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Python環境をセットアップする
+ * @returns {Promise<Object>} セットアップ結果
+ */
+export const setupPythonEnvironment = async () => {
+  try {
+    return await sendRequest('setupPythonEnvironment');
+  } catch (error) {
+    logger.error('Python環境セットアップエラー:', error);
+    return { success: false, error: error.message };
+  }
+};
 
 /**
  * レイアウトパターンを分析する

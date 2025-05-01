@@ -197,27 +197,61 @@ class PythonBridge {
 
       // Pythonサーバープロセスのスクリプトパス
       let scriptPath;
+      let isStandalone = false;
 
       if (isDevelopment) {
+        // 開発環境ではPythonスクリプトを直接実行
         scriptPath = path.join(APP_ROOT, 'src', 'python', 'python_server.py');
       } else {
-        // 本番環境ではリソースディレクトリからの相対パスも考慮
-        const scriptPathsToTry = [
-          path.join(__dirname, 'python_server.py'),
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
+        // 本番環境ではスタンドアロン実行ファイルを優先
+        const execName = process.platform === 'win32' ? 'python_server.exe' : 'python_server';
+
+        // スタンドアロン実行ファイルの候補パス
+        const standalonePathsToTry = [
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'python', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'dist', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'src', 'python', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), 'dist', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), '..', 'dist', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), '..', execName) : null
         ].filter(Boolean);
 
-        // 存在するスクリプトを探す
-        for (const pathToTry of scriptPathsToTry) {
+        // スタンドアロン実行ファイルを探す
+        for (const standalonePathToTry of standalonePathsToTry) {
           try {
-            await fs.access(pathToTry);
-            scriptPath = pathToTry;
-            console.log(`Python実行スクリプトを発見: ${scriptPath}`);
+            await fs.access(standalonePathToTry);
+            scriptPath = standalonePathToTry;
+            isStandalone = true;
+            console.log(`スタンドアロンPython実行ファイルを発見: ${scriptPath}`);
             break;
           } catch (e) {
-            console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+            console.log(`スタンドアロン実行ファイルが見つかりません: ${standalonePathToTry}`);
+          }
+        }
+
+        // スタンドアロン実行ファイルが見つからない場合は従来のパスを試す
+        if (!scriptPath) {
+          const scriptPathsToTry = [
+            path.join(__dirname, 'python_server.py'),
+            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'app', 'python', 'python_server.py') : null,
+          ].filter(Boolean);
+
+          // 存在するスクリプトを探す
+          for (const pathToTry of scriptPathsToTry) {
+            try {
+              await fs.access(pathToTry);
+              scriptPath = pathToTry;
+              console.log(`Python実行スクリプトを発見: ${scriptPath}`);
+              break;
+            } catch (e) {
+              console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+            }
           }
         }
 
@@ -230,17 +264,23 @@ class PythonBridge {
       const env = { ...process.env };
 
       // Pythonのガベージコレクション設定を調整
-      env.PYTHONMALLOC = 'pymalloc';          // Pythonの標準メモリアロケーターを使用
-      env.PYTHONGC = 'enabled';               // GCを有効に
-      env.PYTHONUNBUFFERED = '1';             // 出力バッファリングを無効化
+      env.PYTHONMALLOC = 'pymalloc';
+      env.PYTHONGC = 'enabled';
+      env.PYTHONUNBUFFERED = '1';
 
       // メモリ使用量を抑えるための追加設定
       if (process.platform === 'linux') {
         env.MALLOC_TRIM_THRESHOLD_ = '65536'; // 64KB以上の未使用メモリを解放
       }
 
-      console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
-      this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
+      // スタンドアロン実行ファイルの場合とPythonスクリプト実行の場合で処理を分ける
+      if (isStandalone) {
+        console.log(`スタンドアロンPython実行ファイルを起動: ${scriptPath}`);
+        this.pythonProcess = spawn(scriptPath, [], { env });
+      } else {
+        console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
+        this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
+      }
 
       // 標準出力からデータを読み取る設定
       this.pythonProcess.stdout.on('data', (data) => this._handleStdout(data));
