@@ -22,7 +22,7 @@ export default defineConfig({
   },
   build: {
     target: 'chrome105',
-    outDir: 'dist/electron',
+    outDir: '../../dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {

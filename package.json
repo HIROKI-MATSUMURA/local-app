@@ -8,15 +8,30 @@
     "electron-dev": "NODE_ENV=development electron --js-flags=\"--expose-gc\" .",
     "electron-dev:win": "set NODE_ENV=development && electron --js-flags=\"--expose-gc\" .",
     "vite-dev": "vite",
-    "vite-build": "vite build",
+    "prebuild": "node scripts/inject-env-to-config.js",
+    "vite-build": "npm run prebuild && vite build",
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
     "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
     "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
-    "package-mac": "npm run vite-build && electron-builder --mac",
-    "package-win": "npm run vite-build && electron-builder --win --x64 --ia32",
-    "package-linux": "npm run vite-build && electron-builder --linux",
-    "package": "npm run vite-build && electron-builder",
+    "build-python-standalone": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py",
+    "build-python-standalone:mac": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/",
+    "build-python-standalone:win": "if exist dist\\python_server.exe del /F /Q dist\\python_server.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:win-x64": "if exist dist\\python_server_x64.exe del /F /Q dist\\python_server_x64.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server_x64 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:win-x86": "if exist dist\\python_server_x86.exe del /F /Q dist\\python_server_x86.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server_x86 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:arm64": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/ && cp dist/python_server dist/python_server_arm64",
+    "check-arch": "arch -x86_64 /bin/bash -c 'echo \"現在のアーキテクチャ: $(uname -m)\"'",
+    "build-python-standalone:x64": "rm -rf dist/python_server build/python_server && arch -x86_64 /usr/bin/python3 -m pip install --user PyInstaller && arch -x86_64 /usr/bin/python3 -m pip install --user pillow opencv-python numpy requests && arch -x86_64 /usr/bin/python3 -m PyInstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/ && cp dist/python_server dist/python_server_x64",
+    "copy-python-standalone": "node scripts/copy-python-standalone.js",
+    "test-win-build": "rm -rf dist/python_server_x64.exe dist/python_server_x86.exe build/python_server && pyinstaller --onefile --name python_server_x64 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && cp dist/python_server_x64 dist/python_server_x64.exe && pyinstaller --onefile --name python_server_x86 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && cp dist/python_server_x86 dist/python_server_x86.exe && ls -la dist/",
+    "test-win-copy": "node scripts/copy-python-standalone-win-universal.js",
+    "package-mac": "npm run prebuild && npm run vite-build && npm run build-python-standalone:mac && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server",
+    "package-mac-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:arm64 && npm run build-python-standalone:x64 && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server_arm64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_arm64 && cp dist/python_server_x64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_x64 && cp scripts/python_server_launcher.sh release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server*",
+    "package-win": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win && electron-builder --win --x64 && node scripts/copy-python-standalone-win.js",
+    "package-win-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win-x64 && npm run build-python-standalone:win-x86 && electron-builder --win --x64 --ia32 && node scripts/copy-python-standalone-win-universal.js",
+    "test-package-win-universal": "npm run prebuild && npm run vite-build && npm run test-win-build && electron-builder --win --x64 --ia32 && npm run test-win-copy",
+    "package-linux": "npm run prebuild && npm run vite-build && npm run build-python-standalone && electron-builder --linux && npm run copy-python-standalone",
+    "package": "npm run prebuild && npm run vite-build && npm run build-python-standalone && electron-builder && npm run copy-python-standalone",
     "setup-python": "node scripts/setup-python-runtime.js",
     "postinstall": "npm run setup-python",
     "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\""
@@ -26,6 +41,7 @@
     "electron": "33.3.1",
     "electron-builder": "^24.13.3",
     "sass": "^1.86.3",
+    "vite": "^6.3.3",
     "wait-on": "^8.0.3"
   },
   "keywords": [
@@ -46,6 +62,7 @@
     "axios": "^0.27.2",
     "chokidar": "^4.0.3",
     "codemirror": "^5.65.0",
+    "dotenv": "^16.3.1",
     "esbuild": "^0.24.2",
     "express": "^4.21.2",
     "face-api.js": "^0.22.2",
@@ -67,7 +84,7 @@
     "vite": "^6.3.2"
   },
   "volta": {
-    "node": "23.11.0"
+    "node": "20.19.1"
   },
   "build": {
     "appId": "com.creaite.code",
@@ -87,6 +104,7 @@
       "!**/*.map",
       "!**/node_modules/*/{test,__tests__}/**"
     ],
+    "afterPack": "./build/afterPack.js",
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "public/icon.icns",
@@ -97,7 +115,8 @@
             "universal"
           ]
         }
-      ]
+      ],
+      "x64ArchFiles": "Contents/Resources/app/**/python_server*"
     },
     "win": {
       "icon": "public/icon.ico",
@@ -135,11 +154,18 @@
     },
     "extraResources": [
       {
+        "from": "./dist/python_server",
+        "to": "app/python_server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "src/python",
         "to": "app/python"
       },
       {
-        "from": "python-runtime/${os}",
+        "from": "./python-runtime/${os}",
         "to": "app/python-runtime"
       },
       {

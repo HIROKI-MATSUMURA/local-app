@@ -94,9 +94,9 @@ const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
 // 新しいファイルパスを追加（app.getName()を使用）
 const appName = app.getName() || 'electron-app';
 
-// ハードコードされたAPIキー
+// 環境変数からAPIキーを取得
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || "";
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
 const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
 
@@ -272,31 +272,52 @@ function setupFileWatcher(mainWindow) {
 
 /**
  * プロジェクトファイルを監視
- * @param {string} projectDir プロジェクトディレクトリ
- * @param {BrowserWindow} mainWindow メインウィンドウ
- * @returns {function} 監視を停止する関数
+ * @param {string} projectId プロジェクトID
+ * @param {string} projectPath プロジェクトディレクトリパス
+ * @param {array} patterns 監視対象のファイルパターン
+ * @returns {boolean} 監視が正常に開始されたかどうか
  */
-function watchProjectFiles(projectDir, mainWindow) {
-  console.log(`プロジェクトディレクトリの監視を設定: ${projectDir}`);
+function watchProjectFiles(projectId, projectPath, patterns) {
+  console.log(`プロジェクトファイル監視を設定: ${projectId} - ${projectPath}`);
+
+  // すでに監視中なら停止
+  if (projectWatchers.has(projectId)) {
+    try {
+      const stopWatcher = projectWatchers.get(projectId);
+      if (typeof stopWatcher === 'function') {
+        stopWatcher();
+      }
+    } catch (error) {
+      console.error(`既存の監視を停止中にエラー: ${projectId}`, error);
+    }
+  }
 
   // 本番環境でasar内のパスが含まれる場合は監視をスキップ
   if (!isDevelopment && (
-    projectDir.includes('.asar') ||
-    projectDir.includes(app.getAppPath())
+    projectPath.includes('.asar') ||
+    projectPath.includes(app.getAppPath())
   )) {
     console.log('本番環境のasarパスのため、プロジェクト監視をスキップします');
-    return () => { }; // ダミーの停止関数を返す
+    return false;
   }
 
   try {
     // プロジェクトディレクトリが存在するか確認
-    if (!fs.existsSync(projectDir)) {
-      console.warn(`プロジェクトディレクトリが存在しません: ${projectDir}`);
-      return () => { };
+    if (!fs.existsSync(projectPath)) {
+      console.warn(`プロジェクトディレクトリが存在しません: ${projectPath}`);
+      return false;
     }
 
+    // 監視対象パターンを確認
+    const watchPatterns = Array.isArray(patterns) && patterns.length > 0
+      ? patterns
+      : ['**/*.html', '**/*.htm', '**/*.css', '**/*.scss', '**/*.sass', '**/*.js', '**/*.ts', '**/*.jsx', '**/*.tsx', '**/*.json'];
+
+    console.log(`監視パターン: ${watchPatterns.join(', ')}`);
+
     // 監視設定
-    const watcher = chokidar.watch(projectDir, {
+    const watcher = chokidar.watch(watchPatterns, {
+      cwd: projectPath,
       ignored: [
         /(^|[\/\\])\../, // ドットファイル
         '**/node_modules/**', // node_modules
@@ -317,16 +338,17 @@ function watchProjectFiles(projectDir, mainWindow) {
     watcher.on('all', (event, filePath) => {
       // 重要なファイルに対するイベントのみ処理
       if (['add', 'change', 'unlink'].includes(event)) {
-        // HTMLやCSS、JS、画像ファイルの変更を監視
+        // ファイル拡張子を取得
         const ext = path.extname(filePath).toLowerCase();
-        const watchedExts = ['.html', '.htm', '.css', '.scss', '.sass', '.js', '.ts', '.jsx', '.tsx', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg'];
 
-        if (watchedExts.includes(ext)) {
-          console.log(`プロジェクトファイルの変更を検出: ${filePath} (${event})`);
+        console.log(`プロジェクトファイルの変更を検出: ${filePath} (${event})`);
 
-          // レンダラープロセスに通知
+        // レンダラープロセスに通知
+        if (mainWindow) {
           mainWindow.webContents.send('project-file-changed', {
+            projectId: projectId,
             path: filePath,
+            fullPath: path.resolve(projectPath, filePath),
             event: event,
             ext: ext
           });
@@ -336,21 +358,49 @@ function watchProjectFiles(projectDir, mainWindow) {
 
     // エラーイベント処理
     watcher.on('error', error => {
-      console.error('プロジェクトファイル監視エラー:', error);
+      console.error(`プロジェクトファイル監視エラー(${projectId}):`, error);
     });
 
-    // 監視を停止する関数を返す
-    return () => {
+    // 監視を停止する関数
+    const stopWatcher = () => {
       try {
         watcher.close();
-        console.log(`プロジェクト監視を停止: ${projectDir}`);
+        projectWatchers.delete(projectId);
+        console.log(`プロジェクト監視を停止: ${projectId}`);
+        return true;
       } catch (error) {
-        console.error('プロジェクト監視の停止に失敗:', error);
+        console.error(`プロジェクト監視の停止に失敗: ${projectId}`, error);
+        return false;
       }
     };
+
+    // 監視状態を保存
+    projectWatchers.set(projectId, stopWatcher);
+    console.log(`プロジェクト[${projectId}]の監視を開始しました`);
+    return true;
   } catch (error) {
-    console.error('プロジェクト監視の設定に失敗:', error);
-    return () => { }; // ダミーの停止関数を返す
+    console.error(`プロジェクト監視の設定に失敗: ${projectId}`, error);
+    return false;
+  }
+}
+
+/**
+ * プロジェクトファイルの監視を停止
+ * @param {string} projectId プロジェクトID
+ * @returns {boolean} 監視の停止が成功したかどうか
+ */
+function unwatchProjectFiles(projectId) {
+  try {
+    if (projectWatchers.has(projectId)) {
+      const stopWatcher = projectWatchers.get(projectId);
+      if (typeof stopWatcher === 'function') {
+        return stopWatcher();
+      }
+    }
+    return true; // 監視していなかった場合も成功とみなす
+  } catch (error) {
+    console.error(`プロジェクト監視の停止中にエラー: ${projectId}`, error);
+    return false;
   }
 }
 
@@ -444,13 +494,13 @@ function createMainWindow() {
 
 
   if (isDevelopment) {
-    filePath = path.join(__dirname, 'dist/electron', 'index.html');
+    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
   } else {
     // 複数の候補パスを試す
     const possiblePaths = [
-      path.join(app.getAppPath(), 'dist/electron', 'index.html'), // asarパッケージ内
+      path.join(app.getAppPath(), 'dist', 'index.html'), // asarパッケージ内
       path.join(process.resourcesPath, 'app/dist', 'index.html'), // extraResourcesからのパス
-      path.join(process.resourcesPath, 'dist/electron', 'index.html') // 直接Resourcesディレクトリ
+      path.join(process.resourcesPath, 'dist', 'index.html') // 直接Resourcesディレクトリ
     ];
 
     // 存在する最初のパスを使用
@@ -1566,12 +1616,27 @@ $mediaquerys: (
 
   // APIキー取得関数
   const getApiKey = () => {
+    // まず環境変数からAPIキーを確認
+    if (process.env.ANTHROPIC_API_KEY) {
+      console.log('環境変数からAnthropicキーを発見しました');
+      return {
+        openaiKey: null,
+        claudeKey: process.env.ANTHROPIC_API_KEY,
+        selectedProvider: 'claude',
+        anthropicVersion: process.env.API_VERSION || '2023-06-01',
+        anthropicBaseUrl: process.env.API_BASE_URL || 'https://api.anthropic.com/v1',
+        success: true
+      };
+    }
+
+    // 環境変数にキーがなければ設定ファイルから読み込む
     try {
-      // src/config/api-keys.js からのみAPIキーを読み込む
+      console.log('設定ファイルからAPIキーを読み込みます');
       const apiConfigPath = isDevelopment
-        ? path.join(__dirname, '..', 'config', 'api-keys.js')
-        : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js');
-      console.log(`Anthropic APIキー設定パスをチェック: ${apiConfigPath}`);
+        ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
+        : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境
+
+      console.log(`Anthropic APIキー設定パス: ${apiConfigPath}`);
 
       // ファイルが存在するか確認
       if (fs.existsSync(apiConfigPath)) {
@@ -2664,6 +2729,16 @@ $mediaquerys: (
   ipcMain.handle('watch-project-files', async (event, { projectId, projectPath, patterns }) => {
     try {
       console.log(`プロジェクトファイル監視リクエスト: ${projectId} - ${projectPath}`);
+
+      // 入力値の検証
+      if (!projectId || typeof projectId !== 'string') {
+        throw new Error('無効なプロジェクトID');
+      }
+
+      if (!projectPath || typeof projectPath !== 'string') {
+        throw new Error('無効なプロジェクトパス');
+      }
+
       // パターンが正しく配列であることを確認
       const watchPatterns = Array.isArray(patterns) ? patterns : ['**/*.html', '**/*.css', '**/*.scss', '**/*.js', '**/*.json'];
 
@@ -2671,8 +2746,8 @@ $mediaquerys: (
       const result = watchProjectFiles(projectId, projectPath, watchPatterns);
       return { success: result };
     } catch (error) {
-      console.error('プロジェクトファイル監視エラー:', error);
-      return { success: false, error: error.message };
+      console.error('ファイル監視の開始に失敗:', error);
+      return { success: false, error: error.message || '不明なエラー' };
     }
   });
 

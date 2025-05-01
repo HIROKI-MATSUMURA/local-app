@@ -126,3 +126,34 @@ npm run package-linux
 
 ## お問い合わせ
 hiroki@codeups.jp
+
+## APIキーの設定
+
+このアプリケーションはAnthropicのClaudeやOpenAIのAPIを使用します。APIキーを設定する方法は以下の通りです：
+
+### 開発環境とビルド環境で同じAPIキーを使用する方法
+
+1. プロジェクトのルートディレクトリに `.env` ファイルを作成します（`.env.example` をコピーして使用できます）
+2. 次のような形式でAPIキーを設定します：
+
+```
+ANTHROPIC_API_KEY=your_claude_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+3. アプリケーションを実行またはビルドします
+
+**重要**: ビルド時には自動的に環境変数の値が `src/config/api-keys.js` に埋め込まれ、パッケージングされたアプリでも同じAPIキーが使用されます。
+
+### 環境ごとに異なるAPIキーを使用する場合
+
+1. **開発環境**: `.env` ファイルにAPIキーを設定
+2. **本番環境**: ビルド前に別の `.env` ファイルにAPIキーを設定するか、`src/config/api-keys.js` を直接編集
+
+### 技術的な仕組み
+
+- 開発環境では `.env` の環境変数が直接使用されます
+- ビルド時には `scripts/inject-env-to-config.js` スクリプトが実行され、環境変数の値が `src/config/api-keys.js` に埋め込まれます
+- これにより、パッケージング後のアプリでも、ビルド時に設定されたAPIキーが使用されます
+
+**注意**: APIキーは機密情報です。`.env` ファイルや生成された `api-keys.js` ファイルをGitにコミットしないでください。

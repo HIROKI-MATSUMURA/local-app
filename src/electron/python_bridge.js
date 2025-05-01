@@ -1,22 +1,22 @@
-/**
- * Python処理と連携するためのブリッジモジュール
- * 単一の長時間実行Pythonプロセスを使用して効率的に画像処理を行います
- */
-// Node.js環境かブラウザ環境かを判定
-const isNode = typeof window === 'undefined' || typeof process !== 'undefined' && process.versions && process.versions.node;
+// Electron と基本モジュールの読み込み
+const { app } = require('electron');
 const { v4: uuidv4 } = require('uuid');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const path = require('path');
+const fsSync = require('fs');
+// 環境フラグ
+const isNode = typeof window === 'undefined' || (process && process.versions && process.versions.node);
 const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
-// python_bridge.js の冒頭
-const electron = require('electron');
-// app の参照を遅延させる
-const getApp = () => electron.app;
-// ブラウザ環境でエラーが出ないように条件付きでrequire
-let spawn, path, fs, os, crypto;
 
+// プロジェクトルート（python_server.py の参照に使用）
+const APP_ROOT = path.resolve(__dirname, '..', '..');
+
+// Node.js 専用モジュール
+let spawn, fs, os, crypto;
 if (isNode) {
-  // Node.js環境でのみ必要なモジュールをロード
   spawn = require('child_process').spawn;
-  path = require('path');
   fs = require('fs').promises;
   os = require('os');
   crypto = require('crypto');
@@ -44,12 +44,17 @@ if (isNode) {
   };
 }
 
+// プラットフォーム検出
+const isWindows = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+const isLinux = process.platform === 'linux';
+
 // Python実行環境の検出関数
 async function detectPythonExecutable() {
   console.log('Python実行環境を検出しています...');
 
   // 候補となるPythonコマンド
-  const candidates = process.platform === 'win32'
+  const candidates = isWindows
     ? ['python', 'python3', 'py -3', 'py']
     : ['python3', 'python3.9', 'python3.10', 'python3.11', 'python'];
 
@@ -80,15 +85,18 @@ async function detectPythonExecutable() {
   // 開発環境の場合は追加の検索
   if (!app.isPackaged) {
     // プロジェクトのvenvを確認
-    const venvPaths = [
-      path.join(APP_ROOT, 'venv', 'bin', 'python'),
-      path.join(APP_ROOT, 'venv', 'Scripts', 'python.exe'),
-      path.join(APP_ROOT, '.venv', 'bin', 'python'),
-      path.join(APP_ROOT, '.venv', 'Scripts', 'python.exe')
-    ];
+    const venvPaths = isWindows
+      ? [
+        path.join(APP_ROOT, 'venv', 'Scripts', 'python.exe'),
+        path.join(APP_ROOT, '.venv', 'Scripts', 'python.exe')
+      ]
+      : [
+        path.join(APP_ROOT, 'venv', 'bin', 'python'),
+        path.join(APP_ROOT, '.venv', 'bin', 'python')
+      ];
 
     for (const venvPath of venvPaths) {
-      if (fs.existsSync(venvPath)) {
+      if (fsSync.existsSync(venvPath)) {
         console.log(`仮想環境のPythonを検出: ${venvPath}`);
         return venvPath;
       }
@@ -97,7 +105,7 @@ async function detectPythonExecutable() {
 
   // 本番環境の場合はバンドルされたPythonを確認
   if (app.isPackaged) {
-    const bundledPythonPaths = process.platform === 'win32'
+    const bundledPythonPaths = isWindows
       ? [
         path.join(APP_ROOT, 'python_env', 'python.exe'),
         path.join(app.getPath('userData'), 'python_env', 'python.exe')
@@ -108,7 +116,7 @@ async function detectPythonExecutable() {
       ];
 
     for (const bundledPath of bundledPythonPaths) {
-      if (fs.existsSync(bundledPath)) {
+      if (fsSync.existsSync(bundledPath)) {
         console.log(`バンドルされたPythonを検出: ${bundledPath}`);
         return bundledPath;
       }
@@ -117,7 +125,7 @@ async function detectPythonExecutable() {
 
   // デフォルトのコマンドを返す
   console.warn('有効なPython実行環境を検出できませんでした。デフォルトを使用します。');
-  return process.platform === 'win32' ? 'python' : 'python3';
+  return isWindows ? 'python' : 'python3';
 }
 
 // Pythonコマンドの初期化（実行前に検出）
@@ -132,14 +140,14 @@ function initPythonCmd() {
         PYTHON_CMD = pythonPath;
         if (!PYTHON_CMD) {
           console.error('Python実行環境が見つかりませんでした。アプリケーションの一部機能が制限されます。');
-          PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // 最後の手段
+          PYTHON_CMD = isWindows ? 'python' : 'python3'; // 最後の手段
         }
         console.log(`Python実行コマンド設定: ${PYTHON_CMD}`);
         return PYTHON_CMD;
       })
       .catch(err => {
         console.error('Python検出中にエラーが発生しました:', err);
-        PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // エラー時のフォールバック
+        PYTHON_CMD = isWindows ? 'python' : 'python3'; // エラー時のフォールバック
         return PYTHON_CMD;
       });
   }
@@ -197,27 +205,62 @@ class PythonBridge {
 
       // Pythonサーバープロセスのスクリプトパス
       let scriptPath;
+      let isStandalone = false;
 
       if (isDevelopment) {
-        scriptPath = path.join(__dirname, 'python_server.py');
+        // 開発環境ではPythonスクリプトを直接実行
+        scriptPath = path.join(APP_ROOT, 'src', 'python', 'python_server.py');
       } else {
-        // 本番環境ではリソースディレクトリからの相対パスも考慮
-        const scriptPathsToTry = [
-          path.join(__dirname, 'python_server.py'),
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
+        // 本番環境ではスタンドアロン実行ファイルを優先
+        const execName = isWindows ? 'python_server.exe' : 'python_server';
+
+        // スタンドアロン実行ファイルの候補パス
+        const standalonePathsToTry = [
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'python', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'dist', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'src', 'python', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'resources', 'app', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), 'dist', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), '..', 'dist', execName) : null,
+          app.getAppPath() ? path.join(app.getAppPath(), '..', execName) : null
         ].filter(Boolean);
 
-        // 存在するスクリプトを探す
-        for (const pathToTry of scriptPathsToTry) {
+        // スタンドアロン実行ファイルを探す
+        for (const standalonePathToTry of standalonePathsToTry) {
           try {
-            await fs.access(pathToTry);
-            scriptPath = pathToTry;
-            console.log(`Python実行スクリプトを発見: ${scriptPath}`);
+            await fs.access(standalonePathToTry);
+            scriptPath = standalonePathToTry;
+            isStandalone = true;
+            console.log(`スタンドアロンPython実行ファイルを発見: ${scriptPath}`);
             break;
           } catch (e) {
-            console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+            console.log(`スタンドアロン実行ファイルが見つかりません: ${standalonePathToTry}`);
+          }
+        }
+
+        // スタンドアロン実行ファイルが見つからない場合は従来のパスを試す
+        if (!scriptPath) {
+          const scriptPathsToTry = [
+            path.join(__dirname, 'python_server.py'),
+            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
+            process.resourcesPath ? path.join(process.resourcesPath, 'app', 'python', 'python_server.py') : null,
+          ].filter(Boolean);
+
+          // 存在するスクリプトを探す
+          for (const pathToTry of scriptPathsToTry) {
+            try {
+              await fs.access(pathToTry);
+              scriptPath = pathToTry;
+              console.log(`Python実行スクリプトを発見: ${scriptPath}`);
+              break;
+            } catch (e) {
+              console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+            }
           }
         }
 
@@ -230,17 +273,23 @@ class PythonBridge {
       const env = { ...process.env };
 
       // Pythonのガベージコレクション設定を調整
-      env.PYTHONMALLOC = 'pymalloc';          // Pythonの標準メモリアロケーターを使用
-      env.PYTHONGC = 'enabled';               // GCを有効に
-      env.PYTHONUNBUFFERED = '1';             // 出力バッファリングを無効化
+      env.PYTHONMALLOC = 'pymalloc';
+      env.PYTHONGC = 'enabled';
+      env.PYTHONUNBUFFERED = '1';
 
       // メモリ使用量を抑えるための追加設定
       if (process.platform === 'linux') {
         env.MALLOC_TRIM_THRESHOLD_ = '65536'; // 64KB以上の未使用メモリを解放
       }
 
-      console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
-      this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
+      // スタンドアロン実行ファイルの場合とPythonスクリプト実行の場合で処理を分ける
+      if (isStandalone) {
+        console.log(`スタンドアロンPython実行ファイルを起動: ${scriptPath}`);
+        this.pythonProcess = spawn(scriptPath, [], { env });
+      } else {
+        console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
+        this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
+      }
 
       // 標準出力からデータを読み取る設定
       this.pythonProcess.stdout.on('data', (data) => this._handleStdout(data));
@@ -1174,17 +1223,69 @@ class PythonBridge {
  * バッファプールクラス - 大きなバッファを再利用して不要なメモリ割り当てを減らす
  */
 class BufferPool {
-      return {
-  success: true,
-  this.maxBuffers = maxBuffers;
-  this.bufferSize = bufferSize;
-}
-
-getBuffer() {
-  if (this.pool.length > 0) {
-    return this.pool.pop();
+  constructor(maxBuffers = 3, bufferSize = 5 * 1024 * 1024) { // 5MB
+    this.pool = [];
+    this.maxBuffers = maxBuffers;
+    this.bufferSize = bufferSize;
   }
-  return Buffer.allocUnsafe(this.bufferSize);
+
+  getBuffer() {
+    if (this.pool.length > 0) {
+      return this.pool.pop();
+    }
+    return Buffer.allocUnsafe(this.bufferSize);
+  }
+
+  releaseBuffer(buffer) {
+    if (this.pool.length < this.maxBuffers) {
+      // バッファ内容をゼロにクリア
+      buffer.fill(0);
+      this.pool.push(buffer);
+    }
+    // プールが一杯ならバッファは破棄され、GCの対象になる
+  }
 }
 
-releaseBuffer(buffer) {
+if (isNode) {
+  // Node.js環境のみで実際のインスタンスをエクスポート
+  const pythonBridge = new PythonBridge();
+  module.exports = pythonBridge;
+} else {
+  // ブラウザ環境の場合はダミー実装を提供
+  const dummyBridge = {
+    checkPythonEnvironment: async () => {
+      console.warn('ブラウザ環境ではPython環境チェックは利用できません');
+      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+    setupPythonEnvironment: async () => {
+      console.warn('ブラウザ環境ではPython環境セットアップは利用できません');
+      return { success: false, message: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+    start: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return false;
+    },
+    stop: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return false;
+    },
+    sendCommand: async () => {
+      console.warn('ブラウザ環境ではPython処理は利用できません');
+      return { error: 'ブラウザ環境ではこの機能は利用できません', browserEnvironment: true };
+    },
+  };
+
+  // ES ModulesとCommonJSの両方に対応
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = dummyBridge;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return dummyBridge; });
+  } else {
+    window.pythonBridge = dummyBridge;
+  }
+}
+
+
+// PythonBridge のインスタンスをエクスポート
+const pythonBridge = new PythonBridge();
+module.exports = pythonBridge;
