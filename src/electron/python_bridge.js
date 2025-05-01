@@ -44,12 +44,17 @@ if (isNode) {
   };
 }
 
+// プラットフォーム検出
+const isWindows = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+const isLinux = process.platform === 'linux';
+
 // Python実行環境の検出関数
 async function detectPythonExecutable() {
   console.log('Python実行環境を検出しています...');
 
   // 候補となるPythonコマンド
-  const candidates = process.platform === 'win32'
+  const candidates = isWindows
     ? ['python', 'python3', 'py -3', 'py']
     : ['python3', 'python3.9', 'python3.10', 'python3.11', 'python'];
 
@@ -80,12 +85,15 @@ async function detectPythonExecutable() {
   // 開発環境の場合は追加の検索
   if (!app.isPackaged) {
     // プロジェクトのvenvを確認
-    const venvPaths = [
-      path.join(APP_ROOT, 'venv', 'bin', 'python'),
-      path.join(APP_ROOT, 'venv', 'Scripts', 'python.exe'),
-      path.join(APP_ROOT, '.venv', 'bin', 'python'),
-      path.join(APP_ROOT, '.venv', 'Scripts', 'python.exe')
-    ];
+    const venvPaths = isWindows
+      ? [
+        path.join(APP_ROOT, 'venv', 'Scripts', 'python.exe'),
+        path.join(APP_ROOT, '.venv', 'Scripts', 'python.exe')
+      ]
+      : [
+        path.join(APP_ROOT, 'venv', 'bin', 'python'),
+        path.join(APP_ROOT, '.venv', 'bin', 'python')
+      ];
 
     for (const venvPath of venvPaths) {
       if (fsSync.existsSync(venvPath)) {
@@ -97,7 +105,7 @@ async function detectPythonExecutable() {
 
   // 本番環境の場合はバンドルされたPythonを確認
   if (app.isPackaged) {
-    const bundledPythonPaths = process.platform === 'win32'
+    const bundledPythonPaths = isWindows
       ? [
         path.join(APP_ROOT, 'python_env', 'python.exe'),
         path.join(app.getPath('userData'), 'python_env', 'python.exe')
@@ -117,7 +125,7 @@ async function detectPythonExecutable() {
 
   // デフォルトのコマンドを返す
   console.warn('有効なPython実行環境を検出できませんでした。デフォルトを使用します。');
-  return process.platform === 'win32' ? 'python' : 'python3';
+  return isWindows ? 'python' : 'python3';
 }
 
 // Pythonコマンドの初期化（実行前に検出）
@@ -132,14 +140,14 @@ function initPythonCmd() {
         PYTHON_CMD = pythonPath;
         if (!PYTHON_CMD) {
           console.error('Python実行環境が見つかりませんでした。アプリケーションの一部機能が制限されます。');
-          PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // 最後の手段
+          PYTHON_CMD = isWindows ? 'python' : 'python3'; // 最後の手段
         }
         console.log(`Python実行コマンド設定: ${PYTHON_CMD}`);
         return PYTHON_CMD;
       })
       .catch(err => {
         console.error('Python検出中にエラーが発生しました:', err);
-        PYTHON_CMD = os.platform() === 'win32' ? 'python' : 'python3'; // エラー時のフォールバック
+        PYTHON_CMD = isWindows ? 'python' : 'python3'; // エラー時のフォールバック
         return PYTHON_CMD;
       });
   }
@@ -204,7 +212,7 @@ class PythonBridge {
         scriptPath = path.join(APP_ROOT, 'src', 'python', 'python_server.py');
       } else {
         // 本番環境ではスタンドアロン実行ファイルを優先
-        const execName = process.platform === 'win32' ? 'python_server.exe' : 'python_server';
+        const execName = isWindows ? 'python_server.exe' : 'python_server';
 
         // スタンドアロン実行ファイルの候補パス
         const standalonePathsToTry = [
@@ -214,6 +222,7 @@ class PythonBridge {
           process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'python', execName) : null,
           process.resourcesPath ? path.join(process.resourcesPath, 'app', 'dist', execName) : null,
           process.resourcesPath ? path.join(process.resourcesPath, 'app', 'src', 'python', execName) : null,
+          process.resourcesPath ? path.join(process.resourcesPath, 'resources', 'app', execName) : null,
           app.getAppPath() ? path.join(app.getAppPath(), 'dist', execName) : null,
           app.getAppPath() ? path.join(app.getAppPath(), '..', 'dist', execName) : null,
           app.getAppPath() ? path.join(app.getAppPath(), '..', execName) : null
