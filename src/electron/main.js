@@ -1699,6 +1699,12 @@ $mediaquerys: (
     try {
       console.log('Claude APIキーの取得をリクエストされました');
 
+      // 環境変数から直接取得を試みる（最優先）
+      if (process.env.ANTHROPIC_API_KEY) {
+        console.log('環境変数からAnthropic APIキーを取得しました');
+        return { success: true, claudeKey: process.env.ANTHROPIC_API_KEY };
+      }
+
       // 最初にsrc/config/api-keys.jsから取得を試みる
       try {
         const apiConfigPath = isDevelopment
@@ -1762,27 +1768,33 @@ $mediaquerys: (
       const selectedProvider = 'claude';
       let apiKey;
 
-      // APIキーを取得
-      try {
-        console.log('src/config/api-keys.jsからAPIキーを読み込みます');
-        const apiConfigPath = isDevelopment
-          ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
-          : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境：リソースディレクトリ内のビルド済みファイル
-        console.log(`設定ファイルパス: ${apiConfigPath}`);
+      // 環境変数から直接APIキーを取得（最優先）
+      // 環境変数から直接APIキーを取得（最優先）
+      if (process.env.ANTHROPIC_API_KEY) {
+        console.log('環境変数からAnthropic APIキーを取得しました');
+        apiKey = process.env.ANTHROPIC_API_KEY;
+      } else {
+        // APIキーを設定ファイルから取得
+        try {
+          console.log('src/config/api-keys.jsからAPIキーを読み込みます');
+          const apiConfigPath = isDevelopment
+            ? path.join(__dirname, '..', 'config', 'api-keys.js') // 開発環境：src/config/api-keys.js
+            : path.join(process.resourcesPath, 'app', 'dist', 'config', 'api-keys.js'); // 本番環境
+          console.log(`設定ファイルパス: ${apiConfigPath}`);
 
-        if (fs.existsSync(apiConfigPath)) {
-          // JavaScriptモジュールとして読み込む
-          const apiConfig = require(apiConfigPath);
-          console.log(`APIキー設定を読み込みました`);
-
-          // Anthropicキーを使用
-          apiKey = apiConfig.ANTHROPIC_API_KEY;
-          console.log(`Claude APIキーを取得: ${apiKey ? '成功' : '失敗'}`);
-        } else {
-          console.error(`APIキーファイルが見つかりません: ${apiConfigPath}`);
+          if (fs.existsSync(apiConfigPath)) {
+            // JavaScriptモジュールとして読み込む
+            const apiConfig = require(apiConfigPath);
+            console.log(`APIキー設定を読み込みました`);
+            // Anthropicキーを使用
+            apiKey = apiConfig.ANTHROPIC_API_KEY;
+            console.log(`Claude APIキーを取得: ${apiKey ? '成功' : '失敗'}`);
+          } else {
+            console.error(`APIキーファイルが見つかりません: ${apiConfigPath}`);
+          }
+        } catch (keyError) {
+          console.error('APIキー読み込みエラー:', keyError);
         }
-      } catch (keyError) {
-        console.error('APIキー読み込みエラー:', keyError);
       }
 
       console.log(`選択されたAIプロバイダ: ${selectedProvider}, APIキー存在: ${apiKey ? 'はい' : 'いいえ'}`);
