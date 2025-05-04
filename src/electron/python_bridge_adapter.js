@@ -129,7 +129,8 @@ if (!isNode) {
     analyzeLayoutPattern: createDummyFunction('analyzeLayoutPattern'),
     detectMainSections: createDummyFunction('detectMainSections'),
     detectCardElements: createDummyFunction('detectCardElements'),
-    detectFeatureElements: createDummyFunction('detectFeatureElements')
+    detectFeatureElements: createDummyFunction('detectFeatureElements'),
+    analyzeImage: createDummyFunction('analyzeImage')
   };
 } else {
   // 以下はNode.js環境でのみ実行される
@@ -515,4 +516,100 @@ if (!isNode) {
     detectCardElements,
     detectFeatureElements
   };
+}
+
+/**
+ * 画像解析を実行する関数
+ * @param {string} image - Base64エンコードされた画像データ
+ * @param {Object} options - 解析オプション
+ * @returns {Promise<Object>} 解析結果
+ */
+async function analyzeImage(image, options = {}) {
+  try {
+    if (!pythonBridge) {
+      console.error('[Python Bridge Adapter] pythonBridgeモジュールがロードされていません');
+      return { 
+        success: false, 
+        error: 'Python Bridgeモジュールが利用できません', 
+        detail: 'モジュール初期化に失敗しました' 
+      };
+    }
+
+    console.log('[Python Bridge Adapter] 画像解析リクエスト開始');
+    // ブリッジが起動していることを確認
+    try {
+      if (!pythonBridge.isRunning) {
+        console.log('[Python Bridge Adapter] Pythonブリッジが実行中でないため、起動を試みます');
+        await pythonBridge.start();
+      }
+    } catch (startError) {
+      console.error('[Python Bridge Adapter] ブリッジ起動エラー:', startError);
+      return { 
+        success: false, 
+        error: `Pythonブリッジの起動に失敗しました: ${startError.message}`,
+        detail: startError.stack 
+      };
+    }
+
+    // 解析実行
+    console.log('[Python Bridge Adapter] analyzeAllを呼び出します');
+    const result = await pythonBridge.analyzeAll({ image, options });
+    
+    if (!result) {
+      console.error('[Python Bridge Adapter] 画像解析結果がnullです');
+      return { success: false, error: '画像解析結果がnullまたはundefinedです' };
+    }
+    
+    if (result.error) {
+      console.error('[Python Bridge Adapter] 画像解析エラー:', result.error);
+      
+      // EINVAL関連のエラーを処理
+      if (result.error.includes('spawn') || result.error.includes('EINVAL')) {
+        console.error('[Python Bridge Adapter] Pythonプロセス起動エラーを検出しました');
+        
+        // プロセス再起動を試みる
+        try {
+          console.log('[Python Bridge Adapter] Pythonブリッジを再起動します...');
+          await pythonBridge.restart();
+          console.log('[Python Bridge Adapter] 再起動完了、健全性チェックを実行...');
+          
+          // 健全性チェック
+          const healthCheck = await pythonBridge.checkPythonHealth();
+          console.log('[Python Bridge Adapter] 健全性チェック結果:', healthCheck);
+          
+          if (healthCheck && healthCheck.status === 'ok') {
+            console.log('[Python Bridge Adapter] Pythonブリッジが正常に再起動しました、処理を再試行します');
+            // 再試行
+            return await pythonBridge.analyzeAll({ image, options });
+          } else {
+            return { 
+              success: false, 
+              error: '再起動後のPythonブリッジの健全性チェックに失敗しました',
+              originalError: result.error
+            };
+          }
+        } catch (restartError) {
+          console.error('[Python Bridge Adapter] 再起動中にエラーが発生しました:', restartError);
+          return { 
+            success: false, 
+            error: `再起動中にエラーが発生しました: ${restartError.message}`,
+            originalError: result.error,
+            restartError: restartError.stack
+          };
+        }
+      }
+      
+      return { success: false, error: result.error };
+    }
+    
+    console.log('[Python Bridge Adapter] 画像解析成功');
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('[Python Bridge Adapter] 画像解析中に例外が発生しました:', error);
+    return { 
+      success: false, 
+      error: error.message || String(error),
+      stack: error.stack
+    };
+  }
 }

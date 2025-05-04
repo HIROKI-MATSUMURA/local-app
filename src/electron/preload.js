@@ -1,13 +1,44 @@
 // 🔥 ここ！
 console.log("🔥 preload.js 実行確認: window.api セット前");
 
-
-
 // シンプルなpreload.jsの実装 - パフォーマンスとセキュリティのバランスを最適化
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
+
+// 強化されたエラーロギング
+const logError = (error, context = '') => {
+  const timestamp = new Date().toISOString();
+  const errorMessage = error instanceof Error
+    ? `${error.name}: ${error.message}\n${error.stack || '(スタックトレースなし)'}`
+    : String(error);
+    
+  const formattedMessage = `[${timestamp}] ${context ? context + ': ' : ''}${errorMessage}`;
+  
+  // コンソールに出力
+  console.error(formattedMessage);
+  
+  // エラーログファイルにも書き込む
+  try {
+    const logDir = path.join(__dirname, '..', 'logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    
+    const logFile = path.join(logDir, `renderer_errors_${new Date().toISOString().split('T')[0]}.log`);
+    fs.appendFileSync(logFile, formattedMessage + '\n', 'utf8');
+  } catch (ioError) {
+    console.error('エラーログの書き込みに失敗:', ioError);
+  }
+};
+
+// 未処理のPromiseエラーをグローバルにキャッチ
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    logError(event.reason, 'UnhandledPromiseRejection');
+  });
+}
 
 // APIをコンテキストブリッジを通してウェブコンテンツに公開
 contextBridge.exposeInMainWorld('api', {
@@ -113,7 +144,41 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
-  invoke: (...args) => ipcRenderer.invoke(...args),
+  // エラーハンドリングを強化したinvoke関数
+  invoke: async (channel, ...args) => {
+    try {
+      // APIリクエストの開始をログに記録
+      console.log(`[API Request] ${channel} 開始`);
+      
+      // リクエストを実行
+      const result = await ipcRenderer.invoke(channel, ...args);
+      
+      // 成功結果をログに記録（必要に応じて)
+      if (channel.includes('analyze') || channel.includes('extract')) {
+        console.log(`[API Request] ${channel} 完了: データサイズ=${JSON.stringify(result).length}バイト`);
+      } else {
+        console.log(`[API Request] ${channel} 完了`);
+      }
+      
+      // エラーチェック（Pythonブリッジからのエラーレスポンス）
+      if (result && typeof result === 'object') {
+        if (result.error || (result.success === false)) {
+          const errorMessage = result.error || '不明なエラー';
+          logError(errorMessage, `PythonError in ${channel}`);
+          console.error(`[Python Error] ${channel}: ${errorMessage}`);
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      // エラーを詳細にログに記録
+      logError(error, `API Error in ${channel}`);
+      console.error(`[API Error] ${channel}:`, error);
+      
+      // エラーをスローして呼び出し元にも伝える
+      throw error;
+    }
+  },
 
   // IPC通信
   send: (channel, data) => {
@@ -137,6 +202,9 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(channel, (event, ...args) => func(...args));
     }
   },
+  
+  // 強化されたエラーログ関数
+  logError: (error, context) => logError(error, context),
 
   // HTMLファイル一覧を取得する関数
   getHtmlFiles: () => ipcRenderer.invoke('get-html-files'),

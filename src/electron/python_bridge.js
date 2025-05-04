@@ -13,6 +13,27 @@ const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
 // プロジェクトルート（python_server.py の参照に使用）
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 
+// デバッグログファイル設定
+const DEBUG_LOG = true; // デバッグログを有効化
+const LOG_FILE_PATH = isNode ? path.join(app.getPath('userData'), 'python_bridge_debug.log') : null;
+
+// デバッグログ関数
+function debugLog(message) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}`;
+  
+  console.log(logMessage);
+  
+  // ファイルにもログを書き込む
+  if (DEBUG_LOG && LOG_FILE_PATH && isNode) {
+    try {
+      fsSync.appendFileSync(LOG_FILE_PATH, logMessage + '\n');
+    } catch (err) {
+      console.error('ログファイル書き込みエラー:', err);
+    }
+  }
+}
+
 // Node.js 専用モジュール
 let spawn, fs, os, crypto;
 if (isNode) {
@@ -20,6 +41,28 @@ if (isNode) {
   fs = require('fs').promises;
   os = require('os');
   crypto = require('crypto');
+  
+  // ログファイルの初期化
+  if (DEBUG_LOG && LOG_FILE_PATH) {
+    try {
+      // ログファイルが大きすぎる場合はリセット（10MB以上）
+      if (fsSync.existsSync(LOG_FILE_PATH)) {
+        const stats = fsSync.statSync(LOG_FILE_PATH);
+        if (stats.size > 10 * 1024 * 1024) {
+          debugLog('ログファイルが大きすぎるため、リセットします');
+          fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+        }
+      } else {
+        fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+      }
+      debugLog('Python Bridge デバッグログを開始しました');
+      debugLog(`アプリバージョン: ${app.getVersion()}`);
+      debugLog(`OS: ${process.platform} ${os.release()}`);
+      debugLog(`Node.js: ${process.version}`);
+    } catch (err) {
+      console.error('ログファイル初期化エラー:', err);
+    }
+  }
 } else {
   // ブラウザ環境用のダミーオブジェクト
   console.log('ブラウザ環境を検出しました：Pythonブリッジは限定機能で動作します');
@@ -198,120 +241,393 @@ class PythonBridge {
     this.isStarting = true;
 
     try {
-      console.log('Pythonプロセスを起動中...');
-
-      // Python実行コマンドの初期化を確認
+      // Python実行ファイルのパスを取得
       await initPythonCmd();
 
-      // Pythonサーバープロセスのスクリプトパス
-      let scriptPath;
-      let isStandalone = false;
+      console.log(`[PythonBridge] 起動処理開始: PYTHON_CMD=${PYTHON_CMD}, プラットフォーム=${process.platform}, 開発環境=${isDevelopment}`);
+      console.log(`[PythonBridge] 詳細環境: Node.js=${process.version}, Electron=${process.versions.electron || '不明'}`);
 
-      if (isDevelopment) {
-        // 開発環境ではPythonスクリプトを直接実行
-        scriptPath = path.join(APP_ROOT, 'src', 'python', 'python_server.py');
+      const resourceDir = isDevelopment 
+        ? path.join(APP_ROOT) 
+        : path.join(app.getAppPath());
+        
+      console.log(`[PythonBridge] リソースディレクトリ: ${resourceDir}`);
+
+      // Pythonスクリプトへのパス
+      const pythonScriptPath = path.resolve(__dirname, '../python/python_server.py');
+      
+      console.log(`[PythonBridge] 現在の作業ディレクトリ: ${process.cwd()}`);
+      console.log(`[PythonBridge] APP_ROOT: ${APP_ROOT}`);
+      console.log(`[PythonBridge] __dirname: ${__dirname}`);
+      console.log(`[PythonBridge] Pythonスクリプトパス: ${pythonScriptPath}`);
+
+      // Pythonプロセスのオプション設定
+      const spawnOptions = {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUNBUFFERED: '1',
+          PYTHONDONTWRITEBYTECODE: '1',
+        },
+        windowsHide: true,
+        shell: process.platform === 'win32', // Windowsでは必ずshellをtrueに設定
+      };
+      
+      // Windows環境向けの追加設定
+      if (isWindows) {
+        spawnOptions.env.PYTHONUTF8 = '1';  // Python 3.7以降、UTF-8モードを強制
+        spawnOptions.env.PYTHONLEGACYWINDOWSSTDIO = '0';  // レガシーモードを無効化
+        // Windows環境向けの追加環境変数
+        spawnOptions.env.PYTHONNOUSERSITE = '1';  // ユーザーサイトパッケージを無効化
+        spawnOptions.env.PYTHONIOENCODING = 'utf-8:backslashreplace';  // エスケープシーケンスを確実にバックスラッシュで表現
+        spawnOptions.env.PYTHONFAULTHANDLER = '1';  // クラッシュ時のトレースバックを有効化
+      }
+      
+      console.log(`[PythonBridge] 環境設定: shell=${spawnOptions.shell}, windowsHide=${spawnOptions.windowsHide}`);
+      console.log(`[PythonBridge] 環境変数: PYTHONIOENCODING=${spawnOptions.env.PYTHONIOENCODING}, PYTHONUNBUFFERED=${spawnOptions.env.PYTHONUNBUFFERED}`);
+      
+      // Pythonコマンドの決定
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      
+      try {
+        // Python動作テスト
+        console.log(`[PythonBridge] 基本的なPython動作テスト...`);
+        const testResult = await execAsync(`${pythonCmd} -c "print('Python test OK')"`);
+        console.log(`[PythonBridge] Python動作テスト結果: ${testResult.stdout.trim()}`);
+      } catch (testError) {
+        console.error(`[PythonBridge] Python基本テストエラー: ${testError.message}`);
+      }
+      
+      // [DEBUG] spawn 呼び出しの詳細ログ
+      console.log('[DEBUG] spawn 呼び出し:');
+      console.log('  実行パス:', pythonCmd);
+      console.log('  引数:', [pythonScriptPath]);
+      console.log('  オプション:', JSON.stringify(spawnOptions, null, 2));
+      
+      // 実際のプロセス起動
+      this.pythonProcess = spawn(pythonCmd, [pythonScriptPath], spawnOptions);
+      
+      if (this.pythonProcess && this.pythonProcess.pid) {
+        console.log(`[PythonBridge] プロセス起動成功: PID=${this.pythonProcess.pid}`);
+        console.log(`[PythonBridge] Pythonサーバーを起動しました`);
       } else {
-        // 本番環境ではスタンドアロン実行ファイルを優先
-        const execName = isWindows ? 'python_server.exe' : 'python_server';
+        console.warn(`[PythonBridge] プロセス起動したがPIDが取得できません`);
+      }
 
-        // スタンドアロン実行ファイルの候補パス
-        const standalonePathsToTry = [
-          process.resourcesPath ? path.join(process.resourcesPath, 'app', execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'python', execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'dist', execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'app', 'src', 'python', execName) : null,
-          process.resourcesPath ? path.join(process.resourcesPath, 'resources', 'app', execName) : null,
-          app.getAppPath() ? path.join(app.getAppPath(), 'dist', execName) : null,
-          app.getAppPath() ? path.join(app.getAppPath(), '..', 'dist', execName) : null,
-          app.getAppPath() ? path.join(app.getAppPath(), '..', execName) : null
-        ].filter(Boolean);
+      // エンコーディングを明示的に設定
+      this.pythonProcess.stdout.setEncoding('utf-8');
 
-        // スタンドアロン実行ファイルを探す
-        for (const standalonePathToTry of standalonePathsToTry) {
+      // 標準出力ハンドラの改善
+      this.pythonProcess.stdout.on('data', (data) => {
+        // データをバッファに追加
+        const chunk = data.toString();
+        
+        // データの16進ダンプを出力（最初の100バイトまで）
+        const hexDump = Array.from(Buffer.from(chunk).slice(0, 100))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join(' ');
+        
+        console.log(`[Bridge] [DEBUG] データ受信: チャンクタイプ=${typeof chunk}, エンコード=utf-8`);
+        console.log(`[Bridge] [DEBUG] 16進ダンプ (最初の100バイト): ${hexDump}`);
+        
+        // 受信前のバッファ状態をログ
+        const prevBufferLength = this.responseBuffer.length;
+        console.log(`[Bridge] [DEBUG] 受信前バッファ長: ${prevBufferLength}バイト`);
+        
+        // Windows環境では特別な処理を追加
+        if (isWindows && data instanceof Buffer) {
           try {
-            await fs.access(standalonePathToTry);
-            scriptPath = standalonePathToTry;
-            isStandalone = true;
-            console.log(`スタンドアロンPython実行ファイルを発見: ${scriptPath}`);
-            break;
-          } catch (e) {
-            console.log(`スタンドアロン実行ファイルが見つかりません: ${standalonePathToTry}`);
+            // Windows環境ではバイナリデータを明示的にUTF-8でデコード
+            const decodedChunk = data.toString('utf-8');
+            console.log(`[Bridge] [DEBUG] Windows専用デコード: ${decodedChunk.length}文字, __END__含む=${decodedChunk.includes('__END__')}`);
+            
+            // バッファに追加前にテスト
+            if (decodedChunk.includes('__END__')) {
+              console.log(`[Bridge] [DEBUG] Windows対応: __END__マーカー検出!`);
+            }
+            
+            this.responseBuffer += decodedChunk;
+          } catch (decodeError) {
+            console.error(`[Bridge] [DEBUG] Windowsデコードエラー:`, decodeError);
+            // エラー時のフォールバック: 標準的な方法で追加
+            this.responseBuffer += chunk;
           }
+        } else {
+          // 非Windows環境または通常の文字列データ
+          this.responseBuffer += chunk;
         }
-
-        // スタンドアロン実行ファイルが見つからない場合は従来のパスを試す
-        if (!scriptPath) {
-          const scriptPathsToTry = [
-            path.join(__dirname, 'python_server.py'),
-            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'src', 'electron', 'python_server.py') : null,
-            process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'electron', 'python_server.py') : null,
-            process.resourcesPath ? path.join(process.resourcesPath, 'python', 'python_server.py') : null,
-            process.resourcesPath ? path.join(process.resourcesPath, 'app', 'python', 'python_server.py') : null,
-          ].filter(Boolean);
-
-          // 存在するスクリプトを探す
-          for (const pathToTry of scriptPathsToTry) {
+        
+        // デバッグログ
+        console.log(`[Bridge] データ受信: ${chunk.length}バイト, バッファ合計: ${this.responseBuffer.length}バイト`);
+        console.log(`[Bridge] [DEBUG] 追加されたバイト数: +${this.responseBuffer.length - prevBufferLength}バイト`);
+        console.log(`[Bridge] [DEBUG] バッファに__END__含む: ${this.responseBuffer.includes('__END__')}`);
+        
+        // __END__マーカーがある限り処理を繰り返す
+        while (this.responseBuffer.includes('__END__')) {
+          console.log(`[Bridge] [DEBUG] __END__マーカーの処理開始`);
+          
+          const parts = this.responseBuffer.split('__END__');
+          const jsonPart = parts[0].trim();
+          
+          // 残りのバッファを更新（次の応答用に保持）
+          this.responseBuffer = parts.slice(1).join('__END__');
+          
+          console.log(`[Bridge] [DEBUG] 分割後: JSONパート=${jsonPart.length}バイト, 残りバッファ=${this.responseBuffer.length}バイト`);
+          
+          if (!jsonPart) {
+            console.log(`[Bridge] [DEBUG] 空のJSONパートをスキップ`);
+            continue; // 空の場合はスキップ
+          }
+          
+          try {
+            console.log(`[Bridge] JSONパース開始: ${jsonPart.length}バイト`);
+            
+            // デバッグ：JSONの先頭部分を出力
             try {
-              await fs.access(pathToTry);
-              scriptPath = pathToTry;
-              console.log(`Python実行スクリプトを発見: ${scriptPath}`);
-              break;
-            } catch (e) {
-              console.log(`Python実行スクリプトが見つかりません: ${pathToTry}`);
+              const jsonPreview = jsonPart.substring(0, 100) + (jsonPart.length > 100 ? '...' : '');
+              console.log(`[Bridge] [DEBUG] JSONプレビュー: ${jsonPreview}`);
+            } catch (previewErr) {
+              console.error(`[Bridge] [DEBUG] JSONプレビュー生成エラー: ${previewErr.message}`);
+            }
+            
+            // Windows環境での追加ログと検証
+            if (isWindows) {
+              // JSONの先頭と末尾を確認して不正な文字がないか検証
+              const jsonStartChar = jsonPart.charAt(0);
+              const jsonEndChar = jsonPart.charAt(jsonPart.length - 1);
+              
+              if (jsonStartChar !== '{' && jsonStartChar !== '[') {
+                console.warn(`[Bridge] [DEBUG] WARNING: JSONが{または[で始まっていません: '${jsonStartChar}'`);
+                
+                // 最初の有効なJSON開始文字を探す
+                const validStart = jsonPart.indexOf('{');
+                if (validStart > 0) {
+                  console.log(`[Bridge] [DEBUG] 有効なJSON開始位置を検出: 位置=${validStart}`);
+                  // 無効な先頭文字を除去
+                  const cleanedJson = jsonPart.substring(validStart);
+                  console.log(`[Bridge] [DEBUG] クリーニング後のJSONプレビュー: ${cleanedJson.substring(0, 100)}...`);
+                  
+                  // クリーニングしたJSONでパースを試みる
+                  try {
+                    const cleanedData = JSON.parse(cleanedJson);
+                    console.log(`[Bridge] [DEBUG] クリーニング後のJSONパース成功: id=${cleanedData.id || 'なし'}`);
+                    
+                    // 以降の処理を行うために parsedData を更新
+                    const parsedData = cleanedData;
+                    
+                    // リクエストIDに対応するPromiseを解決
+                    if (parsedData.id && this.requestMap.has(parsedData.id)) {
+                      const { resolve, reject, timeoutId } = this.requestMap.get(parsedData.id);
+                      console.log(`[Bridge] [DEBUG] リクエスト発見: ID=${parsedData.id}, タイマー=${timeoutId ? 'あり' : 'なし'}`);
+                      
+                      // タイマーがあれば解除
+                      if (timeoutId) {
+                        clearTimeout(timeoutId);
+                        console.log(`[Bridge] タイムアウトタイマー解除: ${parsedData.id}`);
+                      }
+                      
+                      // エラーまたは結果を処理
+                      if (parsedData.error) {
+                        console.log(`[Bridge] エラーでPromiseを拒否: ${parsedData.error}`);
+                        reject(new Error(parsedData.error));
+                      } else {
+                        console.log(`[Bridge] 成功でPromiseを解決: ${parsedData.id}`);
+                        resolve(parsedData.result);
+                      }
+                      
+                      // マップからリクエストを削除
+                      this.requestMap.delete(parsedData.id);
+                      console.log(`[Bridge] リクエストID ${parsedData.id} の処理完了 (残り: ${this.requestMap.size}件)`);
+                    }
+                    
+                    // 処理完了したのでcontinueで次のループへ
+                    continue;
+                  } catch (cleanJsonErr) {
+                    console.error(`[Bridge] [DEBUG] クリーニング後のJSONパースエラー: ${cleanJsonErr.message}`);
+                    // 通常のパース処理に戻る
+                  }
+                }
+              }
+              
+              if (jsonEndChar !== '}' && jsonEndChar !== ']') {
+                console.warn(`[Bridge] [DEBUG] WARNING: JSONが}または]で終わっていません: '${jsonEndChar}'`);
+              }
+            }
+            
+            const parsedData = JSON.parse(jsonPart);
+            console.log(`[Bridge] [DEBUG] JSONパース成功: id=${parsedData.id || 'なし'}`);
+            
+            // リクエストIDに対応するPromiseを解決
+            if (parsedData.id && this.requestMap.has(parsedData.id)) {
+              const { resolve, reject, timeoutId } = this.requestMap.get(parsedData.id);
+              console.log(`[Bridge] [DEBUG] リクエスト発見: ID=${parsedData.id}, タイマー=${timeoutId ? 'あり' : 'なし'}`);
+              
+              // タイマーがあれば解除
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+                console.log(`[Bridge] タイムアウトタイマー解除: ${parsedData.id}`);
+              }
+              
+              // エラーまたは結果を処理
+              if (parsedData.error) {
+                console.log(`[Bridge] エラーでPromiseを拒否: ${parsedData.error}`);
+                reject(new Error(parsedData.error));
+              } else {
+                console.log(`[Bridge] 成功でPromiseを解決: ${parsedData.id}`);
+                resolve(parsedData.result);
+              }
+              
+              // マップからリクエストを削除
+              this.requestMap.delete(parsedData.id);
+              console.log(`[Bridge] リクエストID ${parsedData.id} の処理完了 (残り: ${this.requestMap.size}件)`);
+            } else if (parsedData.id) {
+              console.warn(`[Bridge] 対応するリクエストがありません: ID=${parsedData.id}`);
+              console.log(`[Bridge] [DEBUG] 現在のリクエストマップ: ${Array.from(this.requestMap.keys()).join(', ') || 'なし'}`);
+            } else {
+              console.warn(`[Bridge] [DEBUG] IDなしの応答を受信: ${JSON.stringify(parsedData).substring(0, 100)}...`);
+            }
+          } catch (error) {
+            console.error(`[Bridge] JSONパース失敗:`, error);
+            
+            // パースエラーの詳細を出力
+            try {
+              console.error(`[Bridge] [DEBUG] パースエラー詳細: ${error.message}`);
+              console.error(`[Bridge] [DEBUG] 問題のJSON先頭部: ${jsonPart.substring(0, 200)}...`);
+              
+              // 可能であればエラー位置を特定
+              if (error instanceof SyntaxError && error.message.includes('position')) {
+                const posMatch = error.message.match(/position (\d+)/);
+                if (posMatch && posMatch[1]) {
+                  const errPos = parseInt(posMatch[1], 10);
+                  const start = Math.max(0, errPos - 20);
+                  const end = Math.min(jsonPart.length, errPos + 20);
+                  console.error(`[Bridge] [DEBUG] エラー周辺 (位置=${errPos}): ${jsonPart.substring(start, end)}`);
+                }
+              }
+              
+              // JSONファイルに問題のデータを保存（デバッグ用）
+              try {
+                const fs = require('fs');
+                const path = require('path');
+                const debugDir = path.join(__dirname, '..', '..', 'debug');
+                if (!fs.existsSync(debugDir)) {
+                  fs.mkdirSync(debugDir, { recursive: true });
+                }
+                const errorFile = path.join(debugDir, `json_error_${Date.now()}.txt`);
+                fs.writeFileSync(errorFile, jsonPart, 'utf8');
+                console.error(`[Bridge] [DEBUG] エラーデータを保存: ${errorFile}`);
+              } catch (fileErr) {
+                console.error(`[Bridge] [DEBUG] エラーデータ保存失敗: ${fileErr.message}`);
+              }
+            } catch (debugErr) {
+              console.error(`[Bridge] [DEBUG] デバッグ情報生成エラー: ${debugErr.message}`);
+            }
+            
+            console.error(`[Bridge] 不正なJSON文字列:`, jsonPart.substring(0, 100) + '...');
+            
+            // 既存のリクエストがあれば拒否
+            const pendingRequests = Array.from(this.requestMap.entries());
+            if (pendingRequests.length > 0) {
+              const [latestId, { reject, timeoutId }] = pendingRequests[pendingRequests.length - 1];
+              console.error(`[Bridge] 最新のリクエスト ${latestId} をエラーで拒否`);
+              
+              if (timeoutId) clearTimeout(timeoutId);
+              reject(new Error(`JSONパースエラー: ${error.message}`));
+              this.requestMap.delete(latestId);
             }
           }
         }
-
-        if (!scriptPath) {
-          throw new Error('Python実行スクリプトが見つかりません');
+        
+        // バッファサイズが大きすぎる場合は警告（何らかの問題の可能性）
+        if (this.responseBuffer.length > 2000000) { // 2MB以上
+          console.warn(`[Bridge] 警告: バッファサイズが2MBを超えています。__END__マーカーが見つかりません。`);
+          console.warn(`[Bridge] [DEBUG] バッファサイズ異常: ${this.responseBuffer.length}バイト`);
+          
+          // バッファ内容サンプルを保存
+          try {
+            const fs = require('fs');
+            const path = require('path');
+            const debugDir = path.join(__dirname, '..', '..', 'debug');
+            if (!fs.existsSync(debugDir)) {
+              fs.mkdirSync(debugDir, { recursive: true });
+            }
+            const bufferFile = path.join(debugDir, `large_buffer_${Date.now()}.txt`);
+            fs.writeFileSync(bufferFile, this.responseBuffer.slice(0, 10000) + '\n...\n' + this.responseBuffer.slice(-10000), 'utf8');
+            console.warn(`[Bridge] [DEBUG] 大きなバッファのサンプルを保存: ${bufferFile}`);
+          } catch (fileErr) {
+            console.error(`[Bridge] [DEBUG] バッファ保存失敗: ${fileErr.message}`);
+          }
+          
+          // バッファを一部クリアして最後の1MBだけを残す
+          this.responseBuffer = this.responseBuffer.slice(-1000000);
+          console.warn(`[Bridge] バッファを一部クリアしました。残りのサイズ: ${this.responseBuffer.length}バイト`);
         }
-      }
+      });
 
-      // カスタム環境変数を設定
-      const env = { ...process.env };
+      // stderr（標準エラー出力）からのエラー処理関数
+      this.pythonProcess.stderr.on('data', (data) => {
+        const dataStr = data.toString().trim();
+        
+        // 空のデータを無視
+        if (!dataStr) return;
+        
+        console.error(`[PythonBridge] Python stderr: ${dataStr}`);
+        
+        // メモリ関連のエラーを検出
+        if (
+          dataStr.includes('MemoryError') ||
+          dataStr.includes('Cannot allocate memory') ||
+          dataStr.includes('OutOfMemoryError') ||
+          dataStr.includes('MemoryLimit') ||
+          dataStr.includes('ResourceExhaustedError')
+        ) {
+          console.error('メモリエラー検出: プロセスを再起動します');
+          this.restart();
+        }
+      });
 
-      // Pythonのガベージコレクション設定を調整
-      env.PYTHONMALLOC = 'pymalloc';
-      env.PYTHONGC = 'enabled';
-      env.PYTHONUNBUFFERED = '1';
+      // プロセス終了イベント処理
+      this.pythonProcess.on('close', (code) => {
+        this._handleClose(code);
+      });
 
-      // メモリ使用量を抑えるための追加設定
-      if (process.platform === 'linux') {
-        env.MALLOC_TRIM_THRESHOLD_ = '65536'; // 64KB以上の未使用メモリを解放
-      }
+      // プロセスエラーイベント処理
+      this.pythonProcess.on('error', (error) => {
+        this._handleError(error);
+      });
 
-      // スタンドアロン実行ファイルの場合とPythonスクリプト実行の場合で処理を分ける
-      if (isStandalone) {
-        console.log(`スタンドアロンPython実行ファイルを起動: ${scriptPath}`);
-        this.pythonProcess = spawn(scriptPath, [], { env });
-      } else {
-        console.log(`Pythonプロセスを起動: ${PYTHON_CMD} ${scriptPath}`);
-        this.pythonProcess = spawn(PYTHON_CMD, [scriptPath], { env });
-      }
-
-      // 標準出力からデータを読み取る設定
-      this.pythonProcess.stdout.on('data', (data) => this._handleStdout(data));
-      this.pythonProcess.stderr.on('data', (data) => this._handleStderr(data));
-      this.pythonProcess.on('close', (code) => this._handleClose(code));
-      this.pythonProcess.on('error', (err) => this._handleError(err));
-
-      // 起動完了を待機（サーバーの初期化時間）
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      console.log('Pythonプロセスが起動しました');
-
-      // メモリモニタリングを開始
-      this.startMemoryMonitoring();
-
-      // キューに溜まったリクエストを処理
-      this._processQueue();
-    } catch (error) {
-      console.error('Pythonプロセスの起動エラー:', error);
-      throw new Error(`Pythonプロセスの起動に失敗しました: ${error.message}`);
-    } finally {
+      // プロセス起動待機（200ms）
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // 正常起動したらフラグをリセット
       this.isStarting = false;
+      this.restartCount = 0;
+      
+      // 起動後に待機リクエストがあれば処理
+      this._processQueue();
+      
+      // スレッドプールの初期化（メモリ使用量が多いので必要に応じて）
+      // this._initThreadPool();
+      
+      // メモリ監視を開始
+      this.startMemoryMonitoring();
+      
+      return;
+    } catch (error) {
+      // エラー統一処理
+      this.isStarting = false;
+      console.error('[PythonBridge] Python起動エラー:', error);
+      
+      // 自動再起動を試みる（最大回数まで）
+      if (this.restartCount < this.maxRestarts) {
+        this.restartCount++;
+        console.log(`[PythonBridge] 自動再起動を試みます(${this.restartCount}/${this.maxRestarts})`);
+        return this.start();
+      } else {
+        console.error(`[PythonBridge] 最大再起動回数(${this.maxRestarts})に達しました。`);
+        throw new Error(`Pythonサーバーの起動に失敗しました: ${error.message}`);
+      }
     }
   }
 
@@ -509,85 +825,96 @@ class PythonBridge {
    * @returns {Promise<any>} コマンドの実行結果
    */
   async sendCommand(command, params = {}, timeout = 30000, existingRequestId = null) {
-    // リクエストIDを生成（既存のIDが渡された場合はそれを使用）
-    const requestId = existingRequestId || crypto.randomUUID();
-    console.log(`Pythonブリッジ: コマンド[${command}]送信開始 (ID: ${requestId.substring(0, 8)}...)`);
+    try {
+      // リクエストIDを生成（既存のIDが渡された場合はそれを使用）
+      const requestId = existingRequestId || crypto.randomUUID();
+      console.log(`Pythonブリッジ: コマンド[${command}]送信開始 (ID: ${requestId.substring(0, 8)}...)`);
 
-    // プロセスが起動していなければ起動
-    if (!this.pythonProcess && !this.isStarting) {
-      console.log(`Pythonブリッジ: プロセスが未起動のため、起動処理を行います (コマンド: ${command})`);
-      // リクエストをキューに追加して後で処理
-      this.requestQueue.push({ requestId, command, params });
-      try {
-        await this.start();
-        console.log(`Pythonブリッジ: プロセス起動完了 (コマンド: ${command})`);
-      } catch (error) {
-        console.error(`Pythonブリッジ: プロセス起動失敗 (コマンド: ${command})`, error);
-        return Promise.reject(error);
-      }
-      console.log(`Pythonブリッジ: コマンド[${command}]をキューに追加しました`);
-      return new Promise((resolve, reject) => {
-        this.requestMap.set(requestId, { resolve, reject });
-      });
-    }
-
-    // プロセス起動中ならキューに追加して終了を待つ
-    if (this.isStarting) {
-      console.log(`Pythonブリッジ: プロセス起動中のため、コマンド[${command}]をキューに追加します`);
-      return new Promise((resolve, reject) => {
+      // プロセスが起動していなければ起動
+      if (!this.pythonProcess && !this.isStarting) {
+        console.log(`Pythonブリッジ: プロセスが未起動のため、起動処理を行います (コマンド: ${command})`);
+        // リクエストをキューに追加して後で処理
         this.requestQueue.push({ requestId, command, params });
-        this.requestMap.set(requestId, { resolve, reject });
+        try {
+          await this.start();
+          console.log(`Pythonブリッジ: プロセス起動完了 (コマンド: ${command})`);
+        } catch (error) {
+          console.error(`Pythonブリッジ: プロセス起動失敗 (コマンド: ${command})`, error);
+          return Promise.reject(error);
+        }
+        console.log(`Pythonブリッジ: コマンド[${command}]をキューに追加しました`);
+        return new Promise((resolve, reject) => {
+          this.requestMap.set(requestId, { resolve, reject });
+        });
+      }
+
+      // プロセス起動中ならキューに追加して終了を待つ
+      if (this.isStarting) {
+        console.log(`Pythonブリッジ: プロセス起動中のため、コマンド[${command}]をキューに追加します`);
+        return new Promise((resolve, reject) => {
+          this.requestQueue.push({ requestId, command, params });
+          this.requestMap.set(requestId, { resolve, reject });
+        });
+      }
+
+      console.log(`Pythonブリッジ: コマンド[${command}]処理開始 - タイムアウト: ${timeout}ms`);
+      return new Promise((resolve, reject) => {
+        // タイムアウト処理の改善
+        const timeoutId = setTimeout(() => {
+          if (this.requestMap.has(requestId)) {
+            // 現在のバッファ状態をログ出力
+            console.error(`[Bridge] リクエストID ${requestId} がタイムアウト (${timeout}ms)`);
+            console.error(`[Bridge] 現在のバッファ状態: ${this.responseBuffer.length}バイト`);
+            
+            if (this.responseBuffer.length > 0) {
+              console.error(`[Bridge] バッファプレビュー: ${this.responseBuffer.substring(0, 200)}...`);
+            }
+            
+            this.requestMap.delete(requestId);
+            reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${timeout}ms)`));
+          }
+        }, timeout);
+
+        // リクエストをマップに保存（タイムアウトIDも含む）
+        this.requestMap.set(requestId, { resolve, reject, timeoutId });
+        console.log(`Pythonブリッジ: リクエストマップに追加 (ID: ${requestId.substring(0, 8)}...), 現在のマップサイズ: ${this.requestMap.size}`);
+
+        // コマンドをJSON形式で送信
+        const requestData = {
+          id: requestId,
+          command,
+          ...params
+        };
+
+        // リクエストデータのサイズをチェック
+        const requestStr = JSON.stringify(requestData);
+        const dataSize = requestStr.length;
+        console.log(`Pythonブリッジ: コマンド[${command}]送信データサイズ: ${Math.round(dataSize / 1024)}KB`);
+
+        // 大きなデータの場合は警告
+        if (dataSize > 5000000) { // 5MB以上
+          console.warn(`Pythonブリッジ: 送信データが非常に大きいです (${Math.round(dataSize / 1024 / 1024)}MB)`);
+        }
+
+        try {
+          this.pythonProcess.stdin.write(requestStr + '\n');
+          console.log(`Pythonブリッジ: コマンド[${command}]送信完了 (ID: ${requestId.substring(0, 8)}...)`);
+        } catch (error) {
+          // マップからリクエストを削除（クリーンアップ）
+          if (requestId && this.requestMap.has(requestId)) {
+            clearTimeout(timeoutId); // タイムアウトタイマーをクリア
+            this.requestMap.delete(requestId);
+          }
+
+          console.error(`Pythonブリッジ: コマンド[${command}]送信エラー:`, error);
+          reject(error); // エラーを伝播
+        }
       });
+    } catch (outerError) {
+      // 外側のtry-catchブロックでエラーをキャッチ
+      console.error(`Pythonブリッジ: コマンド送信での予期せぬエラー: ${outerError.message}`);
+      return Promise.reject(outerError);
     }
-
-    console.log(`Pythonブリッジ: コマンド[${command}]処理開始 - タイムアウト: ${timeout}ms`);
-    return new Promise((resolve, reject) => {
-      // タイムアウト処理
-      const timeoutId = setTimeout(() => {
-        if (this.requestMap.has(requestId)) {
-          console.error(`Pythonブリッジ: コマンド[${command}]がタイムアウトしました (${timeout}ms)`);
-          this.requestMap.delete(requestId);
-          reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${timeout}ms)`));
-        }
-      }, timeout);
-
-
-
-      // リクエストをマップに保存（タイムアウトIDも含む）
-      this.requestMap.set(requestId, { resolve, reject, timeoutId });
-      console.log(`Pythonブリッジ: リクエストマップに追加 (ID: ${requestId.substring(0, 8)}...), 現在のマップサイズ: ${this.requestMap.size}`);
-      console.log(`Pythonブリッジ: 現在のリクエストIDs:`, Array.from(this.requestMap.keys()).map(id => id.substring(0, 8) + '...'));
-
-      // コマンドをJSON形式で送信
-      const requestData = {
-        id: requestId,
-        command,
-        ...params
-      };
-
-      // リクエストデータのサイズをチェック
-      const requestStr = JSON.stringify(requestData);
-      const dataSize = requestStr.length;
-      console.log(`Pythonブリッジ: コマンド[${command}]送信データサイズ: ${Math.round(dataSize / 1024)}KB`);
-
-      // 大きなデータの場合は警告
-      if (dataSize > 5000000) { // 5MB以上
-        console.warn(`Pythonブリッジ: 送信データが非常に大きいです (${Math.round(dataSize / 1024 / 1024)}MB)`);
-      }
-
-      try {
-        this.pythonProcess.stdin.write(requestStr + '\n');
-        console.log(`Pythonブリッジ: コマンド[${command}]送信完了 (ID: ${requestId.substring(0, 8)}...)`);
-      } catch (error) {
-        // マップからリクエストを削除（クリーンアップ）
-        if (requestId && this.requestMap.has(requestId)) {
-          this.requestMap.delete(requestId);
-        }
-
-        console.error(`Pythonブリッジ: コマンド[${command}]送信エラー:`, error);
-        throw error;
-      }
-    });
   }
 
   /**
@@ -596,37 +923,10 @@ class PythonBridge {
    * @private
    */
   _handleStdout(data) {
-    // データバッファーに追加
-    const dataStr = data.toString();
-    this.responseBuffer += dataStr;
-
-    console.log(`Pythonブリッジ: stdout データ受信 (${dataStr.length}バイト)`);
-
-    // データが大きい場合はプレビューのみ表示
-    if (dataStr.length > 200) {
-      console.log(`Pythonブリッジ: stdout プレビュー: ${dataStr.substring(0, 100)}...`);
-    } else {
-      console.log(`Pythonブリッジ: stdout 内容: ${dataStr}`);
-    }
-
-    // 完全なJSONレスポンスを探す
-    let endIndex;
-    while ((endIndex = this.responseBuffer.indexOf('\n')) !== -1) {
-      const responseStr = this.responseBuffer.substring(0, endIndex);
-      this.responseBuffer = this.responseBuffer.substring(endIndex + 1);
-
-      if (!responseStr.trim()) continue;
-
-      try {
-        console.log(`Pythonブリッジ: JSONレスポンス解析中 (${responseStr.length}バイト)`);
-        const response = JSON.parse(responseStr);
-        this._processResponse(response);
-      } catch (err) {
-        console.error('Pythonブリッジ: JSONパースエラー:', err);
-        console.error('Pythonブリッジ: 解析できないデータ:', responseStr.length > 100 ?
-          responseStr.substring(0, 100) + '...' : responseStr);
-      }
-    }
+    // このメソッドは新しいstdout.on('data')ハンドラに統合されました
+    // 互換性のために残していますが、実質的には何もしません
+    console.log('[Bridge] _handleStdout: この処理は非推奨です');
+    return;
   }
 
   /**
@@ -635,72 +935,10 @@ class PythonBridge {
    * @private
    */
   _handleStderr(data) {
-    const stderr = data.toString();
-    console.error(`Pythonプロセスからのエラー: ${stderr}`);
-
-    // メモリ関連のエラーを検出
-    if (
-      stderr.includes('MemoryError') ||
-      stderr.includes('Cannot allocate memory') ||
-      stderr.includes('OutOfMemoryError') ||
-      stderr.includes('MemoryLimit') ||
-      stderr.includes('ResourceExhaustedError')
-    ) {
-      console.error('メモリエラー検出: プロセスを再起動します');
-      this.restart();
-    }
-  }
-
-  /**
-   * JSONレスポンスを処理する
-   * @param {Object} response - 受信したJSONレスポンス
-   * @private
-   */
-  _processResponse(response) {
-    try {
-      // リクエストIDの取得
-      const requestId = response.id;
-
-      if (!requestId) {
-        console.error('Pythonブリッジ: レスポンスにIDがありません:', response);
-        return;
-      }
-
-      // リクエストマップからリクエスト情報を取得
-      const requestInfo = this.requestMap.get(requestId);
-
-      if (!requestInfo) {
-        console.error(`Pythonブリッジ: 未知のレスポンスID: ${requestId}`);
-        return;
-      }
-
-      // タイムアウトをクリア
-      if (requestInfo.timeoutId) {
-        clearTimeout(requestInfo.timeoutId);
-      }
-
-      // リクエストマップから削除
-      this.requestMap.delete(requestId);
-
-      // エラーまたは結果をリゾルブ
-      if (response.error) {
-        console.error(`Pythonブリッジ: エラーレスポンス: ${response.error}`);
-        requestInfo.reject(new Error(response.error));
-      } else {
-        requestInfo.resolve(response.result);
-      }
-
-      // 大きなレスポンスデータの参照を解放
-      if (response && response.result) {
-        // 大きなデータオブジェクトの明示的な解放
-        if (response.result.colors || response.result.textBlocks || response.result.elements) {
-          // 参照を解放して次のGCでクリーンアップされるようにする
-          response.result = null;
-        }
-      }
-    } catch (error) {
-      console.error('Pythonブリッジ: レスポンス処理エラー:', error);
-    }
+    // このメソッドは標準エラー出力ハンドラに統合されました
+    // 互換性のために残していますが、実質的には何もしません
+    console.log('[Bridge] _handleStderr: この処理は非推奨です');
+    return;
   }
 
   /**
@@ -957,98 +1195,135 @@ class PythonBridge {
    * @returns {Promise<object>} 総合分析結果
    */
   async analyzeAll(imageData, options = {}) {
-    // 処理回数をカウント
-    this.processCounter++;
-
-    // 一定回数の処理後にPythonプロセスを再起動
-    if (this.processCounter >= this.MAX_PROCESSES_BEFORE_RESTART) {
-      console.log('メモリ最適化のためにPythonプロセスを再起動します');
-      await this.stop();
-      await this.start();
-      this.processCounter = 0;
-    }
-
-    this.isIdle = false;
-
     try {
-      // パラメータの型を確認し正規化
-      let imageContent;
-      let requestOptions = {};
+      // 処理回数をカウント
+      this.processCounter++;
 
-      if (typeof imageData === 'object' && imageData !== null) {
-        // オブジェクトとして渡された場合
-        const dataObj = imageData;
+      // 一定回数の処理後にPythonプロセスを再起動
+      if (this.processCounter >= this.MAX_PROCESSES_BEFORE_RESTART) {
+        console.log('メモリ最適化のためにPythonプロセスを再起動します');
+        await this.stop();
+        await this.start();
+        this.processCounter = 0;
+      }
 
-        // 優先順位順にキーを確認
-        for (const key of ['image', 'image_data', 'imageData']) {
-          if (dataObj[key] && typeof dataObj[key] === 'string') {
-            imageContent = dataObj[key];
-            console.log(`オブジェクトから'${key}'キーの画像データを使用します`);
-            break;
+      this.isIdle = false;
+
+      try {
+        // パラメータの型を確認し正規化
+        let imageContent;
+        let requestOptions = {};
+
+        if (typeof imageData === 'object' && imageData !== null) {
+          // オブジェクトとして渡された場合
+          const dataObj = imageData;
+
+          // 優先順位順にキーを確認
+          for (const key of ['image', 'image_data', 'imageData']) {
+            if (dataObj[key] && typeof dataObj[key] === 'string') {
+              imageContent = dataObj[key];
+              console.log(`オブジェクトから'${key}'キーの画像データを使用します`);
+              break;
+            }
           }
-        }
 
-        // オプションをマージ
-        requestOptions = { ...dataObj.options, ...options };
+          // オプションをマージ
+          requestOptions = { ...dataObj.options, ...options };
 
-        if (!imageContent) {
-          console.error('画像データがオブジェクト内に見つかりません:', Object.keys(dataObj).join(', '));
+          if (!imageContent) {
+            console.error('画像データがオブジェクト内に見つかりません:', Object.keys(dataObj).join(', '));
+            return {
+              success: false,
+              error: '画像データが提供されていません',
+            };
+          }
+        } else if (typeof imageData === 'string') {
+          // 直接画像データが渡された場合
+          imageContent = imageData;
+          requestOptions = options;
+        } else {
+          console.error('不正な画像データ形式:', typeof imageData);
           return {
             success: false,
-            error: '画像データが提供されていません',
+            error: `不正な画像データ形式: ${typeof imageData}`
           };
         }
-      } else if (typeof imageData === 'string') {
-        // 直接画像データが渡された場合
-        imageContent = imageData;
-        requestOptions = options;
-      } else {
-        console.error('不正な画像データ形式:', typeof imageData);
-        return {
-          success: false,
-          error: `不正な画像データ形式: ${typeof imageData}`
-        };
-      }
 
-      // base64チェック
-      if (typeof imageContent === 'string') {
-        if (!imageContent.startsWith('data:image') && !imageContent.match(/^[A-Za-z0-9+/=]+$/)) {
-          console.warn('画像データがbase64形式でない可能性があります');
+        // base64チェック
+        if (typeof imageContent === 'string') {
+          if (!imageContent.startsWith('data:image') && !imageContent.match(/^[A-Za-z0-9+/=]+$/)) {
+            console.warn('画像データがbase64形式でない可能性があります');
+          }
+        } else {
+          console.error('画像データが文字列ではありません:', typeof imageContent);
+          return {
+            success: false,
+            error: '画像データが文字列ではありません'
+          };
         }
-      } else {
-        console.error('画像データが文字列ではありません:', typeof imageContent);
+
+        // 画像の前処理
+        const optimizedImageData = await this.preprocessImage(imageContent);
+
+        // 元の処理を実行
+        await this._ensureRunning();
+
+        // 画像の型を確認
+        const base64Image = typeof optimizedImageData === 'string'
+          ? optimizedImageData
+          : optimizedImageData?.image || optimizedImageData?.image_data || '';
+
+        // Windows環境向けの追加オプション
+        if (isWindows) {
+          // Windows環境ではverbose=falseを強制し、OCRの進捗バー表示を抑制
+          requestOptions.verbose = false;
+          
+          // OCRの文字化け対策フラグを追加
+          requestOptions.prevent_encoding_error = true;
+        }
+
+        // Python側が参照する名前を 'image_data' に統一
+        // タイムアウトは環境に関わらず統一
+        const timeoutMs = 90000;  // 90秒に統一
+        console.log(`analyzeAll: リクエスト送信前 (タイムアウト: ${timeoutMs}ms)`);
+        try {
+          const result = await this.sendCommand('analyze_all', {
+            image_data: base64Image,  // Python側が期待する名前に合わせる
+            options: requestOptions
+          }, timeoutMs);  // 環境に応じたタイムアウト
+          
+          console.log(`analyzeAll: レスポンス受信成功`);
+          
+          // OCRステータスの検証
+          const ocrStatus = result.ocr_status || "unknown";
+          if (ocrStatus !== "success") {
+            console.warn(`OCR処理の状態: ${ocrStatus} - テキスト認識が不完全または失敗した可能性があります`);
+          }
+          
+          return result;
+        } catch (commandError) {
+          console.error(`analyzeAll: コマンド実行エラー: ${commandError.message}`);
+          return {
+            success: false,
+            error: `画像分析エラー: ${commandError.message || '(不明)'}`,
+          };
+        }
+      } catch (innerError) {
+        console.error('画像分析内部エラー:', innerError);
         return {
           success: false,
-          error: '画像データが文字列ではありません'
+          error: `画像分析内部エラー: ${innerError.message || '(不明)'}`,
         };
+      } finally {
+        this.isIdle = true;
       }
-
-      // 画像の前処理
-      const optimizedImageData = await this.preprocessImage(imageContent);
-
-      // 元の処理を実行
-      await this._ensureRunning();
-
-      // 画像の型を確認
-      const base64Image = typeof optimizedImageData === 'string'
-        ? optimizedImageData
-        : optimizedImageData?.image || optimizedImageData?.image_data || '';
-
-      // Python側が参照する名前を 'image_data' に統一
-      const result = await this.sendCommand('analyze_all', {
-        image_data: base64Image,  // Python側が期待する名前に合わせる
-        options: requestOptions
-      }, 90000);  // より長いタイムアウト
-
-      return result;
-    } catch (error) {
-      console.error('画像分析エラー:', error);
+    } catch (outerError) {
+      // 最も外側のtry-catchブロック
+      console.error('analyzeAll: 最上位レベルでのエラー捕捉:', outerError);
       return {
         success: false,
-        error: `画像分析エラー: ${error.message || '(不明)'}`,
+        error: `画像分析処理エラー: ${outerError.message || '(不明)'}`,
       };
-    } finally {
-      this.isIdle = true;
     }
   }
 
@@ -1285,7 +1560,3 @@ if (isNode) {
   }
 }
 
-
-// PythonBridge のインスタンスをエクスポート
-const pythonBridge = new PythonBridge();
-module.exports = pythonBridge;

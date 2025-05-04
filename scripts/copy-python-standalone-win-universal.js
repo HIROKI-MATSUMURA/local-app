@@ -12,7 +12,8 @@ const distDir = path.join(rootDir, 'dist');
 const releaseDir = path.join(rootDir, 'release');
 const pythonServerX64Exe = path.join(distDir, 'python_server_x64.exe');
 const pythonServerX86Exe = path.join(distDir, 'python_server_x86.exe');
-const launcherBat = path.join(__dirname, 'python_server_launcher.bat');
+const pythonServerExe = path.join(distDir, 'python_server.exe');
+const launcherBat = path.join(rootDir, 'python_server.bat');
 
 // 出力ディレクトリを探す
 function findOutputDirs() {
@@ -25,96 +26,134 @@ function findOutputDirs() {
     const winX64ReleaseDir = path.join(releaseDir, 'win-unpacked');
     if (fs.existsSync(winX64ReleaseDir)) {
       console.log(`x64出力ディレクトリを発見: ${winX64ReleaseDir}`);
-      outputDirs.push({ arch: 'x64', dir: winX64ReleaseDir });
+      outputDirs.push(winX64ReleaseDir);
     }
 
-    // ia32ディレクトリを検索
+    // x86ディレクトリを検索
     const winX86ReleaseDir = path.join(releaseDir, 'win-ia32-unpacked');
     if (fs.existsSync(winX86ReleaseDir)) {
       console.log(`x86出力ディレクトリを発見: ${winX86ReleaseDir}`);
-      outputDirs.push({ arch: 'ia32', dir: winX86ReleaseDir });
+      outputDirs.push(winX86ReleaseDir);
     }
 
-    if (outputDirs.length === 0) {
-      console.error('Windows用出力ディレクトリが見つかりません。electron-builderの出力を確認してください。');
-      return null;
+    // その他の候補ディレクトリを検索
+    const dirs = fs.readdirSync(releaseDir, { withFileTypes: true });
+    for (const dir of dirs) {
+      if (dir.isDirectory() && (dir.name.includes('win') || dir.name.endsWith('-win32'))) {
+        const fullPath = path.join(releaseDir, dir.name);
+        if (!outputDirs.includes(fullPath)) {
+          console.log(`追加の出力ディレクトリを発見: ${fullPath}`);
+          outputDirs.push(fullPath);
+        }
+      }
     }
-
-    return outputDirs;
   } catch (err) {
-    console.error('ディレクトリ検索中にエラーが発生しました:', err);
-    return null;
+    console.error('出力ディレクトリの検索中にエラーが発生しました:', err);
+  }
+
+  return outputDirs;
+}
+
+// EXEファイルをコピー
+function copyPythonExecutables(targetDirs) {
+  const filesToCopy = [];
+  
+  // EXEファイルの存在を確認
+  if (fs.existsSync(pythonServerX64Exe)) {
+    filesToCopy.push({
+      src: pythonServerX64Exe,
+      dest: 'python_server_x64.exe'
+    });
+    console.log(`x64用EXEファイルが見つかりました: ${pythonServerX64Exe}`);
+  } else {
+    console.warn('警告: x64用EXEファイルが見つかりません');
+  }
+  
+  if (fs.existsSync(pythonServerX86Exe)) {
+    filesToCopy.push({
+      src: pythonServerX86Exe,
+      dest: 'python_server_x86.exe'
+    });
+    console.log(`x86用EXEファイルが見つかりました: ${pythonServerX86Exe}`);
+  } else {
+    console.warn('警告: x86用EXEファイルが見つかりません');
+  }
+  
+  if (fs.existsSync(pythonServerExe)) {
+    filesToCopy.push({
+      src: pythonServerExe,
+      dest: 'python_server.exe'
+    });
+    console.log(`共通EXEファイルが見つかりました: ${pythonServerExe}`);
+  }
+  
+  // バッチファイルの存在を確認
+  if (fs.existsSync(launcherBat)) {
+    filesToCopy.push({
+      src: launcherBat,
+      dest: 'python_server.bat'
+    });
+    console.log(`バッチファイルが見つかりました: ${launcherBat}`);
+  } else {
+    console.error('エラー: バッチファイルが見つかりません');
+    process.exit(1);
+  }
+  
+  if (filesToCopy.length === 0) {
+    console.error('エラー: コピーするファイルが見つかりません');
+    process.exit(1);
+  }
+  
+  // 各ターゲットディレクトリにファイルをコピー
+  for (const targetDir of targetDirs) {
+    console.log(`${targetDir} にファイルをコピーしています...`);
+    
+    // distフォルダを作成
+    const targetDistDir = path.join(targetDir, 'dist');
+    if (!fs.existsSync(targetDistDir)) {
+      fs.mkdirSync(targetDistDir, { recursive: true });
+      console.log(`distディレクトリを作成しました: ${targetDistDir}`);
+    }
+    
+    for (const file of filesToCopy) {
+      try {
+        if (file.dest.endsWith('.exe')) {
+          // EXEファイルはdistディレクトリにコピー
+          const destPath = path.join(targetDistDir, file.dest);
+          fs.copyFileSync(file.src, destPath);
+          console.log(`  ${file.src} -> ${destPath}`);
+        } else {
+          // バッチファイルはルートディレクトリにコピー
+          const destPath = path.join(targetDir, file.dest);
+          fs.copyFileSync(file.src, destPath);
+          console.log(`  ${file.src} -> ${destPath}`);
+        }
+      } catch (err) {
+        console.error(`  コピー失敗 ${file.src}: ${err.message}`);
+      }
+    }
+    
+    console.log(`${targetDir} へのコピーが完了しました`);
   }
 }
 
 // メイン処理
-function main() {
-  console.log('Windows用Pythonスタンドアロン実行ファイルコピープロセスを開始');
-
-  try {
-    // python_server_x64.exeとpython_server_x86.exeの存在確認
-    if (!fs.existsSync(pythonServerX64Exe)) {
-      throw new Error(`x64 Python実行ファイルが見つかりません: ${pythonServerX64Exe}`);
-    }
-    console.log(`x64 Python実行ファイルを発見: ${pythonServerX64Exe}`);
-
-    if (!fs.existsSync(pythonServerX86Exe)) {
-      throw new Error(`x86 Python実行ファイルが見つかりません: ${pythonServerX86Exe}`);
-    }
-    console.log(`x86 Python実行ファイルを発見: ${pythonServerX86Exe}`);
-
-    if (!fs.existsSync(launcherBat)) {
-      throw new Error(`バッチランチャーが見つかりません: ${launcherBat}`);
-    }
-    console.log(`バッチランチャーを発見: ${launcherBat}`);
-
-    // 出力ディレクトリを取得
-    const outputDirs = findOutputDirs();
-    if (!outputDirs) {
-      throw new Error('コピー先ディレクトリが特定できないため、処理を中止します');
-    }
-
-    // 各アーキテクチャ向けに処理
-    for (const { arch, dir } of outputDirs) {
-      // コピー先のリソースディレクトリを作成
-      const resourcesDir = path.join(dir, 'resources', 'app');
-
-      if (!fs.existsSync(resourcesDir)) {
-        console.log(`リソースディレクトリを作成: ${resourcesDir}`);
-        fs.mkdirSync(resourcesDir, { recursive: true });
-      }
-
-      // x64 Python実行ファイルをコピー
-      const targetX64Path = path.join(resourcesDir, 'python_server_x64.exe');
-      fs.copyFileSync(pythonServerX64Exe, targetX64Path);
-      console.log(`x64 Python実行ファイルをコピーしました: ${targetX64Path}`);
-
-      // x86 Python実行ファイルをコピー
-      const targetX86Path = path.join(resourcesDir, 'python_server_x86.exe');
-      fs.copyFileSync(pythonServerX86Exe, targetX86Path);
-      console.log(`x86 Python実行ファイルをコピーしました: ${targetX86Path}`);
-
-      // ランチャーバッチファイルをコピー
-      const targetLauncherPath = path.join(resourcesDir, 'python_server.bat');
-      fs.copyFileSync(launcherBat, targetLauncherPath);
-      console.log(`ランチャーバッチファイルをコピーしました: ${targetLauncherPath}`);
-
-      // メインのpython_server.exeとしてシンボルを作成
-      const targetMainPath = path.join(resourcesDir, 'python_server.exe');
-      if (arch === 'x64') {
-        fs.copyFileSync(pythonServerX64Exe, targetMainPath);
-      } else {
-        fs.copyFileSync(pythonServerX86Exe, targetMainPath);
-      }
-      console.log(`${arch}アーキテクチャ向けのメイン実行ファイルをコピーしました: ${targetMainPath}`);
-    }
-
-    console.log('Windows用Pythonスタンドアロン実行ファイルのコピーが完了しました');
-
-  } catch (err) {
-    console.error('エラーが発生しました:', err);
+try {
+  console.log('Windows用Pythonスタンドアロン実行ファイルのコピーを開始します...');
+  
+  // 出力ディレクトリを検索
+  const targetDirs = findOutputDirs();
+  
+  if (targetDirs.length === 0) {
+    console.error('エラー: コピー先のディレクトリが見つかりません');
     process.exit(1);
   }
+  
+  // ファイルをコピー
+  copyPythonExecutables(targetDirs);
+  
+  console.log('Pythonスタンドアロン実行ファイルのコピーが完了しました');
+} catch (err) {
+  console.error('エラーが発生しました:', err);
+  process.exit(1);
 }
-
-main();
