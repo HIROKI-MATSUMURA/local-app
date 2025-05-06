@@ -1,6 +1,6 @@
 {
   "name": "creait-code",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AIを活用したウェブコンテンツ生成ツール。デザインから高品質なHTMLとSCSSを自動生成します。",
   "main": "src/electron/main.js",
   "scripts": {
