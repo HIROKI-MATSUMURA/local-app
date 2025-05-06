@@ -253,8 +253,53 @@ class PythonBridge {
         
       console.log(`[PythonBridge] リソースディレクトリ: ${resourceDir}`);
 
-      // Pythonスクリプトへのパス
-      const pythonScriptPath = path.resolve(__dirname, '../python/python_server.py');
+      // Pythonスクリプトへのパス - 開発環境とパッケージ版で異なるパスを使用
+      let pythonScriptPath;
+      
+      if (app.isPackaged) {
+        // パッケージ版では、ASARの外部のリソースディレクトリを使用
+        const appPath = path.dirname(app.getAppPath());
+        
+        // Windows向けの実行可能ファイルパス
+        if (isWindows) {
+          // まず、resources/app/python_server.exe を優先的に使用
+          const exePath = path.join(appPath, 'app', 'python_server.exe');
+          if (fsSync.existsSync(exePath)) {
+            console.log(`[PythonBridge] パッケージ版用のPython実行ファイルが見つかりました: ${exePath}`);
+            // Windows環境では実行ファイルを直接実行
+            PYTHON_CMD = exePath;
+            pythonScriptPath = '';  // 実行ファイルを直接使用するため引数なし
+          } else {
+            // 次に、ASARから解凍されたPythonスクリプトを使用
+            pythonScriptPath = path.join(appPath, 'app', 'python', 'python_server.py');
+            console.log(`[PythonBridge] パッケージ版用のPythonスクリプトパス: ${pythonScriptPath}`);
+          }
+        } else {
+          // macOS/Linux向けのパス解決
+          // スタンドアロン実行ファイルを優先
+          const macExePath = path.join(appPath, 'app', 'python_server');
+          if (fsSync.existsSync(macExePath)) {
+            console.log(`[PythonBridge] パッケージ版用のPython実行ファイルが見つかりました: ${macExePath}`);
+            // 実行権限を確認し設定
+            try {
+              fsSync.chmodSync(macExePath, 0o755);
+              console.log(`[PythonBridge] 実行権限を設定しました: ${macExePath}`);
+            } catch (err) {
+              console.warn(`[PythonBridge] 実行権限の設定に失敗しました: ${err.message}`);
+            }
+            PYTHON_CMD = macExePath;
+            pythonScriptPath = '';  // 実行ファイルを直接使用するため引数なし
+          } else {
+            // ASARから解凍されたPythonスクリプトを使用
+            pythonScriptPath = path.join(appPath, 'app', 'python', 'python_server.py');
+            console.log(`[PythonBridge] パッケージ版用のPythonスクリプトパス: ${pythonScriptPath}`);
+          }
+        }
+      } else {
+        // 開発環境では従来のパスをそのまま使用
+        pythonScriptPath = path.resolve(__dirname, '../python/python_server.py');
+        console.log(`[PythonBridge] 開発環境用のPythonスクリプトパス: ${pythonScriptPath}`);
+      }
       
       console.log(`[PythonBridge] 現在の作業ディレクトリ: ${process.cwd()}`);
       console.log(`[PythonBridge] APP_ROOT: ${APP_ROOT}`);
@@ -302,11 +347,16 @@ class PythonBridge {
       // [DEBUG] spawn 呼び出しの詳細ログ
       console.log('[DEBUG] spawn 呼び出し:');
       console.log('  実行パス:', pythonCmd);
-      console.log('  引数:', [pythonScriptPath]);
+      console.log('  引数:', pythonScriptPath ? [pythonScriptPath] : []);
       console.log('  オプション:', JSON.stringify(spawnOptions, null, 2));
       
-      // 実際のプロセス起動
-      this.pythonProcess = spawn(pythonCmd, [pythonScriptPath], spawnOptions);
+      // 実際のプロセス起動 - pythonScriptPathが空文字列の場合はPYTHON_CMDを直接実行
+      if (pythonScriptPath) {
+        this.pythonProcess = spawn(pythonCmd, [pythonScriptPath], spawnOptions);
+      } else {
+        // PYTHON_CMDがスタンドアロン実行ファイルの場合
+        this.pythonProcess = spawn(PYTHON_CMD, [], spawnOptions);
+      }
       
       if (this.pythonProcess && this.pythonProcess.pid) {
         console.log(`[PythonBridge] プロセス起動成功: PID=${this.pythonProcess.pid}`);
