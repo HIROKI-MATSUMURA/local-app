@@ -3003,18 +3003,42 @@ $mediaquerys: (
         options: requestOptions
       });
 
-      console.log("✅ analyzeAll を呼び出します", requestPayload);
-      const result = await pythonBridge.analyzeAll(requestPayload);
-      console.log("✅ analyzeAll の結果:", result);
+      // 追加: タイムスタンプ記録
+      const startTime = Date.now();
+      console.log(`[analyze_all] analyzeAll呼び出し開始: ${new Date(startTime).toISOString()}`);
+      
+      try {
+        console.log(`[analyze_all] pythonBridge.analyzeAllを呼び出します (タイムアウト: 90秒)`);
+        const result = await pythonBridge.analyzeAll(requestPayload);
+        
+        // 追加: 処理時間計算
+        const endTime = Date.now();
+        const processingTime = (endTime - startTime) / 1000;
+        console.log(`[analyze_all] レスポンス受信完了: 処理時間=${processingTime.toFixed(2)}秒`);
+        
+        // 追加: 結果の詳細ログ
+        if (result) {
+          console.log('[analyze_all] 受信データ構造:', {
+            keys: Object.keys(result),
+            hasColors: 'colors' in result,
+            hasText: 'text' in result,
+            hasTextBlocks: 'textBlocks' in result,
+            colorsCount: result.colors ? (Array.isArray(result.colors) ? result.colors.length : '配列でない') : '未定義',
+            textLength: result.text ? (typeof result.text === 'string' ? result.text.length : '文字列でない') : '未定義',
+            textBlocksCount: result.textBlocks ? (Array.isArray(result.textBlocks) ? result.textBlocks.length : '配列でない') : '未定義'
+          });
+        } else {
+          console.warn('[analyze_all] 解析結果が null/undefined');
+        }
 
-      if (result) {
-        console.log('[analyze_all] 解析完了:', Object.keys(result).join(', '));
-        if (result.error) console.error('エラー:', result.error);
-      } else {
-        console.warn('[analyze_all] 解析結果が null/undefined');
+        return result;
+      } catch (bridgeError) {
+        // 追加: エラーの詳細ログ
+        const endTime = Date.now();
+        const processingTime = (endTime - startTime) / 1000;
+        console.error(`[analyze_all] エラー発生: 処理時間=${processingTime.toFixed(2)}秒, エラー=${bridgeError.message}`);
+        throw bridgeError; // 元のエラーハンドリングに引き継ぐ
       }
-
-      return result;
     } catch (error) {
       const isTimeout = error.message?.includes('タイムアウト');
 
