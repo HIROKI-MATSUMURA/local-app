@@ -1,0 +1,35 @@
+=== シンプルログ 20250505_171513 ===
+
+メッセージ: ログ出力テスト
+
+Pythonパス: C:\Users\hirok\AppData\Local\Programs\Python\Python312\python.exe
+Pythonバージョン: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+カレントディレクトリ: C:\Users\hirok\Desktop\local-app\src\python
+スクリプトパス: C:\Users\hirok\Desktop\local-app\src\python\simple_log.py
+標準出力エンコーディング: utf-8
+標準エラー出力エンコーディング: utf-8
+
+=== ファイルシステム情報 ===
+スクリプトディレクトリ: C:\Users\hirok\Desktop\local-app\src\python
+ログディレクトリパス: C:\Users\hirok\Desktop\local-app\src\python\logs
+ログディレクトリ存在: True
+ログディレクトリ内ファイル数: 32
+ファイル一覧（最大10件）:
+  - stderr_test_20250503_175612.log: 1021バイト, 更新: 2025-05-03T17:56:21.416348
+  - stderr_20250504_184634.log: 30526バイト, 更新: 2025-05-04T18:49:10.041062
+  - stderr_20250504_183511.log: 10148バイト, 更新: 2025-05-04T18:37:04.773635
+  - stderr_20250504_181720.log: 14158バイト, 更新: 2025-05-04T18:19:28.711335
+  - stderr_20250504_155922.log: 14306バイト, 更新: 2025-05-04T16:01:41.620347
+  - stderr_20250504_151816.log: 250677バイト, 更新: 2025-05-04T18:26:35.313387
+  - stderr_20250504_150024.log: 23905バイト, 更新: 2025-05-04T15:02:35.044055
+  - stderr_20250504_144043.log: 68886バイト, 更新: 2025-05-04T14:58:36.972946
+  - stderr_20250504_140553.log: 111952バイト, 更新: 2025-05-04T14:38:02.824904
+  - stderr_20250504_134911.log: 24189バイト, 更新: 2025-05-04T13:51:26.455357
+
+=== 環境変数 ===
+PATH: C:\Program Files\Volta\;C:\Program Files (x86)\Intel\Intel(R) Management Engine Components\iCLS\;C:\Program Files\Intel\Intel(R) Management Engine Components\iCLS\;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\Users\hirok\AppData\Local\Programs\Python\Python312\Scripts\;C:\Users\hirok\AppData\Local\Programs\Python\Python312\;C:\Users\hirok\AppData\Local\Programs\Python\Launcher\;C:\Users\hirok\AppData\Local\Volta\bin;C:\Users\hirok\AppData\Local\Microsoft\WindowsApps;C:\Users\hirok\AppData\Local\Programs\cursor\resources\app\bin;C:\Users\hirok\AppData\Local\Microsoft\WinGet\Packages\Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe;;C:\Program Files\nodejs
+PYTHONPATH: なし
+TEMP: C:\Users\hirok\AppData\Local\Temp
+TMP: C:\Users\hirok\AppData\Local\Temp
+APPDATA: C:\Users\hirok\AppData\Roaming
+USERPROFILE: C:\Users\hirok

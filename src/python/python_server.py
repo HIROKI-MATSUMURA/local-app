@@ -40,51 +40,45 @@ import numpy as np
 from contextlib import redirect_stdout, redirect_stderr
 import io
 import gc
+import psutil  # メモリ使用量の取得用
+import platform  # プラットフォーム情報取得用
+
+# StringIOの拡張クラス（キャプチャ用）
+class NonClosingStringIO(io.StringIO):
+    """StringIOの拡張クラス。close()メソッドをオーバーライドして何もしないようにします。
+    これにより、withブロックを抜けてもバッファの内容が保持されます。"""
+    def close(self):
+        # 実際には何もしない（close操作を無視する）
+        pass
+
+# Win32コンソール出力用（フォールバック用）
+try:
+    import win32console
+except ImportError:
+    # インストールされていない場合は無視
+    win32console = None
 
 # エラー出力をUTF-8でログファイルに保存（最優先）
 stderr_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
 os.makedirs(stderr_log_dir, exist_ok=True)
 stderr_log_path = os.path.join(stderr_log_dir, f'stderr_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
-sys.stderr = open(stderr_log_path, "w", encoding="utf-8", errors="replace", buffering=1)
-# 確認用メッセージを出力し、即座にフラッシュする
-print(f"標準エラー出力をログファイルにリダイレクトしました: {stderr_log_path}", file=sys.stderr, flush=True)
-print(f"Python実行環境: {sys.executable}", file=sys.stderr, flush=True)
-print(f"カレントディレクトリ: {os.getcwd()}", file=sys.stderr, flush=True)
-print(f"システムエンコーディング: {sys.getdefaultencoding()}", file=sys.stderr, flush=True)
 
-# NonClosingStringIOクラスを追加
-class NonClosingStringIO(io.StringIO):
-    def close(self):
-        # closeメソッドをオーバーライドして何もしないようにする
-        pass
-
-# Windows環境での文字化けとUnicodeエラーを防ぐためにUTF-8を強制設定
-# より強力なエンコーディング設定（errors='backslashreplace'を追加）
-if os.name == 'nt':  # Windows環境の場合
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
-    else:
-        # Python 3.7未満の環境用
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', 
-                                     errors='backslashreplace', line_buffering=True)
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', 
-                                     errors='backslashreplace', line_buffering=True)
-    
-    # Windowsの警告抑制
-    import warnings
-    warnings.filterwarnings("ignore", category=UnicodeWarning)
-else:
-    # Mac/Linux環境用の設定
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    else:
-        # Python 3.7未満の環境用
-        if sys.stdout.encoding != 'utf-8':
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-        if sys.stderr.encoding != 'utf-8':
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+# 標準エラー出力をファイルに直接リダイレクト（確実に出力されるように）
+try:
+    sys.stderr = open(stderr_log_path, "w", encoding="utf-8", errors="replace", buffering=1)
+    # 確認用メッセージを出力し、即座にフラッシュする
+    print(f"標準エラー出力をログファイルにリダイレクトしました: {stderr_log_path}", file=sys.stderr, flush=True)
+    print(f"Python実行環境: {sys.executable}", file=sys.stderr, flush=True)
+    print(f"カレントディレクトリ: {os.getcwd()}", file=sys.stderr, flush=True)
+    print(f"システムエンコーディング: {sys.getdefaultencoding()}", file=sys.stderr, flush=True)
+except Exception as e:
+    # 標準エラー出力のリダイレクトに失敗した場合のバックアップ
+    backup_log = os.path.join(stderr_log_dir, f'emergency_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    with open(backup_log, "w", encoding="utf-8") as f:
+        f.write(f"標準エラー出力のリダイレクトに失敗: {str(e)}\n")
+        f.write(f"Python実行環境: {sys.executable}\n")
+        f.write(f"カレントディレクトリ: {os.getcwd()}\n")
+        f.write(f"システムエンコーディング: {sys.getdefaultencoding()}\n")
 
 # ロギング設定
 # ログディレクトリを作成
@@ -94,18 +88,67 @@ os.makedirs(log_dir, exist_ok=True)
 # 現在時刻でログファイル名を作成
 log_file = os.path.join(log_dir, f'python_server_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file, encoding='utf-8'),  # UTF-8でログファイルを作成
-        logging.StreamHandler(sys.stderr)  # 標準エラー出力にログを出力
-    ]
-)
+# 直接ファイルに書き込む緊急ログ機能
+def emergency_log(message):
+    """重要なメッセージを直接ファイルに書き込む（ロギングシステムに依存しない）"""
+    try:
+        emergency_log_path = os.path.join(log_dir, f'emergency_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        with open(emergency_log_path, "a", encoding="utf-8") as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] EMERGENCY: {message}\n")
+            f.flush()
+        return True
+    except Exception as e:
+        try:
+            # 最後の手段: カレントディレクトリに書き込む
+            with open(f'emergency_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log', "a", encoding="utf-8") as f:
+                f.write(f"CRITICAL ERROR: {message} (Logger failed: {str(e)})\n")
+                f.flush()
+        except:
+            pass  # もう何もできない
+        return False
 
-# ロガー作成
-logger = logging.getLogger('python_server')
-logger.info(f"ログファイルを作成しました: {log_file}")
+try:
+    # 標準的なロギング設定を試行
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),  # UTF-8でログファイルを作成
+            logging.StreamHandler(sys.stderr)  # 標準エラー出力にログを出力
+        ]
+    )
+    
+    # ロガー作成
+    logger = logging.getLogger('python_server')
+    logger.info(f"ログファイルを作成しました: {log_file}")
+    
+    # 直接ファイルにも書き込んで確認
+    emergency_log(f"標準ロギングシステムが初期化されました: {log_file}")
+except Exception as logging_error:
+    # ロギングシステムの初期化に失敗した場合
+    emergency_log(f"ロギングシステムの初期化に失敗: {str(logging_error)}")
+    
+    # シンプルなロガーを作成
+    class SimpleLogger:
+        def __init__(self, name):
+            self.name = name
+        
+        def _log(self, level, message):
+            emergency_log(f"[{level}] {self.name}: {message}")
+        
+        def debug(self, message): self._log("DEBUG", message)
+        def info(self, message): self._log("INFO", message)
+        def warning(self, message): self._log("WARNING", message)
+        def error(self, message, exc_info=False): 
+            self._log("ERROR", message)
+            if exc_info:
+                emergency_log(traceback.format_exc())
+        def critical(self, message): self._log("CRITICAL", message)
+    
+    # シンプルなロガーを使用
+    logger = SimpleLogger('python_server')
+    logger.info("シンプルロギングシステムを使用します（標準ロギングシステムの初期化に失敗）")
 
 # グローバル変数
 image_analyzer = None  # 画像解析モジュールのインスタンス
@@ -180,12 +223,16 @@ def read_request() -> Optional[Dict[str, Any]]:
 def send_response(request_id: str, result: Any = None, error: str = None):
     """JSONレスポンスを標準出力に送信する"""
     try:
+        # 緊急ログに確実に記録
+        emergency_log(f"=== send_response 開始: ID={request_id} ===")
+        
         logger.info(f"===== send_response 詳細ステップログ開始 ID:{request_id} =====")
         print(f"[PYTHON_DEBUG] send_response 詳細ステップログ開始: ID={request_id}", file=sys.stderr, flush=True)
         
         # ステップ1: レスポンス構造体の構築
         logger.info("ステップ1: レスポンス構造体の構築")
         print("[PYTHON_DEBUG] ステップ1: レスポンス構造体の構築", file=sys.stderr, flush=True)
+        emergency_log("ステップ1: レスポンス構造体の構築")
         
         response = {
             "id": request_id,
@@ -198,140 +245,203 @@ def send_response(request_id: str, result: Any = None, error: str = None):
         # ステップ2: データ内容の検証とログ記録
         logger.info("ステップ2: データ内容の検証")
         print("[PYTHON_DEBUG] ステップ2: データ内容の検証", file=sys.stderr, flush=True)
+        emergency_log("ステップ2: データ内容の検証")
+        
+        # データサイズの事前計測を追加
+        result_size_estimate = 0
+        try:
+            if result is not None:
+                # シリアライズ可能かどうかテスト
+                test_json = json.dumps(result)
+                result_size_estimate = len(test_json)
+                logger.info(f"事前テスト: JSONシリアライズ成功 - サイズ: {result_size_estimate}バイト")
+                print(f"[PYTHON_DEBUG] 事前テスト: JSONシリアライズ成功 - サイズ: {result_size_estimate}バイト", file=sys.stderr, flush=True)
+                
+                # 大きすぎるデータの場合は自動的にファイルベースに切り替え
+                if result_size_estimate > 1024 * 1024:  # 1MB以上
+                    logger.warning(f"大きすぎるデータ（{result_size_estimate}バイト）のため、ファイルベース通信に切り替え")
+                    print(f"[PYTHON_DEBUG] 大きすぎるデータ（{result_size_estimate}バイト）のため、ファイルベース通信に切り替え", file=sys.stderr, flush=True)
+                    emergency_log(f"大きすぎるデータ（{result_size_estimate}バイト）のため、ファイルベース通信に切り替え")
+                    
+                    # 結果をファイルに保存
+                    response_file = os.path.join(log_dir, f'response_{request_id}.json')
+                    with open(response_file, 'w', encoding='utf-8') as f:
+                        json.dump(result, f, ensure_ascii=False)
+                    
+                    # ファイルを指すシンプルな応答を作成
+                    response = {
+                        "id": request_id,
+                        "file_response": response_file,
+                        "response_size": result_size_estimate
+                    }
+                    logger.info(f"大きなデータをファイルに保存: {response_file}")
+                    emergency_log(f"大きなデータをファイルに保存: {response_file}")
+        except Exception as test_err:
+            logger.error(f"シリアライズテスト失敗: {test_err}", exc_info=True)
+            print(f"[PYTHON_DEBUG] シリアライズテスト失敗: {test_err}", file=sys.stderr, flush=True)
+            emergency_log(f"シリアライズテスト失敗: {test_err}\n{traceback.format_exc()}")
+            
+            # シリアライズできない場合はエラーとして処理
+            response = {
+                "id": request_id,
+                "error": f"データをJSONに変換できません: {str(test_err)}"
+            }
         
         if result is not None:
             if isinstance(result, dict):
-                logger.info(f"Python→JS送信データ構造: キー={list(result.keys())}")
-                print(f"[PYTHON_DEBUG] 送信データ構造: キー={list(result.keys())}", file=sys.stderr, flush=True)
+                keys_info = f"キー={list(result.keys())}"
+                logger.info(f"Python→JS送信データ構造: {keys_info}")
+                print(f"[PYTHON_DEBUG] 送信データ構造: {keys_info}", file=sys.stderr, flush=True)
+                emergency_log(f"送信データ構造: {keys_info}")
                 
                 # 大きなレスポンスの詳細情報
-                if len(json.dumps(result)) > 10240:  # 10KB以上
-                    logger.info(f"大きなレスポンス: {len(json.dumps(result))}バイト")
-                    print(f"[PYTHON_DEBUG] 大きなレスポンス: {len(json.dumps(result))}バイト", file=sys.stderr, flush=True)
+                if result_size_estimate > 10240:  # 10KB以上
+                    size_info = f"{result_size_estimate}バイト"
+                    logger.info(f"大きなレスポンス: {size_info}")
+                    print(f"[PYTHON_DEBUG] 大きなレスポンス: {size_info}", file=sys.stderr, flush=True)
+                    emergency_log(f"大きなレスポンス: {size_info}")
             else:
-                logger.info(f"Python→JS送信データ型: {type(result).__name__}")
+                type_info = f"{type(result).__name__}"
+                logger.info(f"Python→JS送信データ型: {type_info}")
+                emergency_log(f"送信データ型: {type_info}")
         logger.info("ステップ2完了: データ内容の検証完了")
         print("[PYTHON_DEBUG] ステップ2完了: データ内容の検証完了", file=sys.stderr, flush=True)
         
         # ステップ3: JSON形式に変換
         logger.info("ステップ3: JSON形式に変換")
         print("[PYTHON_DEBUG] ステップ3: JSON形式に変換", file=sys.stderr, flush=True)
+        emergency_log("ステップ3: JSON形式に変換")
         
-        output = json.dumps(response, ensure_ascii=False)
-        logger.info(f"ステップ3完了: JSONエンコード後のサイズ: {len(output)}バイト")
-        print(f"[PYTHON_DEBUG] ステップ3完了: JSONエンコード後のサイズ: {len(output)}バイト", file=sys.stderr, flush=True)
+        try:
+            output = json.dumps(response, ensure_ascii=False)
+            size_info = f"JSONエンコード後のサイズ: {len(output)}バイト"
+            logger.info(f"ステップ3完了: {size_info}")
+            print(f"[PYTHON_DEBUG] ステップ3完了: {size_info}", file=sys.stderr, flush=True)
+            emergency_log(f"ステップ3完了: {size_info}")
+        except Exception as json_err:
+            # JSON変換に失敗した場合のフォールバック
+            logger.error(f"JSON変換失敗: {json_err}", exc_info=True)
+            print(f"[PYTHON_DEBUG] JSON変換失敗: {json_err}", file=sys.stderr, flush=True)
+            emergency_log(f"JSON変換失敗: {json_err}\n{traceback.format_exc()}")
+            
+            # 最小限の情報だけを持つ応答を作成
+            fallback_response = {
+                "id": request_id,
+                "error": f"データをJSONに変換できません: {str(json_err)}"
+            }
+            output = json.dumps(fallback_response, ensure_ascii=False)
+            logger.info(f"フォールバックJSON作成: {len(output)}バイト")
+            emergency_log(f"フォールバックJSON作成: {len(output)}バイト")
         
         # ステップ4: 環境に応じた送信処理
         logger.info("ステップ4: 環境に応じた送信処理")
         print("[PYTHON_DEBUG] ステップ4: 環境に応じた送信処理", file=sys.stderr, flush=True)
+        emergency_log("ステップ4: 環境に応じた送信処理")
         
         # Windows環境では特別な処理を追加
         if os.name == 'nt':
             try:
-                # ステップ4.1: Windows向け特別処理の準備
-                logger.info("ステップ4.1: Windowsモードでの送信準備")
-                print(f"[PYTHON_DEBUG] ステップ4.1: Windowsモードでの送信準備", file=sys.stderr, flush=True)
+                # ログ出力が確実に見える対策として追加
+                logger.info("WINDOWS RESPONSE START")
+                print("WINDOWS RESPONSE START", file=sys.stderr, flush=True)
+                sys.stderr.flush()
+                emergency_log("WINDOWS RESPONSE START")
                 
-                # 標準出力をバイナリモードで開き直す
-                logger.info("ステップ4.2: 標準出力のバイナリモード設定開始")
-                print(f"[PYTHON_DEBUG] ステップ4.2: 標準出力のバイナリモード設定開始", file=sys.stderr, flush=True)
+                # Windows専用の改良送信処理
+                logger.info("ステップ4.1: Windows専用バイナリモード送信")
+                print("[PYTHON_DEBUG] ステップ4.1: Windows専用バイナリモード送信", file=sys.stderr, flush=True)
+                emergency_log("ステップ4.1: Windows専用バイナリモード送信")
                 
+                # msvcrtを使用してバイナリモードに設定（標準的な方法）
                 import msvcrt
                 msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
                 
-                logger.info("ステップ4.2完了: 標準出力のバイナリモード設定完了")
-                print(f"[PYTHON_DEBUG] ステップ4.2完了: 標準出力のバイナリモード設定完了", file=sys.stderr, flush=True)
-                
-                # ステップ4.3: UTF-8エンコード
-                logger.info("ステップ4.3: UTF-8エンコード開始")
-                print("[PYTHON_DEBUG] ステップ4.3: UTF-8エンコード開始", file=sys.stderr, flush=True)
-                
+                # データにデリミタを追加してUTF-8でエンコード
                 data_bytes = (output + '__END__').encode('utf-8')
                 
-                logger.info(f"ステップ4.3完了: エンコード後のバイト数: {len(data_bytes)}")
-                print(f"[PYTHON_DEBUG] ステップ4.3完了: エンコード後のバイト数: {len(data_bytes)}", file=sys.stderr, flush=True)
+                # 書き込みとフラッシュを分割して実行
+                sys.stdout.buffer.write(data_bytes)
+                sys.stdout.buffer.flush()
                 
-                # ステップ4.4: バイナリデータ書き込み前の安全対策
-                logger.info("ステップ4.4: バイナリデータ書き込み直前の安全対策")
-                print(f"[PYTHON_DEBUG] ステップ4.4: バイナリデータ書き込み直前の安全対策", file=sys.stderr, flush=True)
+                size_info = f"Windows専用バイナリ送信: {len(data_bytes)}バイト"
+                logger.info(f"ステップ4.1完了: {size_info}")
+                print(f"[PYTHON_DEBUG] ステップ4.1完了: {size_info}", file=sys.stderr, flush=True)
+                emergency_log(f"ステップ4.1完了: {size_info}")
                 
-                # ガベージコレクションを強制実行して潜在的なメモリ問題を回避
-                gc.collect()
+                # 大きなデータの場合は短い遅延を入れて送信バッファがフラッシュされる時間を確保
+                if len(data_bytes) > 100000:  # 100KB以上
+                    time.sleep(0.1)
                 
-                # ステップ4.5: データ書き込み
-                logger.info("ステップ4.5: sys.stdout.buffer.write()実行開始")
-                print("[PYTHON_DEBUG] ステップ4.5: sys.stdout.buffer.write()実行開始", file=sys.stderr, flush=True)
+                # ログ出力が確実に見える対策として追加
+                logger.info("WINDOWS RESPONSE END")
+                print("WINDOWS RESPONSE END", file=sys.stderr, flush=True)
+                sys.stderr.flush()
+                emergency_log("WINDOWS RESPONSE END")
                 
-                # 実際のバイト書き込み - ここでクラッシュする可能性が最も高い
-                try:
-                    sys.stdout.buffer.write(data_bytes)
-                    logger.info("ステップ4.5完了: sys.stdout.buffer.write()実行完了")
-                    print("[PYTHON_DEBUG] ステップ4.5完了: sys.stdout.buffer.write()実行完了", file=sys.stderr, flush=True)
-                except Exception as write_error:
-                    logger.error(f"ステップ4.5エラー: バッファ書き込み失敗: {str(write_error)}")
-                    print(f"[PYTHON_DEBUG] ステップ4.5エラー: バッファ書き込み失敗: {str(write_error)}", file=sys.stderr, flush=True)
-                    raise  # 再スロー
-                
-                # ステップ4.6: フラッシュ実行
-                logger.info("ステップ4.6: sys.stdout.buffer.flush()実行開始")
-                print("[PYTHON_DEBUG] ステップ4.6: sys.stdout.buffer.flush()実行開始", file=sys.stderr, flush=True)
-                
-                try:
-                    sys.stdout.buffer.flush()
-                    logger.info("ステップ4.6完了: sys.stdout.buffer.flush()実行完了")
-                    print("[PYTHON_DEBUG] ステップ4.6完了: sys.stdout.buffer.flush()実行完了", file=sys.stderr, flush=True)
-                except Exception as flush_error:
-                    logger.error(f"ステップ4.6エラー: バッファフラッシュ失敗: {str(flush_error)}")
-                    print(f"[PYTHON_DEBUG] ステップ4.6エラー: バッファフラッシュ失敗: {str(flush_error)}", file=sys.stderr, flush=True)
-                    raise  # 再スロー
-                
-                # 送信完了ログ
-                logger.info(f"ステップ4完了: Windows環境での送信完了: {len(data_bytes)}バイト")
-                print(f"[PYTHON_DEBUG] ステップ4完了: Windows環境での送信完了: {len(data_bytes)}バイト", file=sys.stderr, flush=True)
             except Exception as windows_error:
                 # Windows特有のエラーをキャッチ
-                logger.error(f"Windows環境での送信エラー: {str(windows_error)}", exc_info=True)
-                print(f"[PYTHON_DEBUG] Windows環境での送信エラー: {str(windows_error)}", file=sys.stderr, flush=True)
+                error_msg = f"Windows環境での送信エラー: {str(windows_error)}"
+                logger.error(error_msg, exc_info=True)
+                print(f"[PYTHON_DEBUG] {error_msg}", file=sys.stderr, flush=True)
+                sys.stderr.flush()  # 確実にログを出力
+                emergency_log(error_msg)
                 
-                # 通常モードでフォールバック
-                logger.info("フォールバック: 通常モードでの送信試行")
-                print("[PYTHON_DEBUG] フォールバック: 通常モードでの送信試行", file=sys.stderr, flush=True)
-                print(output + '__END__', flush=True)
-                logger.info("フォールバック: 通常モードでの送信完了")
-                print("[PYTHON_DEBUG] フォールバック: 通常モードでの送信完了", file=sys.stderr, flush=True)
+                # 2番目の試行: ファイル経由の通信
+                try:
+                    fallback_msg = "フォールバック: ファイル経由の通信を試行"
+                    logger.info(fallback_msg)
+                    print(f"[PYTHON_DEBUG] {fallback_msg}", file=sys.stderr, flush=True)
+                    emergency_log(fallback_msg)
+                    
+                    # ファイルに応答を書き込む
+                    fallback_file = os.path.join(log_dir, f'fallback_response_{request_id}.json')
+                    with open(fallback_file, 'w', encoding='utf-8') as f:
+                        f.write(output)
+                    
+                    # ファイル情報のみを含む簡易応答を作成
+                    file_response = {
+                        "id": request_id,
+                        "file_response": fallback_file,
+                        "fallback": True
+                    }
+                    
+                    # 簡易応答をJSON化して標準出力に送信
+                    simple_output = json.dumps(file_response, ensure_ascii=False)
+                    print(simple_output + '__END__', flush=True)
+                    
+                    logger.info(f"フォールバック: ファイル応答送信完了: {fallback_file}")
+                    print(f"[PYTHON_DEBUG] フォールバック: ファイル応答送信完了: {fallback_file}", file=sys.stderr, flush=True)
+                    emergency_log(f"フォールバック: ファイル応答送信完了: {fallback_file}")
+                except Exception as final_error:
+                    error_msg = f"すべての出力方法が失敗: {str(final_error)}"
+                    logger.critical(error_msg)
+                    print(f"[PYTHON_DEBUG] {error_msg}", file=sys.stderr, flush=True)
+                    emergency_log(error_msg)
         else:
             # 非Windows環境では通常の処理
             logger.info("ステップ4.1: 非Windows環境での通常送信")
             print("[PYTHON_DEBUG] ステップ4.1: 非Windows環境での通常送信", file=sys.stderr, flush=True)
+            emergency_log("非Windows環境での通常送信")
+            
             print(output + '__END__', flush=True)
+            
             logger.info("ステップ4.1完了: 非Windows環境での送信完了")
             print("[PYTHON_DEBUG] ステップ4.1完了: 非Windows環境での送信完了", file=sys.stderr, flush=True)
+            emergency_log("非Windows環境での送信完了")
             
         # 送信完了ログ
         logger.info(f"===== send_response 詳細ステップログ完了 ID:{request_id} =====")
         print(f"[PYTHON_DEBUG] send_response 詳細ステップログ完了: ID={request_id}", file=sys.stderr, flush=True)
+        sys.stderr.flush()  # 最終的に確実にログを出力
+        emergency_log(f"=== send_response 完了: ID={request_id} ===")
     except Exception as e:
-        # 例外発生時の詳細ログ
-        logger.error(f"send_response エラー: {str(e)}", exc_info=True)
-        print(f"[PYTHON_DEBUG] send_response エラー: {str(e)}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
-        
-        # フォールバック送信を試行
+        error_msg = f"send_response中に予期しないエラー: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        emergency_log(f"{error_msg}\n{traceback.format_exc()}")
         try:
-            logger.info("クリティカルエラー後のフォールバック送信試行")
-            print("[PYTHON_DEBUG] クリティカルエラー後のフォールバック送信試行", file=sys.stderr, flush=True)
-            fallback_response = {
-                "id": request_id,
-                "error": f"応答送信中にエラーが発生: {str(e)}"
-            }
-            print(json.dumps(fallback_response, ensure_ascii=False) + '__END__', flush=True)
-            logger.info("クリティカルエラー後のフォールバック送信完了")
-            print("[PYTHON_DEBUG] クリティカルエラー後のフォールバック送信完了", file=sys.stderr, flush=True)
-        except Exception as fallback_error:
-            # 絶対に失敗しない最後の手段
-            logger.critical(f"フォールバック送信も失敗: {str(fallback_error)}")
-            print(f"[PYTHON_DEBUG] フォールバック送信も失敗: {str(fallback_error)}", file=sys.stderr, flush=True)
-            print(f'{{"id":"{request_id}","error":"Critical error occurred"}}__END__', flush=True)
+            print(f"[PYTHON_DEBUG] {error_msg}", file=sys.stderr, flush=True)
+        except:
+            pass
 
 # オプションをクリーンアップする関数を追加
 def clean_options(options: Dict[str, Any]) -> Dict[str, Any]:
@@ -378,9 +488,6 @@ def handle_exit(request_id: str, params: Dict[str, Any]):
 def handle_check_memory(request_id: str, params: Dict[str, Any]):
     """メモリ使用状況を確認する"""
     try:
-        import psutil
-        import platform
-        
         # 現在のプロセスのメモリ使用状況を取得
         process = psutil.Process(os.getpid())
         memory_info = process.memory_info()
@@ -588,206 +695,257 @@ def handle_extract_text(request_id: str, params: Dict[str, Any]):
         logger.error(traceback.format_exc())
         send_response(request_id, None, f"テキスト抽出エラー: {str(e)}")
 
-def handle_analyze_all(request_id, params):
-    """
-    画像の総合分析を行う（テキスト抽出と色抽出を組み合わせ）
-    """
-    try:
-        start_time = time.time()
-        logger.info(f"analyze_all処理開始 (リクエストID: {request_id})")
-        
-        # 画像データの取得
-        image_data = params.get('image_data')
-        if not image_data:
-            image_data = params.get('image')  # 代替パラメータ名
+def analyze_all(image, options):
+    # 開始時間を記録
+    start_time = time.time()
+    
+    result = {
+        'success': True,
+        'status': 'ok',
+        'text': '',
+        'textBlocks': [],
+        'colors': [],
+        'timestamp': datetime.now().isoformat()
+    }
             
+    logger.info(f"総合分析の実行 - オプション: {options}")
+    print(f"総合分析の実行 - オプション: {options}", file=sys.stderr, flush=True)
+            
+    try:
+        # 出力キャプチャバッファを作成
+        output_buffer = NonClosingStringIO()
+                
+        # テキスト抽出
+        if not options.get('skip_text', False):
+            try:
+                logger.info("テキスト抽出処理開始")
+                print("テキスト抽出処理開始", file=sys.stderr, flush=True)
+                
+                # OCR実行前に明示的にPyTorchスレッド数を再設定
+                try:
+                    import torch
+                    torch.set_num_threads(1)
+                    logger.info(f"OCR実行前にPyTorchスレッド数を制限: {torch.get_num_threads()}スレッド")
+                    print(f"[PYTHON_DEBUG] OCR実行前にPyTorchスレッド数を制限: {torch.get_num_threads()}スレッド", file=sys.stderr, flush=True)
+                    
+                    # GPUの無効化を明示的に再確認
+                    if 'CUDA_VISIBLE_DEVICES' in os.environ:
+                        logger.info(f"GPU無効化設定を確認: CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+                        print(f"[PYTHON_DEBUG] GPU無効化設定を確認: CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}", file=sys.stderr, flush=True)
+                except Exception as thread_err:
+                    logger.warning(f"PyTorchスレッド設定エラー: {str(thread_err)}")
+                    print(f"[PYTHON_DEBUG] PyTorchスレッド設定エラー: {str(thread_err)}", file=sys.stderr, flush=True)
+                
+                # ガベージコレクションをOCR実行前に実行
+                try:
+                    import gc
+                    gc.collect()
+                    logger.info("OCR実行前にガベージコレクションを実行")
+                    print("[PYTHON_DEBUG] OCR実行前にガベージコレクションを実行", file=sys.stderr, flush=True)
+                except Exception as gc_err:
+                    logger.warning(f"ガベージコレクション実行エラー: {str(gc_err)}")
+                    print(f"[PYTHON_DEBUG] ガベージコレクション実行エラー: {str(gc_err)}", file=sys.stderr, flush=True)
+                
+                try:
+                    # 出力をキャプチャしながらOCR実行
+                    with redirect_stdout(output_buffer), redirect_stderr(output_buffer):
+                        # verbose=False で進捗バーを無効化
+                        text_options = clean_options(options).copy()
+                        text_options['verbose'] = False
+                        
+                        logger.info("extract_text_from_image関数の呼び出し直前")
+                        print("[PYTHON_DEBUG] extract_text_from_image関数の呼び出し直前", file=sys.stderr, flush=True)
+                        
+                        # OCR実行
+                        text_result = image_analyzer.extract_text_from_image(image=image, **text_options)
+                        
+                        logger.info("extract_text_from_image関数の呼び出し完了")
+                        print("[PYTHON_DEBUG] extract_text_from_image関数の呼び出し完了", file=sys.stderr, flush=True)
+                        
+                        # withブロック内でバッファ内容を取得する（重要）
+                        try:
+                            captured_output = output_buffer.getvalue()
+                            if captured_output:
+                                logger.debug(f"キャプチャした出力（先頭300文字）: {captured_output[:300]}...")
+                        except Exception as buffer_err:
+                            logger.error(f"バッファ読み取りエラー: {buffer_err}")
+                except Exception as redirect_err:
+                    logger.error(f"出力リダイレクトエラー: {redirect_err}", exc_info=True)
+                    print(f"[PYTHON_DEBUG] 出力リダイレクトエラー: {redirect_err}", file=sys.stderr, flush=True)
+                    # リダイレクトなしで処理を続行
+                    text_options = clean_options(options).copy()
+                    text_options['verbose'] = False
+                    
+                    logger.info("リダイレクトなしでのOCR処理再試行")
+                    print("[PYTHON_DEBUG] リダイレクトなしでのOCR処理再試行", file=sys.stderr, flush=True)
+                    text_result = image_analyzer.extract_text_from_image(image=image, **text_options)
+                    logger.info("リダイレクトなしでのOCR処理完了")
+                    print("[PYTHON_DEBUG] リダイレクトなしでのOCR処理完了", file=sys.stderr, flush=True)
+                
+                # OCR結果のデータ構造を検証
+                logger.info(f"OCR結果タイプ: {type(text_result).__name__}")
+                print(f"[PYTHON_DEBUG] OCR結果タイプ: {type(text_result).__name__}", file=sys.stderr, flush=True)
+                
+                if isinstance(text_result, dict):
+                    logger.info(f"OCR結果構造: キー={list(text_result.keys())}")
+                    print(f"[PYTHON_DEBUG] OCR結果構造: キー={list(text_result.keys())}", file=sys.stderr, flush=True)
+                
+                logger.info("テキスト抽出完了")
+                print("[PYTHON_DEBUG] テキスト抽出完了", file=sys.stderr, flush=True)
+                
+                # 結果をマージ
+                if isinstance(text_result, dict):
+                    if 'text' in text_result:
+                        result['text'] = text_result.get('text', '')
+                    if 'textBlocks' in text_result:
+                        result['textBlocks'] = text_result.get('textBlocks', [])
+                    if 'ocr_status' in text_result:
+                        result['ocr_status'] = text_result.get('ocr_status')
+                else:
+                    logger.warning(f"テキスト抽出結果が辞書型ではありません: {type(text_result)}")
+            except Exception as text_err:
+                logger.error(f"テキスト抽出エラー: {str(text_err)}", exc_info=True)
+                result['text_error'] = str(text_err)
+        
+        # 色抽出
+        if not options.get('skip_colors', False):
+            try:
+                logger.info("色抽出処理開始")
+                print("色抽出処理開始", file=sys.stderr, flush=True)
+                colors_result = image_analyzer.extract_colors_from_image(image, **options)
+                
+                # 型チェックを追加して適切に処理
+                if isinstance(colors_result, dict):
+                    # 辞書型の場合はcolorsキーの値を取得
+                    result['colors'] = colors_result.get('colors', [])
+                elif isinstance(colors_result, list):
+                    # リスト型の場合はそのまま使用
+                    result['colors'] = colors_result
+                else:
+                    # その他の型の場合は空リストにフォールバック
+                    logger.warning(f"予期しない色抽出結果の型: {type(colors_result)}")
+                    result['colors'] = []
+                    
+                logger.info(f"色抽出完了: {len(result['colors'])}色")
+            except Exception as color_err:
+                logger.error(f"色抽出エラー: {str(color_err)}", exc_info=True)
+                result['color_error'] = str(color_err)
+        
+        # 実行時間を記録
+        end_time = time.time()
+        result['processing_time_ms'] = int((end_time - start_time) * 1000)
+        
+        return result
+    except Exception as e:
+        logger.error(f"analyze_all内部処理エラー: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': f"総合分析エラー: {str(e)}",
+            'text': '',
+            'textBlocks': [],
+            'colors': []
+        }
+
+def handle_analyze_all(request_id: str, params: Dict[str, Any]):
+    """画像から総合分析を行い、テキストと色情報を返す"""
+    try:
+        # パフォーマンス計測用タイムスタンプ
+        timestamps = {
+            "start": time.time(),
+            "steps": {}
+        }
+        
+        logger.info(f"===== analyze_all処理開始: ID={request_id} =====")
+        emergency_log(f"===== analyze_all処理開始: ID={request_id} =====")
+        
+        # 画像データを取得
+        image_data = params.get('image_data', '')
+        options = params.get('options', {})
+        clean_opts = clean_options(options)
+        
         if not image_data:
             raise ValueError("画像データが提供されていません")
-            
-        # オプションの取得
-        options = params.get('options', {})
         
-        # 前処理されたオプションを取得（エラー回避のため）
-        clean_opts = clean_options(options)
-            
-        # 内部関数: 総合分析の実装
-        def analyze_all(image, options):
-            result = {
-                'success': True,
-                'status': 'ok',
-                'text': '',
-                'textBlocks': [],
-                'colors': [],
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            logger.info(f"総合分析の実行 - オプション: {options}")
-            print(f"総合分析の実行 - オプション: {options}", file=sys.stderr, flush=True)
-            
-            try:
-                # 出力キャプチャバッファを作成
-                output_buffer = NonClosingStringIO()
-                
-                # テキスト抽出
-                if not options.get('skip_text', False):
-                    try:
-                        logger.info("テキスト抽出処理開始")
-                        print("テキスト抽出処理開始", file=sys.stderr, flush=True)
-                        
-                        # OCR実行前に明示的にPyTorchスレッド数を再設定
-                        try:
-                            import torch
-                            torch.set_num_threads(1)
-                            logger.info(f"OCR実行前にPyTorchスレッド数を制限: {torch.get_num_threads()}スレッド")
-                            print(f"[PYTHON_DEBUG] OCR実行前にPyTorchスレッド数を制限: {torch.get_num_threads()}スレッド", file=sys.stderr, flush=True)
-                            
-                            # GPUの無効化を明示的に再確認
-                            if 'CUDA_VISIBLE_DEVICES' in os.environ:
-                                logger.info(f"GPU無効化設定を確認: CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
-                                print(f"[PYTHON_DEBUG] GPU無効化設定を確認: CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}", file=sys.stderr, flush=True)
-                        except Exception as thread_err:
-                            logger.warning(f"PyTorchスレッド設定エラー: {str(thread_err)}")
-                            print(f"[PYTHON_DEBUG] PyTorchスレッド設定エラー: {str(thread_err)}", file=sys.stderr, flush=True)
-                        
-                        # ガベージコレクションをOCR実行前に実行
-                        try:
-                            import gc
-                            gc.collect()
-                            logger.info("OCR実行前にガベージコレクションを実行")
-                            print("[PYTHON_DEBUG] OCR実行前にガベージコレクションを実行", file=sys.stderr, flush=True)
-                        except Exception as gc_err:
-                            logger.warning(f"ガベージコレクション実行エラー: {str(gc_err)}")
-                            print(f"[PYTHON_DEBUG] ガベージコレクション実行エラー: {str(gc_err)}", file=sys.stderr, flush=True)
-                        
-                        try:
-                            # 出力をキャプチャしながらOCR実行
-                            with redirect_stdout(output_buffer), redirect_stderr(output_buffer):
-                                # verbose=False で進捗バーを無効化
-                                text_options = clean_options(options).copy()
-                                text_options['verbose'] = False
-                                
-                                logger.info("extract_text_from_image関数の呼び出し直前")
-                                print("[PYTHON_DEBUG] extract_text_from_image関数の呼び出し直前", file=sys.stderr, flush=True)
-                                
-                                # OCR実行
-                                text_result = image_analyzer.extract_text_from_image(image=image, **text_options)
-                                
-                                logger.info("extract_text_from_image関数の呼び出し完了")
-                                print("[PYTHON_DEBUG] extract_text_from_image関数の呼び出し完了", file=sys.stderr, flush=True)
-                                
-                                # withブロック内でバッファ内容を取得する（重要）
-                                try:
-                                    captured_output = output_buffer.getvalue()
-                                    if captured_output:
-                                        logger.debug(f"キャプチャした出力（先頭300文字）: {captured_output[:300]}...")
-                                except Exception as buffer_err:
-                                    logger.error(f"バッファ読み取りエラー: {buffer_err}")
-                        except Exception as redirect_err:
-                            logger.error(f"出力リダイレクトエラー: {redirect_err}", exc_info=True)
-                            print(f"[PYTHON_DEBUG] 出力リダイレクトエラー: {redirect_err}", file=sys.stderr, flush=True)
-                            # リダイレクトなしで処理を続行
-                            text_options = clean_options(options).copy()
-                            text_options['verbose'] = False
-                            
-                            logger.info("リダイレクトなしでのOCR処理再試行")
-                            print("[PYTHON_DEBUG] リダイレクトなしでのOCR処理再試行", file=sys.stderr, flush=True)
-                            text_result = image_analyzer.extract_text_from_image(image=image, **text_options)
-                            logger.info("リダイレクトなしでのOCR処理完了")
-                            print("[PYTHON_DEBUG] リダイレクトなしでのOCR処理完了", file=sys.stderr, flush=True)
-                        
-                        # OCR結果のデータ構造を検証
-                        logger.info(f"OCR結果タイプ: {type(text_result).__name__}")
-                        print(f"[PYTHON_DEBUG] OCR結果タイプ: {type(text_result).__name__}", file=sys.stderr, flush=True)
-                        
-                        if isinstance(text_result, dict):
-                            logger.info(f"OCR結果構造: キー={list(text_result.keys())}")
-                            print(f"[PYTHON_DEBUG] OCR結果構造: キー={list(text_result.keys())}", file=sys.stderr, flush=True)
-                        
-                        logger.info("テキスト抽出完了")
-                        print("[PYTHON_DEBUG] テキスト抽出完了", file=sys.stderr, flush=True)
-                        
-                        # 結果をマージ
-                        if isinstance(text_result, dict):
-                            if 'text' in text_result:
-                                result['text'] = text_result.get('text', '')
-                            if 'textBlocks' in text_result:
-                                result['textBlocks'] = text_result.get('textBlocks', [])
-                            if 'ocr_status' in text_result:
-                                result['ocr_status'] = text_result.get('ocr_status')
-                        else:
-                            logger.warning(f"テキスト抽出結果が辞書型ではありません: {type(text_result)}")
-                    except Exception as text_err:
-                        logger.error(f"テキスト抽出エラー: {str(text_err)}", exc_info=True)
-                        result['text_error'] = str(text_err)
-                
-                # 色抽出
-                if not options.get('skip_colors', False):
-                    try:
-                        logger.info("色抽出処理開始")
-                        print("色抽出処理開始", file=sys.stderr, flush=True)
-                        colors_result = image_analyzer.extract_colors_from_image(image, **options)
-                        
-                        # 型チェックを追加して適切に処理
-                        if isinstance(colors_result, dict):
-                            # 辞書型の場合はcolorsキーの値を取得
-                            result['colors'] = colors_result.get('colors', [])
-                        elif isinstance(colors_result, list):
-                            # リスト型の場合はそのまま使用
-                            result['colors'] = colors_result
-                        else:
-                            # その他の型の場合は空リストにフォールバック
-                            logger.warning(f"予期しない色抽出結果の型: {type(colors_result)}")
-                            result['colors'] = []
-                            
-                        logger.info(f"色抽出完了: {len(result['colors'])}色")
-                    except Exception as color_err:
-                        logger.error(f"色抽出エラー: {str(color_err)}", exc_info=True)
-                        result['color_error'] = str(color_err)
-                
-                # 実行時間を記録
-                end_time = time.time()
-                result['processing_time_ms'] = int((end_time - start_time) * 1000)
-                
-                return result
-            except Exception as e:
-                logger.error(f"analyze_all内部処理エラー: {str(e)}", exc_info=True)
-                return {
-                    'success': False,
-                    'error': f"総合分析エラー: {str(e)}",
-                    'text': '',
-                    'textBlocks': [],
-                    'colors': []
-                }
+        # 開始時間を記録
+        start_time = time.time()
+        timestamps["steps"]["params_processed"] = time.time() - timestamps["start"]
         
         # 画像をデコード
         logger.info("画像データのデコード開始")
         image, format_name = base64_to_image_data(image_data)
         logger.info(f"画像データのデコード完了: 形式={format_name}")
+        timestamps["steps"]["image_decoded"] = time.time() - timestamps["start"]
         
         # 総合分析を実行
         logger.info("総合分析の実行...")
+        analysis_start = time.time()
         result = analyze_all(image, clean_opts)
-        
+        analysis_duration = time.time() - analysis_start
+        timestamps["steps"]["analysis_completed"] = time.time() - timestamps["start"]
+        logger.info(f"総合分析の実行完了: 処理時間={analysis_duration:.2f}秒")
+        emergency_log(f"総合分析の実行完了: 処理時間={analysis_duration:.2f}秒")
+
         # 結果の確認
         if result.get('error'):
             logger.warning(f"analyze_all関数内でエラーが発生しましたが、部分的な結果を返します: {result['error']}")
             print(f"analyze_all関数内でエラーが発生しましたが、部分的な結果を返します: {result['error']}", file=sys.stderr, flush=True)
         
+        # タイムスタンプ情報を結果に追加
+        result['performance'] = {
+            'total_processing_time': time.time() - timestamps["start"],
+            'steps': timestamps["steps"]
+        }
+        
         # Windows環境向けに追加のデバッグ情報
         if os.name == 'nt':
-            result_size = len(json.dumps(result))
-            logger.info(f"Windows環境: analyze_all関数完了 - 結果サイズ: {result_size}バイト")
-            logger.info(f"Windows環境: 結果内容サンプル: colors={len(result.get('colors', []))}個, textBlocks={len(result.get('textBlocks', []))}個")
-            print(f"Windows環境: analyze_all関数完了 - 結果サイズ: {result_size}バイト", file=sys.stderr, flush=True)
-            sys.stderr.flush()
+            try:
+                result_size = len(json.dumps(result))
+                logger.info(f"Windows環境: analyze_all関数完了 - 結果サイズ: {result_size}バイト")
+                logger.info(f"Windows環境: 結果内容サンプル: colors={len(result.get('colors', []))}個, textBlocks={len(result.get('textBlocks', []))}個")
+                print(f"Windows環境: analyze_all関数完了 - 結果サイズ: {result_size}バイト", file=sys.stderr, flush=True)
+                sys.stderr.flush()
+            except Exception as size_err:
+                logger.error(f"結果サイズ計算エラー: {size_err}")
+                print(f"[PYTHON_DEBUG] 結果サイズ計算エラー: {size_err}", file=sys.stderr, flush=True)
+                emergency_log(f"結果サイズ計算エラー: {size_err}")
+                
+        timestamps["steps"]["pre_send"] = time.time() - timestamps["start"]
         
-        logger.info(f"analyze_all関数呼び出し完了、結果を送信します")
-        send_response(request_id, result)
+        # 送信処理に詳細なエラーハンドリングを追加
+        try:
+            logger.info("結果を送信します")
+            send_start = time.time()
+            send_response(request_id, result)
+            send_duration = time.time() - send_start
+            logger.info(f"結果送信完了: 送信処理時間={send_duration:.2f}秒")
+            emergency_log(f"結果送信完了: 送信処理時間={send_duration:.2f}秒")
+            timestamps["steps"]["send_completed"] = time.time() - timestamps["start"]
+            logger.info(f"===== analyze_all処理完了: ID={request_id}, 総処理時間={(time.time() - timestamps['start']):.2f}秒 =====")
+            emergency_log(f"===== analyze_all処理完了: ID={request_id}, 総処理時間={(time.time() - timestamps['start']):.2f}秒 =====")
+        except Exception as send_err:
+            logger.error(f"send_response中に例外: {send_err}", exc_info=True)
+            emergency_log(f"CRITICAL: send_response中に例外: {send_err}\n{traceback.format_exc()}")
+            # 例外が発生しても処理を継続し、クライアントにエラーを通知
+            try:
+                error_result = {
+                    "success": False,
+                    "error": f"結果送信中にエラー: {str(send_err)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+                print(f"[PYTHON_DEBUG] 送信エラー発生、フォールバック応答を試行", file=sys.stderr, flush=True)
+                send_response(request_id, error_result)
+            except Exception as fallback_err:
+                logger.critical(f"フォールバック送信も失敗: {fallback_err}")
+                emergency_log(f"DOUBLE FAILURE: フォールバック送信も失敗: {fallback_err}")
     except Exception as e:
         error_msg = f"analyze_all処理中にエラーが発生: {str(e)}"
         logger.error(error_msg, exc_info=True)
         print(error_msg, file=sys.stderr, flush=True)
-        send_response(request_id, None, error=error_msg)
+        try:
+            send_response(request_id, None, error=error_msg)
+        except Exception as resp_err:
+            logger.critical(f"エラー送信中に例外: {resp_err}")
+            emergency_log(f"CRITICAL: エラー送信中に例外: {resp_err}")
 
 def handle_check_environment(request_id: str, params: Dict[str, Any]):
     """Pythonサーバー環境が正常に動作しているか確認する"""
@@ -1116,82 +1274,182 @@ def handle_compress_analysis(request_id: str, params: Dict[str, Any]):
 
 def main():
     """メインの実行ループ"""
-    logger.info("Pythonサーバーを起動しています...")
-
-    # Windows実行環境で標準出力がElectronから呼び出されている場合、stdout封印
-    if os.name == 'nt' and not sys.stdin.isatty():
-        logger.info("Windows環境でElectronから呼び出されました。標準出力を抑制します。")
-        sys.stdout = open(os.devnull, 'w')
-
-    # 画像解析モジュールを初期化
-    init_success = initialize_image_analyzer()
-    
-    if not init_success:
-        logger.error("画像解析モジュールの初期化に失敗しました。終了します。")
-        return
-    
-    # メインループ
-    while True:
-        try:
-            # 標準入力からリクエストを受け取る
-            request = read_request()
+    try:
+        startup_msg = "Pythonサーバーを起動しています..."
+        logger.info(startup_msg)
+        emergency_log(startup_msg)
+        print(f"[PYTHON_DEBUG] {startup_msg}", file=sys.stderr, flush=True)
+        
+        # 起動情報を直接ファイルに記録
+        startup_file = os.path.join(log_dir, f'startup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        with open(startup_file, 'w', encoding='utf-8') as f:
+            f.write(f"Python実行環境: {sys.executable}\n")
+            f.write(f"カレントディレクトリ: {os.getcwd()}\n")
+            f.write(f"システムエンコーディング: {sys.getdefaultencoding()}\n")
+            f.write(f"Python: {sys.version}\n")
+            f.write(f"Platform: {platform.platform()}\n")
+            f.write(f"Log directory: {log_dir}\n")
+            f.write(f"Startup time: {datetime.now().isoformat()}\n")
             
-            # リクエストがない場合は終了
-            if request is None:
-                logger.info("標準入力が閉じられました。終了します。")
-                break
-                
-            # リクエストIDの取得
-            request_id = request.get('id', str(uuid.uuid4()))
+        # Windows環境での特別な標準出力処理
+        if os.name == 'nt' and not sys.stdin.isatty():
+            logger.info("Windows環境でElectronから呼び出されました。標準出力をバイナリモードに設定します。")
+            emergency_log("Windows環境でElectronから呼び出されました。標準出力をバイナリモードに設定します。")
+            print("[PYTHON_DEBUG] Windows環境での標準出力設定を変更します", file=sys.stderr, flush=True)
             
-            # コマンドの取得
-            command = request.get('command')
+            # 標準出力をNULLデバイスにリダイレクトする代わりに、バイナリモードに設定
+            import msvcrt
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
             
-            # コマンド名と引数をログに記録
-            param_info = {k: v for k, v in request.items() if k not in ['id', 'command', 'image_data']}
-            logger.info(f"コマンド受信: {command} (ID: {request_id}) パラメータ: {param_info}")
-            
-            if command == 'extract_colors':
-                handle_extract_colors(request_id, request)
-            elif command == 'extract_text':
-                handle_extract_text(request_id, request)
-            elif command == 'analyze_sections':
-                handle_analyze_sections(request_id, request)
-            elif command == 'analyze_layout':
-                handle_analyze_layout(request_id, request)
-            elif command == 'detect_main_sections':
-                handle_detect_main_sections(request_id, request)
-            elif command == 'detect_card_elements':
-                handle_detect_card_elements(request_id, request)
-            elif command == 'detect_elements':
-                handle_detect_elements(request_id, request)
-            elif command == 'analyze_all':
-                handle_analyze_all(request_id, request)
-            elif command == 'compare_images':
-                handle_compare_images(request_id, request)
-            elif command == 'compress_analysis':
-                handle_compress_analysis(request_id, request)
-            elif command == 'exit':
-                handle_exit(request_id, request)
-                break
-            elif command == 'check_memory':
-                handle_check_memory(request_id, request)
-            elif command == 'check_environment':
-                handle_check_environment(request_id, request)
-            elif command == 'setup_environment':
-                handle_setup_environment(request_id, request)
-            else:
-                send_response(request_id, error=f"不明なコマンド: {command}")
-            
-        except Exception as e:
-            logger.error(f"リクエスト処理中にエラーが発生: {str(e)}")
-            logger.error(traceback.format_exc())
+            # 初期化テスト
+            test_message = {"status": "initialized", "platform": "windows", "timestamp": datetime.now().isoformat()}
             try:
-                send_response('error', error=f"リクエスト処理中に予期しないエラーが発生: {str(e)}")
+                test_json = json.dumps(test_message, ensure_ascii=False)
+                test_bytes = (test_json + '__END__').encode('utf-8')
+                sys.stdout.buffer.write(test_bytes)
+                sys.stdout.buffer.flush()
+                logger.info("Windows標準出力初期化テスト成功")
+                emergency_log("Windows標準出力初期化テスト成功")
+            except Exception as stdout_err:
+                logger.error(f"Windows標準出力初期化テスト失敗: {str(stdout_err)}", exc_info=True)
+                emergency_log(f"Windows標準出力初期化テスト失敗: {str(stdout_err)}")
+        
+        # 画像解析モジュールを初期化
+        try:
+            init_success = initialize_image_analyzer()
+            
+            if not init_success:
+                error_msg = "画像解析モジュールの初期化に失敗しました。終了します。"
+                logger.error(error_msg)
+                emergency_log(error_msg)
+                return
+            
+            emergency_log("画像解析モジュールの初期化に成功しました。")
+        except Exception as init_error:
+            error_msg = f"画像解析モジュールの初期化中に例外が発生しました: {str(init_error)}"
+            logger.error(error_msg, exc_info=True)
+            emergency_log(f"{error_msg}\n{traceback.format_exc()}")
+            return
+        
+        # 起動完了ログ
+        startup_complete_msg = "Pythonサーバーの起動が完了しました。リクエスト待機中..."
+        logger.info(startup_complete_msg)
+        emergency_log(startup_complete_msg)
+        print(f"[PYTHON_DEBUG] {startup_complete_msg}", file=sys.stderr, flush=True)
+        
+        # 通信確認用カウンター
+        response_count = 0
+        
+        # メインループ
+        while True:
+            try:
+                # 標準入力からリクエストを受け取る
+                request = read_request()
+                
+                # リクエストがない場合は終了
+                if request is None:
+                    shutdown_msg = "標準入力が閉じられました。終了します。"
+                    logger.info(shutdown_msg)
+                    emergency_log(shutdown_msg)
+                    break
+                    
+                # リクエストIDの取得
+                request_id = request.get('id', str(uuid.uuid4()))
+                
+                # コマンドの取得
+                command = request.get('command')
+                
+                # コマンド名と引数をログに記録
+                param_info = {k: v for k, v in request.items() if k not in ['id', 'command', 'image_data']}
+                request_msg = f"コマンド受信: {command} (ID: {request_id}) パラメータ: {param_info}"
+                logger.info(request_msg)
+                emergency_log(f"リクエスト受信: {command} (ID: {request_id})")
+                
+                # コマンド実行前のタイムスタンプ
+                command_start_time = time.time()
+                
+                if command == 'extract_colors':
+                    handle_extract_colors(request_id, request)
+                elif command == 'extract_text':
+                    handle_extract_text(request_id, request)
+                elif command == 'analyze_sections':
+                    handle_analyze_sections(request_id, request)
+                elif command == 'analyze_layout':
+                    handle_analyze_layout(request_id, request)
+                elif command == 'detect_main_sections':
+                    handle_detect_main_sections(request_id, request)
+                elif command == 'detect_card_elements':
+                    handle_detect_card_elements(request_id, request)
+                elif command == 'detect_elements':
+                    handle_detect_elements(request_id, request)
+                elif command == 'analyze_all':
+                    handle_analyze_all(request_id, request)
+                elif command == 'compare_images':
+                    handle_compare_images(request_id, request)
+                elif command == 'compress_analysis':
+                    handle_compress_analysis(request_id, request)
+                elif command == 'exit':
+                    handle_exit(request_id, request)
+                    break
+                elif command == 'check_memory':
+                    handle_check_memory(request_id, request)
+                elif command == 'check_environment':
+                    handle_check_environment(request_id, request)
+                elif command == 'setup_environment':
+                    handle_setup_environment(request_id, request)
+                else:
+                    error_msg = f"不明なコマンド: {command}"
+                    logger.warning(error_msg)
+                    emergency_log(error_msg)
+                    send_response(request_id, error=error_msg)
+                
+                # レスポンス送信後の処理
+                response_count += 1
+                command_duration = time.time() - command_start_time
+                logger.info(f"コマンド完了: {command} (ID: {request_id}) 実行時間: {command_duration:.2f}秒, 累計応答数: {response_count}")
+                
+                # 大きな処理の場合はGCを明示的に実行
+                if command_duration > 5.0:  # 5秒以上かかった場合
+                    gc_count = gc.collect()
+                    logger.info(f"大きな処理後のGC実行: {gc_count}オブジェクト回収")
+                
+            except Exception as e:
+                error_msg = f"リクエスト処理中にエラーが発生: {str(e)}"
+                logger.error(error_msg)
+                logger.error(traceback.format_exc())
+                emergency_log(f"{error_msg}\n{traceback.format_exc()}")
+                try:
+                    send_response('error', error=f"リクエスト処理中に予期しないエラーが発生: {str(e)}")
+                except:
+                    emergency_log("エラー応答の送信に失敗しました")
+    
+    except Exception as main_error:
+        # メイン関数でのクリティカルエラー
+        error_msg = f"Pythonサーバーのメイン処理でクリティカルエラーが発生: {str(main_error)}"
+        try:
+            logger.critical(error_msg, exc_info=True)
+        except:
+            pass
+            
+        try:
+            emergency_log(f"{error_msg}\n{traceback.format_exc()}")
+        except:
+            # 最後の手段：カレントディレクトリに直接書き込む
+            try:
+                with open(f'critical_error_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log', 'w', encoding='utf-8') as f:
+                    f.write(f"{error_msg}\n{traceback.format_exc()}")
             except:
                 pass
-
-    logger.info("Pythonサーバーが終了しました。")
+    
+    finally:
+        # 終了処理
+        shutdown_msg = "Pythonサーバーが終了しました。"
+        try:
+            logger.info(shutdown_msg)
+            emergency_log(shutdown_msg)
+            print(f"[PYTHON_DEBUG] {shutdown_msg}", file=sys.stderr, flush=True)
+        except:
+            pass
 
 if __name__ == "__main__":
     main()

@@ -336,20 +336,61 @@ class PythonBridge {
         console.log(`[Bridge] [DEBUG] 受信前バッファ長: ${prevBufferLength}バイト`);
         
         // Windows環境では特別な処理を追加
-        if (isWindows && data instanceof Buffer) {
+        if (isWindows) {
           try {
-            // Windows環境ではバイナリデータを明示的にUTF-8でデコード
-            const decodedChunk = data.toString('utf-8');
-            console.log(`[Bridge] [DEBUG] Windows専用デコード: ${decodedChunk.length}文字, __END__含む=${decodedChunk.includes('__END__')}`);
+            // Windows環境用のデータ受信処理の改善
+            const decodedChunk = typeof data === 'string' ? data : data.toString('utf-8');
+            console.log(`[Bridge] [DEBUG] Windows専用処理: ${decodedChunk.length}文字, __END__含む=${decodedChunk.includes('__END__')}`);
             
-            // バッファに追加前にテスト
-            if (decodedChunk.includes('__END__')) {
-              console.log(`[Bridge] [DEBUG] Windows対応: __END__マーカー検出!`);
+            // バッファに追加する前に異常なデータがないか確認
+            if (decodedChunk.includes('\uFFFD')) {
+              console.warn(`[Bridge] [DEBUG] WARNING: 不正なUTF-8シーケンスを検出しました`);
+              
+              // バイナリデータとして扱い直す
+              const cleanedChunk = decodedChunk.replace(/\uFFFD/g, '');
+              console.log(`[Bridge] [DEBUG] クリーニング: 不正文字を削除しました (${decodedChunk.length} → ${cleanedChunk.length})`);
+              this.responseBuffer += cleanedChunk;
+            } else {
+              // 正常なUTF-8文字列としてバッファに追加
+              this.responseBuffer += decodedChunk;
             }
             
-            this.responseBuffer += decodedChunk;
-          } catch (decodeError) {
-            console.error(`[Bridge] [DEBUG] Windowsデコードエラー:`, decodeError);
+            // バイナリ転送でのマーカー分割の強化
+            if (this.responseBuffer.includes('WINDOWS RESPONSE START') && 
+                this.responseBuffer.includes('WINDOWS RESPONSE END')) {
+              console.log(`[Bridge] [DEBUG] Windowsマーカー検出: 応答の区切りを検出しました`);
+              
+              // マーカー間のデータを抽出
+              const startMarker = 'WINDOWS RESPONSE START';
+              const endMarker = 'WINDOWS RESPONSE END';
+              const startPos = this.responseBuffer.indexOf(startMarker) + startMarker.length;
+              const endPos = this.responseBuffer.indexOf(endMarker);
+              
+              if (startPos > 0 && endPos > startPos) {
+                console.log(`[Bridge] [DEBUG] マーカー位置: 開始=${startPos}, 終了=${endPos}`);
+                
+                // マーカー間の部分を取得
+                const markedContent = this.responseBuffer.substring(startPos, endPos).trim();
+                console.log(`[Bridge] [DEBUG] マーカー間コンテンツ: ${markedContent.length}バイト`);
+                
+                // マーカーより前と後ろの部分を新しいバッファに設定
+                this.responseBuffer = 
+                  this.responseBuffer.substring(0, this.responseBuffer.indexOf(startMarker)) + 
+                  this.responseBuffer.substring(endPos + endMarker.length);
+                
+                // マーカー間のコンテンツに__END__があれば処理
+                if (markedContent.includes('__END__')) {
+                  const parts = markedContent.split('__END__');
+                  for (const part of parts) {
+                    if (part.trim()) {
+                      this._processJsonPart(part.trim());
+                    }
+                  }
+                }
+              }
+            }
+          } catch (winError) {
+            console.error(`[Bridge] [DEBUG] Windows特殊処理エラー:`, winError);
             // エラー時のフォールバック: 標準的な方法で追加
             this.responseBuffer += chunk;
           }
@@ -380,188 +421,7 @@ class PythonBridge {
             continue; // 空の場合はスキップ
           }
           
-          try {
-            console.log(`[Bridge] JSONパース開始: ${jsonPart.length}バイト`);
-            
-            // デバッグ：JSONの先頭部分を出力
-            try {
-              const jsonPreview = jsonPart.substring(0, 100) + (jsonPart.length > 100 ? '...' : '');
-              console.log(`[Bridge] [DEBUG] JSONプレビュー: ${jsonPreview}`);
-            } catch (previewErr) {
-              console.error(`[Bridge] [DEBUG] JSONプレビュー生成エラー: ${previewErr.message}`);
-            }
-            
-            // Windows環境での追加ログと検証
-            if (isWindows) {
-              // JSONの先頭と末尾を確認して不正な文字がないか検証
-              const jsonStartChar = jsonPart.charAt(0);
-              const jsonEndChar = jsonPart.charAt(jsonPart.length - 1);
-              
-              if (jsonStartChar !== '{' && jsonStartChar !== '[') {
-                console.warn(`[Bridge] [DEBUG] WARNING: JSONが{または[で始まっていません: '${jsonStartChar}'`);
-                
-                // 最初の有効なJSON開始文字を探す
-                const validStart = jsonPart.indexOf('{');
-                if (validStart > 0) {
-                  console.log(`[Bridge] [DEBUG] 有効なJSON開始位置を検出: 位置=${validStart}`);
-                  // 無効な先頭文字を除去
-                  const cleanedJson = jsonPart.substring(validStart);
-                  console.log(`[Bridge] [DEBUG] クリーニング後のJSONプレビュー: ${cleanedJson.substring(0, 100)}...`);
-                  
-                  // クリーニングしたJSONでパースを試みる
-                  try {
-                    const cleanedData = JSON.parse(cleanedJson);
-                    console.log(`[Bridge] [DEBUG] クリーニング後のJSONパース成功: id=${cleanedData.id || 'なし'}`);
-                    
-                    // 以降の処理を行うために parsedData を更新
-                    const parsedData = cleanedData;
-                    
-                    // リクエストIDに対応するPromiseを解決
-                    if (parsedData.id && this.requestMap.has(parsedData.id)) {
-                      const { resolve, reject, timeoutId } = this.requestMap.get(parsedData.id);
-                      console.log(`[Bridge] [DEBUG] リクエスト発見: ID=${parsedData.id}, タイマー=${timeoutId ? 'あり' : 'なし'}`);
-                      
-                      // タイマーがあれば解除
-                      if (timeoutId) {
-                        clearTimeout(timeoutId);
-                        console.log(`[Bridge] タイムアウトタイマー解除: ${parsedData.id}`);
-                      }
-                      
-                      // エラーまたは結果を処理
-                      if (parsedData.error) {
-                        console.log(`[Bridge] エラーでPromiseを拒否: ${parsedData.error}`);
-                        reject(new Error(parsedData.error));
-                      } else {
-                        console.log(`[Bridge] 成功でPromiseを解決: ${parsedData.id}`);
-                        resolve(parsedData.result);
-                      }
-                      
-                      // マップからリクエストを削除
-                      this.requestMap.delete(parsedData.id);
-                      console.log(`[Bridge] リクエストID ${parsedData.id} の処理完了 (残り: ${this.requestMap.size}件)`);
-                    }
-                    
-                    // 処理完了したのでcontinueで次のループへ
-                    continue;
-                  } catch (cleanJsonErr) {
-                    console.error(`[Bridge] [DEBUG] クリーニング後のJSONパースエラー: ${cleanJsonErr.message}`);
-                    // 通常のパース処理に戻る
-                  }
-                }
-              }
-              
-              if (jsonEndChar !== '}' && jsonEndChar !== ']') {
-                console.warn(`[Bridge] [DEBUG] WARNING: JSONが}または]で終わっていません: '${jsonEndChar}'`);
-              }
-            }
-            
-            const parsedData = JSON.parse(jsonPart);
-            console.log(`[Bridge] [DEBUG] JSONパース成功: id=${parsedData.id || 'なし'}`);
-            
-            // リクエストIDに対応するPromiseを解決
-            if (parsedData.id && this.requestMap.has(parsedData.id)) {
-              const { resolve, reject, timeoutId } = this.requestMap.get(parsedData.id);
-              console.log(`[Bridge] [DEBUG] リクエスト発見: ID=${parsedData.id}, タイマー=${timeoutId ? 'あり' : 'なし'}`);
-              
-              // タイマーがあれば解除
-              if (timeoutId) {
-                clearTimeout(timeoutId);
-                console.log(`[Bridge] タイムアウトタイマー解除: ${parsedData.id}`);
-              }
-              
-              // エラーまたは結果を処理
-              if (parsedData.error) {
-                console.log(`[Bridge] エラーでPromiseを拒否: ${parsedData.error}`);
-                reject(new Error(parsedData.error));
-              } else {
-                console.log(`[Bridge] 成功でPromiseを解決: ${parsedData.id}`);
-                resolve(parsedData.result);
-              }
-              
-              // マップからリクエストを削除
-              this.requestMap.delete(parsedData.id);
-              console.log(`[Bridge] リクエストID ${parsedData.id} の処理完了 (残り: ${this.requestMap.size}件)`);
-            } else if (parsedData.id) {
-              console.warn(`[Bridge] 対応するリクエストがありません: ID=${parsedData.id}`);
-              console.log(`[Bridge] [DEBUG] 現在のリクエストマップ: ${Array.from(this.requestMap.keys()).join(', ') || 'なし'}`);
-            } else {
-              console.warn(`[Bridge] [DEBUG] IDなしの応答を受信: ${JSON.stringify(parsedData).substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.error(`[Bridge] JSONパース失敗:`, error);
-            
-            // パースエラーの詳細を出力
-            try {
-              console.error(`[Bridge] [DEBUG] パースエラー詳細: ${error.message}`);
-              console.error(`[Bridge] [DEBUG] 問題のJSON先頭部: ${jsonPart.substring(0, 200)}...`);
-              
-              // 可能であればエラー位置を特定
-              if (error instanceof SyntaxError && error.message.includes('position')) {
-                const posMatch = error.message.match(/position (\d+)/);
-                if (posMatch && posMatch[1]) {
-                  const errPos = parseInt(posMatch[1], 10);
-                  const start = Math.max(0, errPos - 20);
-                  const end = Math.min(jsonPart.length, errPos + 20);
-                  console.error(`[Bridge] [DEBUG] エラー周辺 (位置=${errPos}): ${jsonPart.substring(start, end)}`);
-                }
-              }
-              
-              // JSONファイルに問題のデータを保存（デバッグ用）
-              try {
-                const fs = require('fs');
-                const path = require('path');
-                const debugDir = path.join(__dirname, '..', '..', 'debug');
-                if (!fs.existsSync(debugDir)) {
-                  fs.mkdirSync(debugDir, { recursive: true });
-                }
-                const errorFile = path.join(debugDir, `json_error_${Date.now()}.txt`);
-                fs.writeFileSync(errorFile, jsonPart, 'utf8');
-                console.error(`[Bridge] [DEBUG] エラーデータを保存: ${errorFile}`);
-              } catch (fileErr) {
-                console.error(`[Bridge] [DEBUG] エラーデータ保存失敗: ${fileErr.message}`);
-              }
-            } catch (debugErr) {
-              console.error(`[Bridge] [DEBUG] デバッグ情報生成エラー: ${debugErr.message}`);
-            }
-            
-            console.error(`[Bridge] 不正なJSON文字列:`, jsonPart.substring(0, 100) + '...');
-            
-            // 既存のリクエストがあれば拒否
-            const pendingRequests = Array.from(this.requestMap.entries());
-            if (pendingRequests.length > 0) {
-              const [latestId, { reject, timeoutId }] = pendingRequests[pendingRequests.length - 1];
-              console.error(`[Bridge] 最新のリクエスト ${latestId} をエラーで拒否`);
-              
-              if (timeoutId) clearTimeout(timeoutId);
-              reject(new Error(`JSONパースエラー: ${error.message}`));
-              this.requestMap.delete(latestId);
-            }
-          }
-        }
-        
-        // バッファサイズが大きすぎる場合は警告（何らかの問題の可能性）
-        if (this.responseBuffer.length > 2000000) { // 2MB以上
-          console.warn(`[Bridge] 警告: バッファサイズが2MBを超えています。__END__マーカーが見つかりません。`);
-          console.warn(`[Bridge] [DEBUG] バッファサイズ異常: ${this.responseBuffer.length}バイト`);
-          
-          // バッファ内容サンプルを保存
-          try {
-            const fs = require('fs');
-            const path = require('path');
-            const debugDir = path.join(__dirname, '..', '..', 'debug');
-            if (!fs.existsSync(debugDir)) {
-              fs.mkdirSync(debugDir, { recursive: true });
-            }
-            const bufferFile = path.join(debugDir, `large_buffer_${Date.now()}.txt`);
-            fs.writeFileSync(bufferFile, this.responseBuffer.slice(0, 10000) + '\n...\n' + this.responseBuffer.slice(-10000), 'utf8');
-            console.warn(`[Bridge] [DEBUG] 大きなバッファのサンプルを保存: ${bufferFile}`);
-          } catch (fileErr) {
-            console.error(`[Bridge] [DEBUG] バッファ保存失敗: ${fileErr.message}`);
-          }
-          
-          // バッファを一部クリアして最後の1MBだけを残す
-          this.responseBuffer = this.responseBuffer.slice(-1000000);
-          console.warn(`[Bridge] バッファを一部クリアしました。残りのサイズ: ${this.responseBuffer.length}バイト`);
+          this._processJsonPart(jsonPart);
         }
       });
 
@@ -860,22 +720,33 @@ class PythonBridge {
       console.log(`Pythonブリッジ: コマンド[${command}]処理開始 - タイムアウト: ${timeout}ms`);
       return new Promise((resolve, reject) => {
         // タイムアウト処理の改善
-        const timeoutId = setTimeout(() => {
-          if (this.requestMap.has(requestId)) {
-            // 現在のバッファ状態をログ出力
-            console.error(`[Bridge] リクエストID ${requestId} がタイムアウト (${timeout}ms)`);
-            console.error(`[Bridge] 現在のバッファ状態: ${this.responseBuffer.length}バイト`);
-            
-            if (this.responseBuffer.length > 0) {
-              console.error(`[Bridge] バッファプレビュー: ${this.responseBuffer.substring(0, 200)}...`);
+        let timeoutId = null;
+        
+        // Windows環境では長時間実行コマンドのタイムアウトを拡張
+        if (isWindows && (command === 'analyze_all' || command === 'extract_text')) {
+          // Windows環境では標準より長いタイムアウトを設定（2倍に設定）
+          const windowsTimeout = timeout * 2;
+          console.log(`[Bridge] [DEBUG] Windows環境用の拡張タイムアウト: ${windowsTimeout}ms (通常: ${timeout}ms)`);
+          
+          timeoutId = setTimeout(() => {
+            if (this.requestMap.has(requestId)) {
+              console.error(`Pythonブリッジ: コマンド[${command}]のタイムアウト (Windows拡張: ${windowsTimeout}ms)`);
+              this.requestMap.delete(requestId);
+              reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${windowsTimeout}ms)`));
             }
-            
-            this.requestMap.delete(requestId);
-            reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${timeout}ms)`));
-          }
-        }, timeout);
+          }, windowsTimeout);
+        } else {
+          // 通常のタイムアウト処理
+          timeoutId = setTimeout(() => {
+            if (this.requestMap.has(requestId)) {
+              console.error(`Pythonブリッジ: コマンド[${command}]のタイムアウト (${timeout}ms)`);
+              this.requestMap.delete(requestId);
+              reject(new Error(`コマンド '${command}' の実行がタイムアウトしました (${timeout}ms)`));
+            }
+          }, timeout);
+        }
 
-        // リクエストをマップに保存（タイムアウトIDも含む）
+        // リクエストをマップに保存
         this.requestMap.set(requestId, { resolve, reject, timeoutId });
         console.log(`Pythonブリッジ: リクエストマップに追加 (ID: ${requestId.substring(0, 8)}...), 現在のマップサイズ: ${this.requestMap.size}`);
 
@@ -1490,6 +1361,164 @@ class PythonBridge {
         // 実際のリクエストを送信
         this.sendCommand(command, params, timeout).then(resolve).catch(reject);
       }
+    }
+  }
+
+  // JSONパーツを処理する共通メソッド
+  _processJsonPart(jsonPart) {
+    try {
+      console.log(`[Bridge] JSONパース開始: ${jsonPart.length}バイト`);
+      
+      // デバッグ：JSONの先頭部分を出力
+      try {
+        const jsonPreview = jsonPart.substring(0, 100) + (jsonPart.length > 100 ? '...' : '');
+        console.log(`[Bridge] [DEBUG] JSONプレビュー: ${jsonPreview}`);
+      } catch (previewErr) {
+        console.error(`[Bridge] [DEBUG] JSONプレビュー生成エラー: ${previewErr.message}`);
+      }
+      
+      // Windows環境での追加ログと検証
+      if (isWindows) {
+        // JSONの先頭と末尾を確認して不正な文字がないか検証
+        const jsonStartChar = jsonPart.charAt(0);
+        const jsonEndChar = jsonPart.charAt(jsonPart.length - 1);
+        
+        if (jsonStartChar !== '{' && jsonStartChar !== '[') {
+          console.warn(`[Bridge] [DEBUG] WARNING: JSONが{または[で始まっていません: '${jsonStartChar}'`);
+          
+          // 最初の有効なJSON開始文字を探す
+          const validStart = jsonPart.indexOf('{');
+          if (validStart > 0) {
+            console.log(`[Bridge] [DEBUG] 有効なJSON開始位置を検出: 位置=${validStart}`);
+            // 無効な先頭文字を除去
+            const cleanedJson = jsonPart.substring(validStart);
+            console.log(`[Bridge] [DEBUG] クリーニング後のJSONプレビュー: ${cleanedJson.substring(0, 100)}...`);
+            
+            // クリーニングしたJSONでパースを試みる
+            try {
+              const cleanedData = JSON.parse(cleanedJson);
+              console.log(`[Bridge] [DEBUG] クリーニング後のJSONパース成功: id=${cleanedData.id || 'なし'}`);
+              
+              // 以降の処理を行うために parsedData を更新
+              this._handleParsedData(cleanedData);
+              return;
+            } catch (cleanJsonErr) {
+              console.error(`[Bridge] [DEBUG] クリーニング後のJSONパースエラー: ${cleanJsonErr.message}`);
+              // 通常のパース処理に戻る
+            }
+          }
+        }
+        
+        if (jsonEndChar !== '}' && jsonEndChar !== ']') {
+          console.warn(`[Bridge] [DEBUG] WARNING: JSONが}または]で終わっていません: '${jsonEndChar}'`);
+        }
+      }
+      
+      const parsedData = JSON.parse(jsonPart);
+      console.log(`[Bridge] [DEBUG] JSONパース成功: id=${parsedData.id || 'なし'}`);
+      
+      this._handleParsedData(parsedData);
+    } catch (error) {
+      console.error(`[Bridge] JSONパース失敗:`, error);
+      
+      // パースエラーの詳細を出力
+      try {
+        console.error(`[Bridge] [DEBUG] パースエラー詳細: ${error.message}`);
+        console.error(`[Bridge] [DEBUG] 問題のJSON先頭部: ${jsonPart.substring(0, 200)}...`);
+        
+        // 可能であればエラー位置を特定
+        if (error instanceof SyntaxError && error.message.includes('position')) {
+          const posMatch = error.message.match(/position (\d+)/);
+          if (posMatch && posMatch[1]) {
+            const errorPos = parseInt(posMatch[1]);
+            console.error(`[Bridge] [DEBUG] エラー位置周辺: "${jsonPart.substring(Math.max(0, errorPos - 20), errorPos + 20)}"`);
+          }
+        }
+        
+        // Windows環境では特に念入りに回復処理を試みる
+        if (isWindows) {
+          console.log(`[Bridge] [DEBUG] Windows用の回復処理を試行`);
+          
+          // 有効なJSON文字列を検索
+          const validStartPos = jsonPart.indexOf('{');
+          const validEndPos = jsonPart.lastIndexOf('}');
+          
+          if (validStartPos >= 0 && validEndPos > validStartPos) {
+            const potentialJson = jsonPart.substring(validStartPos, validEndPos + 1);
+            console.log(`[Bridge] [DEBUG] 潜在的な有効JSON: ${potentialJson.length}バイト`);
+            
+            try {
+              const recoveredData = JSON.parse(potentialJson);
+              console.log(`[Bridge] [DEBUG] JSON回復成功: id=${recoveredData.id || 'なし'}`);
+              
+              // 回復したデータを処理
+              this._handleParsedData(recoveredData);
+            } catch (recoverErr) {
+              console.error(`[Bridge] [DEBUG] JSON回復失敗: ${recoverErr.message}`);
+            }
+          }
+        }
+      } catch (detailErr) {
+        console.error(`[Bridge] [DEBUG] エラー詳細出力中にさらにエラー: ${detailErr.message}`);
+      }
+    }
+  }
+  
+  // パース済みデータを処理する共通メソッド
+  _handleParsedData(parsedData) {
+    // リクエストIDに対応するPromiseを解決
+    if (parsedData.id && this.requestMap.has(parsedData.id)) {
+      const { resolve, reject, timeoutId } = this.requestMap.get(parsedData.id);
+      console.log(`[Bridge] [DEBUG] リクエスト発見: ID=${parsedData.id}, タイマー=${timeoutId ? 'あり' : 'なし'}`);
+      
+      // タイマーがあれば解除
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        console.log(`[Bridge] タイムアウトタイマー解除: ${parsedData.id}`);
+      }
+      
+      // ファイルレスポンスの特別処理
+      if (parsedData.file_response) {
+        console.log(`[Bridge] [DEBUG] ファイルレスポンス検出: ${parsedData.file_response}`);
+        // ファイルからレスポンスを読み込む
+        try {
+          const fileContent = fs.readFileSync(parsedData.file_response, 'utf-8');
+          let fileData = null;
+          
+          try {
+            // ファイル内容をJSONとしてパース
+            fileData = JSON.parse(fileContent);
+            console.log(`[Bridge] [DEBUG] ファイルからJSONをロード: ${parsedData.file_response}`);
+            
+            // 成功の場合は読み込んだデータで解決
+            resolve(fileData);
+          } catch (jsonErr) {
+            // ファイルはJSONでない場合は生データを返す
+            console.log(`[Bridge] [DEBUG] ファイルはJSONではありません。生データとして返します`);
+            resolve(fileContent);
+          }
+        } catch (fileErr) {
+          console.error(`[Bridge] [DEBUG] ファイル読み込み失敗: ${fileErr.message}`);
+          reject(new Error(`ファイル応答の読み込みに失敗: ${fileErr.message}`));
+        }
+      } 
+      // 通常のエラーまたは結果を処理
+      else if (parsedData.error) {
+        console.log(`[Bridge] エラーでPromiseを拒否: ${parsedData.error}`);
+        reject(new Error(parsedData.error));
+      } else {
+        console.log(`[Bridge] 成功でPromiseを解決: ${parsedData.id}`);
+        resolve(parsedData.result);
+      }
+      
+      // マップからリクエストを削除
+      this.requestMap.delete(parsedData.id);
+      console.log(`[Bridge] リクエストID ${parsedData.id} の処理完了 (残り: ${this.requestMap.size}件)`);
+    } else if (parsedData.id) {
+      console.warn(`[Bridge] 対応するリクエストがありません: ID=${parsedData.id}`);
+      console.log(`[Bridge] [DEBUG] 現在のリクエストマップ: ${Array.from(this.requestMap.keys()).join(', ') || 'なし'}`);
+    } else {
+      console.warn(`[Bridge] [DEBUG] IDなしの応答を受信: ${JSON.stringify(parsedData).substring(0, 100)}...`);
     }
   }
 }
