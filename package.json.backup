@@ -1,0 +1,196 @@
+{
+  "name": "creait-code",
+  "version": "1.0.1",
+  "description": "AIを活用したウェブコンテンツ生成ツール。デザインから高品質なHTMLとSCSSを自動生成します。",
+  "main": "src/electron/main.js",
+  "scripts": {
+    "start": "electron --js-flags=\"--expose-gc\" .",
+    "electron-dev": "NODE_ENV=development electron --js-flags=\"--expose-gc\" .",
+    "electron-dev:win": "set NODE_ENV=development && electron --js-flags=\"--expose-gc\" .",
+    "vite-dev": "vite",
+    "prebuild": "node scripts/inject-env-to-config.js",
+    "vite-build": "npm run prebuild && vite build",
+    "dev": "npm run vite-build && npm run electron-dev",
+    "dev:win": "npm run vite-build && npm run electron-dev:win",
+    "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
+    "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
+    "build-python-standalone": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py",
+    "build-python-standalone:mac": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/",
+    "build-python-standalone:win": "if exist dist\\python_server.exe del /F /Q dist\\python_server.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:win-x64": "if exist dist\\python_server_x64.exe del /F /Q dist\\python_server_x64.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server_x64 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:win-x86": "if exist dist\\python_server_x86.exe del /F /Q dist\\python_server_x86.exe && if exist build\\python_server rmdir /S /Q build\\python_server && pyinstaller --onefile --name python_server_x86 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules;modules\" src/python/python_server.py && dir dist",
+    "build-python-standalone:arm64": "rm -rf dist/python_server build/python_server && pyinstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/ && cp dist/python_server dist/python_server_arm64",
+    "check-arch": "arch -x86_64 /bin/bash -c 'echo \"現在のアーキテクチャ: $(uname -m)\"'",
+    "build-python-standalone:x64": "rm -rf dist/python_server build/python_server && arch -x86_64 /usr/bin/python3 -m pip install --user PyInstaller && arch -x86_64 /usr/bin/python3 -m pip install --user pillow opencv-python numpy requests && arch -x86_64 /usr/bin/python3 -m PyInstaller --onefile --name python_server --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && ls -la dist/ && cp dist/python_server dist/python_server_x64",
+    "copy-python-standalone": "node scripts/copy-python-standalone.js",
+    "test-win-build": "rm -rf dist/python_server_x64.exe dist/python_server_x86.exe build/python_server && pyinstaller --onefile --name python_server_x64 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && cp dist/python_server_x64 dist/python_server_x64.exe && pyinstaller --onefile --name python_server_x86 --collect-all PIL --collect-all cv2 --collect-all numpy --collect-all requests --hidden-import=io --hidden-import=base64 --hidden-import=json --hidden-import=re --hidden-import=datetime --hidden-import=traceback --hidden-import=logging --hidden-import=math --hidden-import=collections --hidden-import=requests --add-data \"src/python/modules:modules\" src/python/python_server.py && cp dist/python_server_x86 dist/python_server_x86.exe && ls -la dist/",
+    "test-win-copy": "node scripts/copy-python-standalone-win-universal.js",
+    "package-mac": "npm run prebuild && npm run vite-build && npm run build-python-standalone:mac && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server",
+    "package-mac-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:arm64 && npm run build-python-standalone:x64 && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server_arm64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_arm64 && cp dist/python_server_x64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_x64 && cp scripts/python_server_launcher.sh release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server*",
+    "package-win": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win && electron-builder --win --x64 && node scripts/copy-python-standalone-win.js",
+    "package-win-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win-x64 && npm run build-python-standalone:win-x86 && electron-builder --win --x64 --ia32 && node scripts/copy-python-standalone-win-universal.js",
+    "test-package-win-universal": "npm run prebuild && npm run vite-build && npm run test-win-build && electron-builder --win --x64 --ia32 && npm run test-win-copy",
+    "package-linux": "npm run prebuild && npm run vite-build && npm run build-python-standalone && electron-builder --linux && npm run copy-python-standalone",
+    "package": "npm run prebuild && npm run vite-build && npm run build-python-standalone && electron-builder && npm run copy-python-standalone",
+    "setup-python": "node scripts/setup-python-runtime.js",
+    "postinstall": "npm run setup-python",
+    "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\""
+  },
+  "devDependencies": {
+    "concurrently": "7.6.0",
+    "electron": "33.3.1",
+    "electron-builder": "^24.13.3",
+    "sass": "^1.86.3",
+    "vite": "^6.3.3",
+    "wait-on": "^8.0.3"
+  },
+  "keywords": [
+    "AI",
+    "code-generation",
+    "web-development",
+    "html-generator",
+    "scss-generator",
+    "design-to-code"
+  ],
+  "author": "CreAIteCode Team <info@creait.code>",
+  "license": "MIT",
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "antd": "^5.24.6",
+    "axios": "^0.27.2",
+    "chokidar": "^4.0.3",
+    "codemirror": "^5.65.0",
+    "dotenv": "^16.3.1",
+    "esbuild": "^0.24.2",
+    "express": "^4.21.2",
+    "face-api.js": "^0.22.2",
+    "framer-motion": "^10.16.4",
+    "glob": "^11.0.1",
+    "gsap": "^3.12.5",
+    "highlight.js": "^11.11.1",
+    "lodash": "^4.17.21",
+    "openai": "^4.93.0",
+    "python-shell": "^5.0.0",
+    "react": "^18.2.0",
+    "react-codemirror2": "^8.0.1",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.5.1",
+    "react-syntax-highlighter": "^15.6.1",
+    "styled-components": "^6.1.17",
+    "tesseract.js": "^6.0.0",
+    "uuid": "^11.0.5",
+    "vite": "^6.3.2"
+  },
+  "volta": {
+    "node": "20.19.1"
+  },
+  "build": {
+    "appId": "com.creaite.code",
+    "productName": "CreAIteCode",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "src/electron/**",
+      "src/python/**",
+      "node_modules/python-shell/**"
+    ],
+    "files": [
+      "**/*",
+      "!**/*.map",
+      "!**/node_modules/*/{test,__tests__}/**"
+    ],
+    "afterPack": "./build/afterPack.js",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "public/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "x64ArchFiles": "Contents/Resources/app/**/python_server*"
+    },
+    "win": {
+      "icon": "public/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "artifactName": "${productName}_Setup_${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "CreAIteCode",
+      "artifactName": "${productName}_Setup_${version}.exe",
+      "include": "build/installer.nsh",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico"
+    },
+    "linux": {
+      "icon": "public/icon.png",
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "./dist/python_server",
+        "to": "app/python_server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "src/python",
+        "to": "app/python"
+      },
+      {
+        "from": "./python-runtime/${os}",
+        "to": "app/python-runtime"
+      },
+      {
+        "from": "requirements.txt",
+        "to": "app/requirements.txt"
+      },
+      {
+        "from": "dist",
+        "to": "app/dist"
+      },
+      {
+        "from": "src/config",
+        "to": "app/dist/config"
+      }
+    ],
+    "extraMetadata": {
+      "main": "src/electron/main.js"
+    }
+  },
+  "electronWebpack": {
+    "renderer": {
+      "webpackConfig": "webpack.renderer.config.js"
+    },
+    "main": {
+      "webpackConfig": "webpack.main.config.js"
+    }
+  }
+}

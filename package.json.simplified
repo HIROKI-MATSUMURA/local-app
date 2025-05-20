@@ -11,31 +11,40 @@
     "prebuild": "node scripts/inject-env-to-config.js",
     "vite-build": "npm run prebuild && vite build",
     
+    // 開発環境用コマンド - システムPython使用
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
     "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
     "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
     
+    // Python環境セットアップ
     "setup-python": "node scripts/setup-python-env.js",
     "postinstall": "npm run setup-python",
     "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
     
+    // Python依存パッケージを直接インストール
     "install-python-deps": "python3 -m pip install -r requirements.txt",
     "install-python-deps:win": "python -m pip install -r requirements.txt",
     
+    // システムPython使用ビルドコマンド - Mac用
     "package-mac-system": "npm run prebuild && npm run vite-build && electron-builder --mac && node scripts/copy-python-script-mac.js",
     
+    // システムPython使用ビルドコマンド - Windows用
     "package-win-system": "npm run prebuild && npm run vite-build && electron-builder --win --x64 && node scripts/copy-python-script-win.js",
     
+    // システムPython使用ビルドコマンド - Windowsユニバーサル用
     "package-win-system-universal": "npm run prebuild && npm run vite-build && electron-builder --win --x64 --ia32 && node scripts/copy-python-script-win-universal.js",
     
+    // MacからWindowsをビルド
     "package-win-from-mac": "npm run prebuild && npm run vite-build && electron-builder --win --x64 --ia32 && node scripts/copy-python-script-win-universal.js",
     
+    // 以下は互換性のために維持
     "package-mac": "npm run prebuild && npm run vite-build && npm run build-python-standalone:mac && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server",
     "package-mac-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:arm64 && npm run build-python-standalone:x64 && electron-builder --mac && mkdir -p release/mac-universal/CreAIteCode.app/Contents/Resources/app/ && cp dist/python_server_arm64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_arm64 && cp dist/python_server_x64 release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server_x64 && cp scripts/python_server_launcher.sh release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server && chmod +x release/mac-universal/CreAIteCode.app/Contents/Resources/app/python_server*",
     "package-win": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win && electron-builder --win --x64 && node scripts/copy-python-standalone-win.js",
     "package-win-universal": "npm run prebuild && npm run vite-build && npm run build-python-standalone:win-x64 && npm run build-python-standalone:win-x86 && electron-builder --win --x64 --ia32 && node scripts/copy-python-standalone-win-universal.js",
     
+    // 以下はバイナリビルド不要のためエコーだけ出力するダミーコマンドに変更
     "build-python-standalone": "echo 'システム環境依存モードではビルド不要'",
     "build-python-standalone:mac": "echo 'システム環境依存モードではビルド不要'",
     "build-python-standalone:win": "echo 'システム環境依存モードではビルド不要'",
