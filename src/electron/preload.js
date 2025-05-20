@@ -196,11 +196,21 @@ contextBridge.exposeInMainWorld('api', {
   receive: (channel, func) => {
     const validChannels = [
       'fromMain', 'fileData', 'codeGenerated', 'file-updated',
-      'new-html-file', 'file-changed', 'file-deleted', 'tab-switched'
+      'new-html-file', 'file-changed', 'file-deleted', 'tab-switched',
+      'python-environment-status'
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (event, ...args) => func(...args));
     }
+  },
+  
+  // Python環境イベントリスナー
+  onPythonEnvironmentStatus: (callback) => {
+    if (typeof callback !== 'function') {
+      console.error('onPythonEnvironmentStatus: コールバックが関数ではありません');
+      return;
+    }
+    ipcRenderer.on('python-environment-status', (event, data) => callback(data));
   },
   
   // 強化されたエラーログ関数
@@ -237,33 +247,7 @@ contextBridge.exposeInMainWorld('api', {
     });
   },
 
-  onFileChanged: (callback) => {
-    ipcRenderer.on('file-changed', (event, data) => {
-      try {
-        // シリアライズ可能なオブジェクトに変換
-        const safeData = JSON.parse(JSON.stringify(data));
-
-        // 削除イベントの場合は特別に詳細ログを出力
-        if (safeData.eventType === 'unlink' || safeData.type === 'unlink') {
-          console.log('ファイル削除イベントを受信:', safeData);
-          console.log(`削除されたファイル: ${safeData.fileName}`);
-        } else {
-          console.log('ファイル変更イベントを受信:', safeData);
-        }
-
-        callback(safeData);
-      } catch (error) {
-        console.error('ファイル変更イベント処理エラー:', error);
-        // 最低限のデータでコールバック
-        callback({
-          eventType: data.eventType || 'unknown',
-          fileType: data.fileType || 'unknown',
-          fileName: data.fileName || 'unknown',
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-  },
+  // この関数は下の同名の関数と重複しているため削除、下の方を使用します
 
   // プロジェクト管理
   loadCategories: () => ipcRenderer.invoke('loadCategories'),
@@ -484,7 +468,10 @@ contextBridge.exposeInMainWorld('electron', {
     once: (channel, listener) => {
       ipcRenderer.once(channel, (event, ...args) => listener(...args));
     }
-  }
+  },
+  // Pythonセットアップ用の追加API
+  closePythonSetup: () => ipcRenderer.send('close-python-setup'),
+  openExternalUrl: (url) => ipcRenderer.send('open-external-url', url)
 });
 
 // コード生成

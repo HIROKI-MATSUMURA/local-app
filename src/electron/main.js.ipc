@@ -1,0 +1,46 @@
+// IPC通信のハンドラーをセットアップする関数
+function setupIPCHandlers() {
+  // Python環境関連のハンドラ
+  ipcMain.handle('check-python-environment-status', async () => {
+    try {
+      const isReady = await pythonSetupHandler.checkEnvironment(mainWindow, false);
+      return { success: true, isReady };
+    } catch (error) {
+      console.error('Python環境ステータス確認エラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('install-python-packages', async () => {
+    try {
+      const success = await pythonSetupHandler.installPackages();
+      return { success, message: success ? 'パッケージのインストールが完了しました' : 'インストールに失敗しました' };
+    } catch (error) {
+      console.error('パッケージインストールエラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.on('close-python-setup', () => {
+    pythonSetupHandler.closeSetupWindow();
+  });
+  
+  ipcMain.on('open-external-url', (event, url) => {
+    shell.openExternal(url);
+  });
+
+  // 選択されたカテゴリを同期的に保存するハンドラー
+  ipcMain.on('save-selected-category-sync', (event, category) => {
+    console.log('選択されたカテゴリを同期的に保存します:', category);
+    try {
+      const result = saveSelectedCategory(category);
+      event.returnValue = result;
+    } catch (error) {
+      console.error('選択されたカテゴリの同期保存中にエラーが発生しました:', error);
+      event.returnValue = false;
+    }
+  });
+
+  // 以下、元々のIPCハンドラー
+  // ...その他のコード...
+}

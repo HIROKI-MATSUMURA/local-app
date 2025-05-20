@@ -1,0 +1,654 @@
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const fsPromises = fs.promises;
+const { PythonShell } = require('python-shell');
+const { debounce } = require('lodash');
+const axios = require('axios');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const { v4: uuidv4 } = require('uuid');
+const chokidar = require('chokidar');
+
+// Python環境とメモリ管理のユーティリティをインポート
+const { checkPythonRuntime, checkPythonPackages } = require('./pythonRuntime');
+const { startPeriodicGC, startSystemMonitoring } = require('./memoryManager');
+const pythonSetupHandler = require('./pythonSetupHandler');
+
+// dotenvを開発モードだけ読み込む
+if (process.env.NODE_ENV === 'development') {
+  require('dotenv').config();
+}
+app.commandLine.appendSwitch('js-flags', '--expose-gc');
+// GC機能の確認とフラグ設定
+// package.jsonのelectron-builder設定例:
+// "build": {
+//   "extraMetadata": {
+//     "main": "main.js"
+//   },
+//   "files": [
+//     "**/*",
+//     "!**/*.{ts,map,md}"
+//   ],
+//   "extraResources": [
+//     "assets/**"
+//   ],
+//   "mac": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "win": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "linux": {
+//     "executableArgs": ["--expose-gc"]
+//   }
+// }
+
+// 自動再起動をスキップするフラグ - ターミナルを走らせ続けるために有効化
+const SKIP_GC_RELAUNCH = true; // trueに設定するとGCフラグがなくても再起動しません
+
+// 開発環境では自動的に--expose-gcフラグを付けて再起動（スキップフラグがfalseの場合のみ）
+if (!process.argv.includes('--expose-gc') && !app.isPackaged && !SKIP_GC_RELAUNCH) {
+  console.log('GC機能を有効化するため、--expose-gcフラグを付けて再起動します');
+  app.relaunch({ args: process.argv.slice(1).concat(['--expose-gc']) });
+  app.exit(0);
+  return;
+}
+
+// GCのポリフィル - GC機能が利用できない場合に代替手段を提供
+if (!global.gc) {
+  console.log('--expose-gcフラグがないため、完全なメモリクリーンアップ機能は使用できません');
+  console.log('ターミナルログを確認するために自動再起動はスキップされました');
+  console.log('完全なGC機能を有効化するには、アプリを終了して以下のコマンドで再起動してください:');
+  console.log('NODE_ENV=development electron --expose-gc .');
+
+  // モックGC関数を提供してエラーを防止
+  global.gc = () => {
+    console.log('⚠️ GC機能の擬似実行: 実際のメモリ解放はされていません');
+    // 可能な限りのメモリ解放処理
+    if (global.window && global.window.performance) {
+      try {
+        const memoryInfo = global.window.performance.memory;
+        console.log(`メモリ使用状況: ${Math.round(memoryInfo.usedJSHeapSize / (1024 * 1024))}MB / ${Math.round(memoryInfo.jsHeapSizeLimit / (1024 * 1024))}MB`);
+      } catch (e) {
+        // メモリ情報取得エラーを無視
+      }
+    }
+
+    try {
+      // 一部のリソースを解放するためのダミー処理
+      if (global.process && typeof global.process.memoryUsage === 'function') {
+        const memUsage = process.memoryUsage();
+        console.log(`プロセスメモリ: RSS=${Math.round(memUsage.rss / (1024 * 1024))}MB, Heap=${Math.round(memUsage.heapUsed / (1024 * 1024))}MB / ${Math.round(memUsage.heapTotal / (1024 * 1024))}MB`);
+      }
+    } catch (e) {
+      console.error('メモリ使用量の取得に失敗しました', e);
+    }
+  };
+}
+
+// プロジェクト設定ファイルのパスを定義
+const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
+const ACTIVE_PROJECT_PATH = path.join(app.getPath('userData'), 'active-project.json');
+const CATEGORIES_PATH = path.join(app.getPath('userData'), 'categories.json');
+const TAGS_PATH = path.join(app.getPath('userData'), 'tags.json');
+const SELECTED_CATEGORY_PATH = path.join(app.getPath('userData'), 'selected-category.json');
+const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.json');
+const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
+
+// 新しいファイルパスを追加（app.getName()を使用）
+const appName = app.getName() || 'electron-app';
+
+// 環境変数からAPIキーを取得
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
+const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
+
+// Pythonブリッジをロード
+let pythonBridge;
+try {
+  // python_scriptsディレクトリの存在を確認し、必要なら作成
+  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
+  if (!fs.existsSync(pythonScriptsDir)) {
+    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
+    fs.mkdirSync(pythonScriptsDir, { recursive: true });
+  }
+
+  // テスト用スクリプトを作成（存在しない場合のみ）
+  const testBridgePath = path.join(pythonScriptsDir, 'test_bridge.py');
+  if (!fs.existsSync(testBridgePath)) {
+    console.log(`テスト用Pythonスクリプトを作成します: ${testBridgePath}`);
+    const testScript = `
+# テスト用Python Bridgeスクリプト
+import sys
+import json
+
+def main():
+    print(json.dumps({
+        "success": True,
+        "message": "Python bridge test script executed successfully"
+    }))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+`;
+    fs.writeFileSync(testBridgePath, testScript.trim(), 'utf8');
+  }
+
+  pythonBridge = require('./python_bridge');
+  console.log('Pythonブリッジを読み込みました');
+} catch (error) {
+  console.error('Pythonブリッジの読み込みに失敗しました:', error);
+  pythonBridge = {
+    checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }),
+  };
+}
+
+// グローバルエラーハンドリング
+process.on('uncaughtException', (error) => {
+  console.error('未捕捉の例外が発生しました:', error);
+  // エラーログを保存するなどの追加処理も可能
+});
+
+// 開発環境かどうかを判定
+const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+let mainWindow;
+
+// グローバル変数としてスプラッシュウィンドウを宣言
+let splashWindow;
+
+// グローバル変数の宣言
+let isElectronAppReloadBlocked = true; // Electronアプリでのリロードをブロックするフラグ
+let isAICodeSaving = false; // AIコード保存中のフラグ
+const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
+
+// 監視するディレクトリ
+const htmlDirectory = isDevelopment
+  ? path.join(__dirname, '..', 'renderer')
+  : path.join(process.resourcesPath, 'app', 'dist');
+// previousFilesをグローバルに宣言して、前回のファイルリストを保持
+let previousFiles = [];
+
+// アプリ起動時に監視を開始するフラグ
+let isDirectoryWatcherInitialized = false;// スプラッシュウィンドウを作成する関数
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 400,
+    height: 300,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    }
+  });
+
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+
+  splashWindow.on('closed', () => {
+    console.log('スプラッシュウィンドウが閉じられました');
+    splashWindow = null;
+  });
+}
+
+// メインウィンドウ作成関数
+function createMainWindow() {
+  console.log('メインウィンドウの作成を開始します');
+
+  // アップロードディレクトリを作成（userData内に作成してasarの制限を回避）
+  const uploadDir = path.join(app.getPath('userData'), 'uploads');
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      console.log(`アップロードディレクトリを作成します: ${uploadDir}`);
+      fs.mkdirSync(uploadDir, { recursive: true });
+    } else {
+      console.log(`アップロードディレクトリが既に存在します: ${uploadDir}`);
+    }
+  } catch (err) {
+    console.error('アップロードディレクトリの作成に失敗しました:', err);
+  }
+
+  const windowWidth = 1280;
+  const windowHeight = 800;
+
+  // preloadスクリプトのパスを確認
+  const preloadPath = path.join(__dirname, 'preload.js');
+  console.log('preloadスクリプトのパス:', preloadPath);  // デバッグログ追加
+  console.log('preloadスクリプトが存在するか:', fs.existsSync(preloadPath));  // デバッグログ追加
+
+  // ウィンドウオプションを設定
+  const windowOptions = {
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: 800,
+    minHeight: 600,
+    frame: true,
+    show: false,
+    title: 'CreAIte Code',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#001f3f',
+      symbolColor: '#ffffff',
+      height: 32
+    },
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true,
+      sandbox: false,  // falseに変更
+      preload: preloadPath
+    }
+  };
+
+  console.log('ウィンドウオプション:', windowOptions);  // デバッグログ追加
+
+  // メインウィンドウの作成
+  mainWindow = new BrowserWindow(windowOptions);
+
+  // ブラウザの開発者ツールを開く（開発時のみ）
+  if (isDevelopment) {
+    mainWindow.webContents.openDevTools();
+  }
+
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('isDevelopment:', isDevelopment);
+
+  // 開発環境と本番環境で適切なパスを使い分ける
+  let filePath;
+
+  if (isDevelopment) {
+    filePath = path.join(__dirname, '..', '..', 'dist', 'index.html');
+  } else {
+    // 複数の候補パスを試す
+    const possiblePaths = [
+      path.join(app.getAppPath(), 'dist', 'index.html'), // asarパッケージ内
+      path.join(process.resourcesPath, 'app/dist', 'index.html'), // extraResourcesからのパス
+      path.join(process.resourcesPath, 'dist', 'index.html') // 直接Resourcesディレクトリ
+    ];
+
+    // 存在する最初のパスを使用
+    filePath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+    console.log('本番モード: HTMLファイルを読み込みます:', filePath);
+  }
+
+  // ブラウザコンソールのログを表示
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[WebContents] ${message}`);
+  });
+
+  // ファイルを読み込む
+  mainWindow.loadFile(filePath).catch(err => {
+    console.error('ファイル読み込みエラー:', err);
+
+    // 読み込み失敗時のフォールバック
+    const fallbackPath = isDevelopment
+      ? path.join(__dirname, 'index.html')
+      : path.join(process.resourcesPath, 'app', 'dist', 'index.html');
+    console.log('フォールバックファイルを読み込みます:', fallbackPath);
+    mainWindow.loadFile(fallbackPath).catch(fallbackErr => {
+      console.error('フォールバックファイルの読み込みにも失敗:', fallbackErr);
+    });
+  });
+
+  // レンダリングの問題をデバッグするためのフラグを設定
+  app.commandLine.appendSwitch('disable-site-isolation-trials');
+
+  // ウィンドウが閉じられたときにメインウィンドウを破棄
+  mainWindow.on('closed', () => {
+    console.log('メインウィンドウが閉じられました');
+    mainWindow = null;
+  });
+
+  // メインウィンドウの準備ができたら表示
+  mainWindow.once('ready-to-show', () => {
+    console.log('メインウィンドウの表示準備完了');
+
+    // スプラッシュウィンドウが存在すれば閉じる
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      console.log('スプラッシュウィンドウを閉じます');
+      splashWindow.close();
+      splashWindow = null;
+      
+      // スプラッシュウィンドウが閉じた後にPython環境チェックを実行
+      // 表示を遅らせるためにsetTimeoutを使用
+      setTimeout(() => {
+        pythonSetupHandler.checkEnvironment(mainWindow, true).then(isReady => {
+          console.log(`Python環境確認結果（UIあり）: ${isReady ? '準備完了' : '設定が必要'}`);
+        });
+      }, 1000); // メインウィンドウが表示された1秒後に確認
+    }
+
+    // 0.5秒待ってからメインウィンドウを表示（スプラッシュが完全に閉じるのを待つ）
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+      }
+    }, 500);
+  });
+
+  // ファイル監視対象
+  const watchFiles = [
+    path.join(__dirname, 'src/scss/base/_reset.scss'),
+    path.join(__dirname, 'src/scss/globals/_breakpoints.scss'),
+  ];
+
+  // ファイルの監視処理
+  watchFiles.forEach((file) => {
+    fs.watchFile(file, (curr, prev) => {
+      fs.readFile(file, 'utf8', (err, data) => {
+        if (!err && mainWindow) {
+          mainWindow.webContents.send('file-updated', { file, content: data });
+        }
+      });
+    });
+  });
+
+  // ウィンドウの読み込みイベントをリッスン
+  mainWindow.webContents.on('did-start-loading', () => {
+    console.log('ウィンドウの読み込みを開始しました');  // デバッグログ追加
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('ウィンドウの読み込みが完了しました');  // デバッグログ追加
+  });
+
+  mainWindow.webContents.on('dom-ready', () => {
+    console.log('DOMの準備が完了しました');  // デバッグログ追加
+  });
+
+  return mainWindow;
+}
+
+// アプリの起動が完了したら
+app.whenReady().then(async () => {
+  // ユーザーデータディレクトリとパスを確認
+  const userDataPath = app.getPath('userData');
+  console.log('ユーザーデータディレクトリ:', userDataPath);
+  console.log('設定ファイルパス:');
+  console.log(`- PROJECTS_CONFIG_PATH: ${PROJECTS_CONFIG_PATH}`);
+  console.log(`- ACTIVE_PROJECT_PATH: ${ACTIVE_PROJECT_PATH}`);
+  console.log(`- CATEGORIES_PATH: ${CATEGORIES_PATH}`);
+  console.log(`- TAGS_PATH: ${TAGS_PATH}`);
+  console.log(`- SELECTED_CATEGORY_PATH: ${SELECTED_CATEGORY_PATH}`);
+  console.log(`- SELECTED_TAGS_PATH: ${SELECTED_TAGS_PATH}`);
+
+  // CSPの設定
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; connect-src 'self' https://payments.codeups.jp; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;"
+        ]
+      }
+    });
+  });
+
+  // Pythonブリッジの初期化
+  try {
+    console.log('Pythonブリッジを初期化しています...');
+
+    // アプリケーションのルートパスを環境変数に設定
+    process.env.APP_ROOT_PATH = app.getAppPath();
+    console.log(`アプリケーションルートパス: ${process.env.APP_ROOT_PATH}`);
+
+    // リソースパスをログ出力
+    console.log(`process.resourcesPath: ${process.resourcesPath}`);
+
+    // パッケージ済みアプリケーションの場合、extraResourcesから正しいパスを取得
+    if (!isDevelopment && app.isPackaged) {
+      // extraResourcesのパスを設定
+      process.env.PYTHON_RESOURCES_PATH = path.join(process.resourcesPath, 'app', 'python');
+      console.log(`Python リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+
+      // ディレクトリ内容を確認
+      if (fs.existsSync(process.resourcesPath)) {
+        try {
+          const resourcesDir = fs.readdirSync(process.resourcesPath);
+          console.log('リソースディレクトリ内容:', resourcesDir);
+
+          const pythonPath = path.join(process.resourcesPath, 'python');
+          if (fs.existsSync(pythonPath)) {
+            console.log('Pythonディレクトリ内容:', fs.readdirSync(pythonPath));
+          } else {
+            console.log('Pythonディレクトリが見つかりません:', pythonPath);
+          }
+        } catch (dirErr) {
+          console.error('ディレクトリ内容の確認中にエラーが発生しました:', dirErr);
+        }
+      }
+    } else {
+      // 開発環境ではソースコードのパスを使用
+      process.env.PYTHON_RESOURCES_PATH = path.join(app.getAppPath(), 'src', 'python');
+      console.log(`Python 開発リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+    }
+
+    // Pythonの実行パスを設定 - システム環境依存版
+    // 常にシステムのPythonを使用する
+    const pythonPath = process.platform === 'win32'
+      ? 'python' // Windows
+      : 'python3'; // macOS/Linux
+
+    console.log(`使用するPythonパス: ${pythonPath}`);
+
+    // PythonShellの設定
+    let options = {
+      mode: 'text',
+      pythonPath: pythonPath,
+      pythonOptions: ['-u'], // 出力をバッファリングしない
+      scriptPath: process.env.PYTHON_RESOURCES_PATH || path.join(app.getAppPath(), 'src', 'python')
+    };
+
+    console.log('PythonShell設定:', options);
+
+    // test_bridge.pyを作成 - ユーザーデータフォルダに作成してasarの制限を回避
+    const userDataPath = app.getPath('userData');
+    const pythonTestDir = path.join(userDataPath, 'python_temp');
+    if (!fs.existsSync(pythonTestDir)) {
+      fs.mkdirSync(pythonTestDir, { recursive: true });
+    }
+
+    const testBridgePath = path.join(pythonTestDir, 'test_bridge.py');
+    const testBridgeContent = `
+import sys
+import platform
+
+print("Python bridge test - Success!")
+print(f"Python version: {sys.version}")
+print(f"Platform: {platform.platform()}")
+print("==== End of test ====")
+sys.exit(0)
+`;
+
+    fs.writeFileSync(testBridgePath, testBridgeContent);
+    console.log(`テスト用Pythonスクリプトを作成しました: ${testBridgePath}`);
+
+    // テスト設定を更新
+    options.scriptPath = pythonTestDir;
+
+    // Pythonブリッジのテスト実行
+    console.log('Pythonブリッジのテスト実行を開始します...');
+    try {
+      PythonShell.run('test_bridge.py', options, function (err, results) {
+        if (err) {
+          console.error('Pythonブリッジのテストに失敗しました:', err);
+        } else {
+          console.log('Pythonブリッジのテスト結果:', results);
+        }
+      });
+    } catch (testErr) {
+      console.error('Pythonブリッジのテスト実行中にエラーが発生しました:', testErr);
+    }
+  } catch (error) {
+    console.error('Pythonブリッジの設定中にエラーが発生しました:', error);
+  }
+
+  // 重要: カテゴリとタグの初期化を他の処理より先に実行
+  try {
+    console.log('カテゴリとタグの初期化を開始します...');
+
+    // userData ディレクトリの確認
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+      console.log(`userData ディレクトリを作成しました: ${userDataPath}`);
+    }
+
+    // ファイル存在確認と初期化（存在しない場合のみ）
+    // カテゴリファイル
+    const defaultCategories = ['uncategorized', '制作会社', 'コミュニティ', 'エンド'];
+    if (!fs.existsSync(CATEGORIES_PATH)) {
+      fs.writeFileSync(CATEGORIES_PATH, JSON.stringify(defaultCategories), 'utf8');
+      console.log('カテゴリファイルを新規作成しました:', defaultCategories);
+    } else {
+      console.log('カテゴリファイルは既に存在するため、初期化をスキップします');
+    }
+
+    // タグファイル
+    const defaultTags = [];
+    if (!fs.existsSync(TAGS_PATH)) {
+      fs.writeFileSync(TAGS_PATH, JSON.stringify(defaultTags), 'utf8');
+      console.log('タグファイルを新規作成しました:', defaultTags);
+    } else {
+      console.log('タグファイルは既に存在するため、初期化をスキップします');
+    }
+
+    // 選択中カテゴリファイル
+    if (!fs.existsSync(SELECTED_CATEGORY_PATH)) {
+      fs.writeFileSync(SELECTED_CATEGORY_PATH, JSON.stringify('all'), 'utf8');
+      console.log('選択中カテゴリファイルを新規作成しました: all');
+    } else {
+      console.log('選択中カテゴリファイルは既に存在するため、初期化をスキップします');
+    }
+
+    // 選択中タグファイル
+    if (!fs.existsSync(SELECTED_TAGS_PATH)) {
+      fs.writeFileSync(SELECTED_TAGS_PATH, JSON.stringify([]), 'utf8');
+      console.log('選択中タグファイルを新規作成しました: []');
+    } else {
+      console.log('選択中タグファイルは既に存在するため、初期化をスキップします');
+    }
+
+    // ファイル作成確認
+    console.log('ファイル作成確認:');
+    console.log('- カテゴリファイル存在:', fs.existsSync(CATEGORIES_PATH));
+    console.log('- タグファイル存在:', fs.existsSync(TAGS_PATH));
+    console.log('- 選択カテゴリファイル存在:', fs.existsSync(SELECTED_CATEGORY_PATH));
+    console.log('- 選択タグファイル存在:', fs.existsSync(SELECTED_TAGS_PATH));
+
+    // ファイル内容確認
+    try {
+      const catContent = fs.readFileSync(CATEGORIES_PATH, 'utf8');
+      console.log('カテゴリファイル内容:', catContent);
+    } catch (err) {
+      console.error('カテゴリファイル読み込みエラー:', err);
+    }
+
+    console.log('カテゴリとタグの初期化が完了しました');
+  } catch (error) {
+    console.error('カテゴリとタグの初期化中にエラーが発生しました:', error);
+  }
+
+  console.log('アプリ起動時にIPCハンドラーを設定します');
+  setupIPCHandlers();
+  setupFileWatcher(mainWindow);
+
+  // メモリ管理を開始
+  if (global.gc) {
+    console.log('メモリ管理: ガベージコレクション機能が有効です');
+    startPeriodicGC();
+  } else {
+    console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
+  }
+
+  // Python実行環境のチェック - 初期診断のみ
+  const pythonStatus = await checkPythonRuntime();
+  console.log(`Python実行環境ステータス: ${pythonStatus}`);
+  
+  // Python環境セットアップハンドラでも確認（UX向上のため）
+  pythonSetupHandler.checkEnvironment(null, false).then(isReady => {
+    console.log(`Python環境セットアップ確認結果: ${isReady ? '準備完了' : '設定が必要'}`);  
+  });
+
+  // スプラッシュウィンドウを作成
+  createSplashWindow();
+
+  // メインウィンドウの作成をわずかに遅延させる
+  setTimeout(() => {
+    createMainWindow();
+
+    // ディレクトリ監視を開始
+    watchDirectory(htmlDirectory, (changedPath, event) => {
+      console.log(`ファイルが変更されました: ${changedPath} (${event})`);
+      mainWindow.webContents.send('file-changed', {
+        type: path.extname(changedPath).toLowerCase(),
+        filename: path.basename(changedPath),
+        path: changedPath
+      });
+    });
+  }, 1000);
+
+  // Mac OS の場合、アプリがアクティブ化されたらメインウィンドウを作成
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow();
+    }
+  });
+});
+
+// Macでアプリケーションが閉じられる際の処理
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});// IPC通信のハンドラーをセットアップする関数
+function setupIPCHandlers() {
+  // Python環境関連のハンドラ
+  ipcMain.handle('check-python-environment-status', async () => {
+    try {
+      const isReady = await pythonSetupHandler.checkEnvironment(mainWindow, false);
+      return { success: true, isReady };
+    } catch (error) {
+      console.error('Python環境ステータス確認エラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('install-python-packages', async () => {
+    try {
+      const success = await pythonSetupHandler.installPackages();
+      return { success, message: success ? 'パッケージのインストールが完了しました' : 'インストールに失敗しました' };
+    } catch (error) {
+      console.error('パッケージインストールエラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.on('close-python-setup', () => {
+    pythonSetupHandler.closeSetupWindow();
+  });
+  
+  ipcMain.on('open-external-url', (event, url) => {
+    shell.openExternal(url);
+  });
+
+  // 選択されたカテゴリを同期的に保存するハンドラー
+  ipcMain.on('save-selected-category-sync', (event, category) => {
+    console.log('選択されたカテゴリを同期的に保存します:', category);
+    try {
+      const result = saveSelectedCategory(category);
+      event.returnValue = result;
+    } catch (error) {
+      console.error('選択されたカテゴリの同期保存中にエラーが発生しました:', error);
+      event.returnValue = false;
+    }
+  });
+
+  // 以下、元々のIPCハンドラー
+  // ...その他のコード...
+}

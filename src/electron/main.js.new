@@ -1,0 +1,177 @@
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const fsPromises = fs.promises;
+const { PythonShell } = require('python-shell');
+const { debounce } = require('lodash');
+const axios = require('axios');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const { v4: uuidv4 } = require('uuid');
+const chokidar = require('chokidar');
+
+// Python環境とメモリ管理のユーティリティをインポート
+const { checkPythonRuntime, checkPythonPackages } = require('./pythonRuntime');
+const { startPeriodicGC, startSystemMonitoring } = require('./memoryManager');
+const pythonSetupHandler = require('./pythonSetupHandler');
+
+// dotenvを開発モードだけ読み込む
+if (process.env.NODE_ENV === 'development') {
+  require('dotenv').config();
+}
+app.commandLine.appendSwitch('js-flags', '--expose-gc');
+// GC機能の確認とフラグ設定
+// package.jsonのelectron-builder設定例:
+// "build": {
+//   "extraMetadata": {
+//     "main": "main.js"
+//   },
+//   "files": [
+//     "**/*",
+//     "!**/*.{ts,map,md}"
+//   ],
+//   "extraResources": [
+//     "assets/**"
+//   ],
+//   "mac": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "win": {
+//     "executableArgs": ["--expose-gc"]
+//   },
+//   "linux": {
+//     "executableArgs": ["--expose-gc"]
+//   }
+// }
+
+// 自動再起動をスキップするフラグ - ターミナルを走らせ続けるために有効化
+const SKIP_GC_RELAUNCH = true; // trueに設定するとGCフラグがなくても再起動しません
+
+// 開発環境では自動的に--expose-gcフラグを付けて再起動（スキップフラグがfalseの場合のみ）
+if (!process.argv.includes('--expose-gc') && !app.isPackaged && !SKIP_GC_RELAUNCH) {
+  console.log('GC機能を有効化するため、--expose-gcフラグを付けて再起動します');
+  app.relaunch({ args: process.argv.slice(1).concat(['--expose-gc']) });
+  app.exit(0);
+  return;
+}
+
+// GCのポリフィル - GC機能が利用できない場合に代替手段を提供
+if (!global.gc) {
+  console.log('--expose-gcフラグがないため、完全なメモリクリーンアップ機能は使用できません');
+  console.log('ターミナルログを確認するために自動再起動はスキップされました');
+  console.log('完全なGC機能を有効化するには、アプリを終了して以下のコマンドで再起動してください:');
+  console.log('NODE_ENV=development electron --expose-gc .');
+
+  // モックGC関数を提供してエラーを防止
+  global.gc = () => {
+    console.log('⚠️ GC機能の擬似実行: 実際のメモリ解放はされていません');
+    // 可能な限りのメモリ解放処理
+    if (global.window && global.window.performance) {
+      try {
+        const memoryInfo = global.window.performance.memory;
+        console.log(`メモリ使用状況: ${Math.round(memoryInfo.usedJSHeapSize / (1024 * 1024))}MB / ${Math.round(memoryInfo.jsHeapSizeLimit / (1024 * 1024))}MB`);
+      } catch (e) {
+        // メモリ情報取得エラーを無視
+      }
+    }
+
+    try {
+      // 一部のリソースを解放するためのダミー処理
+      if (global.process && typeof global.process.memoryUsage === 'function') {
+        const memUsage = process.memoryUsage();
+        console.log(`プロセスメモリ: RSS=${Math.round(memUsage.rss / (1024 * 1024))}MB, Heap=${Math.round(memUsage.heapUsed / (1024 * 1024))}MB / ${Math.round(memUsage.heapTotal / (1024 * 1024))}MB`);
+      }
+    } catch (e) {
+      console.error('メモリ使用量の取得に失敗しました', e);
+    }
+  };
+}
+
+// プロジェクト設定ファイルのパスを定義
+const PROJECTS_CONFIG_PATH = path.join(app.getPath('userData'), 'projects.json');
+const ACTIVE_PROJECT_PATH = path.join(app.getPath('userData'), 'active-project.json');
+const CATEGORIES_PATH = path.join(app.getPath('userData'), 'categories.json');
+const TAGS_PATH = path.join(app.getPath('userData'), 'tags.json');
+const SELECTED_CATEGORY_PATH = path.join(app.getPath('userData'), 'selected-category.json');
+const SELECTED_TAGS_PATH = path.join(app.getPath('userData'), 'selected-tags.json');
+const PROJECT_DATA_DIR = path.join(app.getPath('userData'), 'projectData');
+
+// 新しいファイルパスを追加（app.getName()を使用）
+const appName = app.getName() || 'electron-app';
+
+// 環境変数からAPIキーを取得
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
+const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
+
+// Pythonブリッジをロード
+let pythonBridge;
+try {
+  // python_scriptsディレクトリの存在を確認し、必要なら作成
+  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
+  if (!fs.existsSync(pythonScriptsDir)) {
+    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
+    fs.mkdirSync(pythonScriptsDir, { recursive: true });
+  }
+
+  // テスト用スクリプトを作成（存在しない場合のみ）
+  const testBridgePath = path.join(pythonScriptsDir, 'test_bridge.py');
+  if (!fs.existsSync(testBridgePath)) {
+    console.log(`テスト用Pythonスクリプトを作成します: ${testBridgePath}`);
+    const testScript = `
+# テスト用Python Bridgeスクリプト
+import sys
+import json
+
+def main():
+    print(json.dumps({
+        "success": True,
+        "message": "Python bridge test script executed successfully"
+    }))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+`;
+    fs.writeFileSync(testBridgePath, testScript.trim(), 'utf8');
+  }
+
+  pythonBridge = require('./python_bridge');
+  console.log('Pythonブリッジを読み込みました');
+} catch (error) {
+  console.error('Pythonブリッジの読み込みに失敗しました:', error);
+  pythonBridge = {
+    checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }),
+  };
+}
+
+// グローバルエラーハンドリング
+process.on('uncaughtException', (error) => {
+  console.error('未捕捉の例外が発生しました:', error);
+  // エラーログを保存するなどの追加処理も可能
+});
+
+// 開発環境かどうかを判定
+const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+let mainWindow;
+
+// グローバル変数としてスプラッシュウィンドウを宣言
+let splashWindow;
+
+// グローバル変数の宣言
+let isElectronAppReloadBlocked = true; // Electronアプリでのリロードをブロックするフラグ
+let isAICodeSaving = false; // AIコード保存中のフラグ
+const projectWatchers = new Map(); // プロジェクトファイル監視用Mapオブジェクト
+
+// 監視するディレクトリ
+const htmlDirectory = isDevelopment
+  ? path.join(__dirname, '..', 'renderer')
+  : path.join(process.resourcesPath, 'app', 'dist');
+// previousFilesをグローバルに宣言して、前回のファイルリストを保持
+let previousFiles = [];
+
+// アプリ起動時に監視を開始するフラグ
+let isDirectoryWatcherInitialized = false;

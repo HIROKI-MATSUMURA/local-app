@@ -10,6 +10,11 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
 const chokidar = require('chokidar');
+
+// Python環境とメモリ管理のユーティリティをインポート
+const { checkPythonRuntime, checkPythonPackages } = require('./pythonRuntime');
+const { startPeriodicGC, startSystemMonitoring } = require('./memoryManager');
+const pythonSetupHandler = require('./pythonSetupHandler');
 // dotenvを開発モードだけ読み込む
 if (process.env.NODE_ENV === 'development') {
   require('dotenv').config();
@@ -551,6 +556,37 @@ function createMainWindow() {
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
+        
+        // Python環境をチェック（UIを表示する）
+        setTimeout(() => {
+          pythonSetupHandler.checkEnvironment(mainWindow, true)
+            .then(isReady => {
+              console.log(`Python環境確認結果（UIあり）: ${isReady ? '準備完了' : '設定が必要'}`);
+              // Python環境が準備できていない場合、ユーザーに通知
+              if (!isReady && mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('python-environment-status', {
+                  ready: false,
+                  message: 'Python環境のセットアップが必要です。マニュアルセットアップウィンドウを表示します。'
+                });
+              } else if (isReady && mainWindow && !mainWindow.isDestroyed()) {
+                // 正常な場合も通知
+                mainWindow.webContents.send('python-environment-status', {
+                  ready: true,
+                  message: 'Python環境のセットアップが完了しています'
+                });
+              }
+            })
+            .catch(error => {
+              console.error('Python環境チェック中にエラーが発生しました:', error);
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('python-environment-status', {
+                  ready: false,
+                  error: true,
+                  message: `Python環境チェック中にエラーが発生しました: ${error.message || '不明なエラー'}`
+                });
+              }
+            });
+        }, 1000);
       }
     }, 500);
   });
@@ -590,6 +626,18 @@ function createMainWindow() {
 
 // アプリの起動が完了したら
 app.whenReady().then(async () => {
+  // メモリ管理を開始
+  if (global.gc) {
+    console.log('メモリ管理: ガベージコレクション機能が有効です');
+    startPeriodicGC(); // memoryManager.jsから提供される関数
+  } else {
+    console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
+  }
+
+  // Python実行環境のチェック
+  const pythonStatus = await checkPythonRuntime();
+  console.log(`Python実行環境ステータス: ${pythonStatus}`);
+  
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
   console.log('ユーザーデータディレクトリ:', userDataPath);
@@ -652,11 +700,11 @@ app.whenReady().then(async () => {
       console.log(`Python 開発リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
     }
 
-    // Pythonの実行パスを設定 - ベストプラクティス
-    // 開発環境ではシステムのPython、本番環境ではバンドルされたPythonを使用
+    // Pythonの実行パスを設定 - システム環境依存版
+    // 常にシステムのPythonを使用する
     const pythonPath = process.platform === 'win32'
-      ? path.join(process.resourcesPath, 'app', 'python', 'python.exe') // Windows
-      : path.join(process.resourcesPath, 'app', 'python', 'python'); // macOS/Linux
+      ? 'python' // Windows
+      : 'python3'; // macOS/Linux
 
     console.log(`使用するPythonパス: ${pythonPath}`);
 
@@ -797,6 +845,9 @@ sys.exit(0)
         path: changedPath
       });
     });
+    
+    // システムモニタリングを開始
+    startSystemMonitoring(mainWindow);
   }, 1000);
 
   // Mac OS の場合、アプリがアクティブ化されたらメインウィンドウを作成
@@ -805,44 +856,7 @@ sys.exit(0)
       createMainWindow();
     }
   });
-  function startPeriodicGC() {
-    console.log('定期的なガベージコレクションを開始します');
-
-    // メモリ使用状況をチェックし、必要に応じてGCを実行
-    const gcInterval = setInterval(() => {
-      try {
-        if (global.gc) {
-          // メモリ使用状況をログ
-          const memUsage = process.memoryUsage();
-          const heapUsedMB = Math.round(memUsage.heapUsed / (1024 * 1024));
-          const rssMemoryMB = Math.round(memUsage.rss / (1024 * 1024));
-
-          // メモリ使用量が一定のしきい値を超えた場合のみGCを実行
-          const HEAP_THRESHOLD_MB = 300; // 300MB
-
-          if (heapUsedMB > HEAP_THRESHOLD_MB) {
-            console.log(`メモリ使用量しきい値超過 (${heapUsedMB}MB)。ガベージコレクションを実行します`);
-            global.gc();
-
-            // GC後のメモリ使用状況をログ
-            const afterGcMemUsage = process.memoryUsage();
-            const afterHeapUsedMB = Math.round(afterGcMemUsage.heapUsed / (1024 * 1024));
-            console.log(`GC後のメモリ使用量: ${afterHeapUsedMB}MB (解放: ${heapUsedMB - afterHeapUsedMB}MB)`);
-          } else {
-            console.log(`現在のメモリ使用量: ${heapUsedMB}MB (ヒープ), ${rssMemoryMB}MB (RSS)`);
-          }
-        }
-      } catch (error) {
-        console.error('定期的なガベージコレクション中にエラーが発生しました:', error);
-      }
-    }, 60000); // 1分ごとにチェック
-
-    // アプリケーション終了時にインターバルをクリア
-    app.on('quit', () => {
-      clearInterval(gcInterval);
-      console.log('定期的なガベージコレクションを停止しました');
-    });
-  }
+  // startPeriodicGC関数はモジュール化されたmemoryManager.jsからインポートされます
 
   // コンソール情報を取得する関数
   function getConsoleInfo() {
@@ -877,20 +891,12 @@ sys.exit(0)
   startConsoleMonitoring();
 
   // メモリ管理を開始
-  if (global.gc) {
-    console.log('メモリ管理: ガベージコレクション機能が有効です');
-    startPeriodicGC();
-  } else {
-    console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
-  }
-
-  // Python実行環境のチェック
-  const pythonStatus = await checkPythonRuntime();
-  console.log(`Python実行環境ステータス: ${pythonStatus}`);
-
-  // JSXファイルのMIMEタイプを設定
-  // ... existing code ...
+  // 注意: この部分は削除されました。
+  // 元のコードは重複していたため、
+  // アプリケーションの起動時にエラーを引き起こしていました。
 });
+
+// Python実行環境チェックはメインのapp.whenReady()ブロック内で行われます。
 
 // Macでアプリケーションが閉じられる際の処理
 app.on('window-all-closed', () => {
@@ -2839,14 +2845,20 @@ $mediaquerys: (
   ipcMain.handle('check-python-environment-status', async () => {
     try {
       console.log('Python環境の状態を確認します');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { installed: false, error: 'Pythonブリッジが初期化されていません' };
+      // pythonSetupHandlerを使用してPython環境をチェック
+      const isReady = await pythonSetupHandler.checkEnvironment(null, false);
+      
+      if (isReady) {
+        return { installed: true, packages: true };
+      } else {
+        // パッケージのチェック結果を取得
+        const pkgResult = await checkPythonPackages();
+        return { 
+          installed: true, 
+          packages: pkgResult.success,
+          missingPackages: pkgResult.missingPackages || []
+        };
       }
-
-      const checkResult = await pythonBridge.checkPythonEnvironment();
-      console.log('Python環境の状態確認結果:', checkResult);
-      return checkResult;
     } catch (error) {
       console.error('Python環境の状態確認エラー:', error);
       return { installed: false, error: error.message || String(error) };
@@ -2856,19 +2868,33 @@ $mediaquerys: (
   ipcMain.handle('install-python-packages', async () => {
     try {
       console.log('Python環境のセットアップを開始します...');
-      const result = await pythonBridge.setupPythonEnvironment();
-      console.log('Python環境セットアップ結果:', result);
+      // pythonSetupHandlerを使用してパッケージをインストール
+      const isSuccess = await pythonSetupHandler.installPackages();
+      console.log('Python環境セットアップ結果:', isSuccess);
 
-      if (result.success) {
-        // ブリッジを再起動
-        await pythonBridge.restart();
-      }
-
-      return result;
+      // セットアップ結果を返す
+      return { 
+        success: isSuccess, 
+        message: isSuccess ? 'パッケージが正常にインストールされました' : 'パッケージのインストールに失敗しました'
+      };
     } catch (error) {
       console.error('Pythonパッケージインストールエラー:', error);
       return { success: false, error: error.message || String(error) };
     }
+  });
+  
+  // Python環境セットアップウィンドウを閉じるためのハンドラー
+  ipcMain.on('close-python-setup', () => {
+    console.log('Python環境セットアップウィンドウを閉じるリクエストを受信しました');
+    pythonSetupHandler.closeSetupWindow();
+  });
+  
+  // 外部URLを開くためのハンドラー
+  ipcMain.on('open-external-url', (event, url) => {
+    console.log(`外部URLを開きます: ${url}`);
+    shell.openExternal(url).catch(err => {
+      console.error('外部URLを開く際にエラーが発生しました:', err);
+    });
   });
 
   // 選択されたカテゴリを同期的に読み込むハンドラー
@@ -3356,78 +3382,9 @@ $mediaquerys: (
     }
   });
 
-  // Python実行環境をチェックする関数
-  async function checkPythonRuntime() {
-    console.log('Python実行環境をチェックしています...');
+  // Python実行環境チェックは外部モジュール(pythonRuntime.js)から提供される関数を使用
 
-    try {
-      // 開発環境と本番環境で異なるPythonパスを使用
-      let pythonPath;
-
-      if (isDevelopment) {
-        // 開発環境ではシステムのPythonを使用
-        pythonPath = process.platform === 'win32' ? 'python' : 'python3';
-        console.log(`開発環境: システムのPythonを使用します: ${pythonPath}`);
-      } else {
-        // 本番環境ではバンドルされたPythonを使用試行
-        const pythonPath = isDevelopment
-          ? process.platform === 'win32' ? 'python' : 'python3'
-          : path.join(process.resourcesPath, 'app', 'python', process.platform === 'win32' ? 'python.exe' : 'python');
-
-        console.log(`本番環境: バンドルされたPythonパス: ${pythonPath}`);
-
-        // バンドルされたPythonが存在するか確認
-        if (!fs.existsSync(pythonPath)) {
-          console.warn(`警告: バンドルされたPython実行ファイルが見つかりません: ${pythonPath}`);
-
-          // フォールバック: システムのPythonを使用
-          const systemPython = process.platform === 'win32' ? 'python' : 'python3';
-          console.log(`フォールバック: システムのPythonを使用します: ${systemPython}`);
-
-          try {
-            // システムPythonの存在確認
-            const { stdout } = await execAsync(`${systemPython} --version`);
-            console.log(`システムPythonのバージョン: ${stdout.trim()}`);
-            pythonPath = systemPython; // システムPythonを使用
-          } catch (error) {
-            console.error(`システムPythonの実行に失敗しました: ${error.message}`);
-            return 'system_not_found';
-          }
-        }
-      }
-
-      // Pythonのバージョンをチェック
-      try {
-        const { stdout } = await execAsync(`"${pythonPath}" --version`);
-        console.log(`Python バージョン: ${stdout.trim()}`);
-        return 'ok';
-      } catch (error) {
-        console.error(`Pythonバージョンチェックエラー: ${error.message}`);
-        return 'version_error';
-      }
-    } catch (error) {
-      console.error('Python実行環境チェックエラー:', error);
-      return 'error';
-    }
-  }
-
-  // アプリの起動が完了したら
-  app.whenReady().then(async () => {
-    // メモリ管理を開始
-    if (global.gc) {
-      console.log('メモリ管理: ガベージコレクション機能が有効です');
-      startPeriodicGC();
-    } else {
-      console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
-    }
-
-    // Python実行環境のチェック
-    const pythonStatus = await checkPythonRuntime();
-    console.log(`Python実行環境ステータス: ${pythonStatus}`);
-
-    // JSXファイルのMIMEタイプを設定
-    // ... existing code ...
-  });
+  // Python実行環境チェックは外部モジュール(pythonRuntime.js)から提供される関数を使用
 }
 
 // プロジェクトデータの保存

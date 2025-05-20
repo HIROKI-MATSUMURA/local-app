@@ -18,7 +18,7 @@
     
     "setup-python": "node scripts/setup-python-env.js",
     "postinstall": "npm run setup-python",
-    "check-python": "node -e \"require('./src/electron/python_bridge').checkPythonEnvironment().then(result => console.log('Python環境チェック結果:', result)).catch(err => console.error('Python環境チェックエラー:', err))\"",
+    "check-python": "node scripts/check-python-environment.js",
     
     "install-python-deps": "python3 -m pip install -r requirements.txt",
     "install-python-deps:win": "python -m pip install -r requirements.txt",

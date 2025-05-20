@@ -1,21 +1,50 @@
 // Electron と基本モジュールの読み込み
-const { app } = require('electron');
-const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+const fsSync = require('fs');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
-const path = require('path');
-const fsSync = require('fs');
+
 // 環境フラグ
 const isNode = typeof window === 'undefined' || (process && process.versions && process.versions.node);
-const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+let app;
+let isDevelopment;
+
+try {
+  // Electron環境で実行されている場合のみElectronモジュールをロード
+  if (process.versions && process.versions.electron) {
+    app = require('electron').app;
+    isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+  } else {
+    // Node.js環境の場合はElectronなしでも動作するようにフラグを設定
+    isDevelopment = process.env.NODE_ENV === 'development';
+    app = { getPath: (name) => name === 'userData' ? path.join(process.cwd(), '.userData') : process.cwd() };
+  }
+} catch (err) {
+  console.log('Electronモジュールのロードに失敗しました。Node.js環境で実行されています。');
+  isDevelopment = process.env.NODE_ENV === 'development';
+  app = { getPath: (name) => name === 'userData' ? path.join(process.cwd(), '.userData') : process.cwd() };
+}
 
 // プロジェクトルート（python_server.py の参照に使用）
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 
 // デバッグログファイル設定
 const DEBUG_LOG = true; // デバッグログを有効化
-const LOG_FILE_PATH = isNode ? path.join(app.getPath('userData'), 'python_bridge_debug.log') : null;
+let LOG_FILE_PATH = null;
+if (isNode) {
+  try {
+    const logDir = app.getPath('userData');
+    // ディレクトリが存在しない場合は作成
+    if (!fsSync.existsSync(logDir)) {
+      fsSync.mkdirSync(logDir, { recursive: true });
+    }
+    LOG_FILE_PATH = path.join(logDir, 'python_bridge_debug.log');
+  } catch (err) {
+    console.log('ログディレクトリの作成に失敗しました:', err);
+    LOG_FILE_PATH = null;
+  }
+}
 
 // デバッグログ関数
 function debugLog(message) {
@@ -30,6 +59,8 @@ function debugLog(message) {
       fsSync.appendFileSync(LOG_FILE_PATH, logMessage + '\n');
     } catch (err) {
       console.error('ログファイル書き込みエラー:', err);
+      // エラー後はログファイルへの書き込みを無効化
+      LOG_FILE_PATH = null;
     }
   }
 }
@@ -49,18 +80,34 @@ if (isNode) {
       if (fsSync.existsSync(LOG_FILE_PATH)) {
         const stats = fsSync.statSync(LOG_FILE_PATH);
         if (stats.size > 10 * 1024 * 1024) {
-          debugLog('ログファイルが大きすぎるため、リセットします');
-          fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+          console.log('ログファイルが大きすぎるため、リセットします');
+          try {
+            fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+          } catch (writeErr) {
+            console.error('ログファイル書き込みエラー:', writeErr);
+            LOG_FILE_PATH = null;
+          }
         }
       } else {
-        fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+        try {
+          fsSync.writeFileSync(LOG_FILE_PATH, `=== Python Bridge Debug Log (${new Date().toISOString()}) ===\n`);
+        } catch (writeErr) {
+          console.error('ログファイル書き込みエラー:', writeErr);
+          LOG_FILE_PATH = null;
+        }
       }
+      
       debugLog('Python Bridge デバッグログを開始しました');
-      debugLog(`アプリバージョン: ${app.getVersion()}`);
+      if (process.versions && process.versions.electron) {
+        debugLog(`アプリバージョン: ${app.getVersion()}`);
+      } else {
+        debugLog(`Node.js環境で実行中`);
+      }
       debugLog(`OS: ${process.platform} ${os.release()}`);
       debugLog(`Node.js: ${process.version}`);
     } catch (err) {
       console.error('ログファイル初期化エラー:', err);
+      LOG_FILE_PATH = null;
     }
   }
 } else {
