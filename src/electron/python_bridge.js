@@ -268,6 +268,8 @@ class PythonBridge {
           PYTHONIOENCODING: 'utf-8',
           PYTHONUNBUFFERED: '1',
           PYTHONDONTWRITEBYTECODE: '1',
+          // ユーザーのPythonパッケージパスを追加（環境変数の問題を解決）
+          PYTHONPATH: `${process.env.PYTHONPATH || ''}:${os.homedir()}/Library/Python/3.8/lib/python/site-packages:${os.homedir()}/Library/Python/3.9/lib/python/site-packages`
         },
         windowsHide: true,
         shell: process.platform === 'win32', // Windowsでは必ずshellをtrueに設定
