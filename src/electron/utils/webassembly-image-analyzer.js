@@ -5,7 +5,7 @@
  */
 
 // OpenCV.js をインポート
-import cv from '@opencv-js/opencv.js';
+import cv from '@techstark/opencv-js';
 // Tesseract.js をインポート
 import { createWorker } from 'tesseract.js';
 // ブリッジアダプターの関数登録メソッドをインポート

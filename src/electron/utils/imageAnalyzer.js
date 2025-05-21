@@ -5,7 +5,7 @@
  */
 
 // OpenCV.js と Tesseract.js をロード（外部依存は main.js で行われる想定）
-import cv from '@opencv-js/opencv.js';
+import cv from '@techstark/opencv-js';
 import { createWorker } from 'tesseract.js';
 
 // 開発モードかどうかを確認

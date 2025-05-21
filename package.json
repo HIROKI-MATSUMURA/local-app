@@ -10,24 +10,19 @@
     "vite-dev": "vite",
     "prebuild": "node scripts/inject-env-to-config.js",
     "vite-build": "npm run prebuild && vite build",
-    
     "dev": "npm run vite-build && npm run electron-dev",
     "dev:win": "npm run vite-build && npm run electron-dev:win",
     "dev:debug": "NODE_ENV=development ELECTRON_ENABLE_LOGGING=true ELECTRON_ENABLE_STACK_DUMPING=true DEBUG=* electron --js-flags=\"--expose-gc\" .",
     "dev:nodeintegration": "NODE_ENV=development ELECTRON_FORCE_IS_PACKAGED=true npm run electron-dev",
-    
     "package-mac": "npm run prebuild && npm run vite-build && electron-builder --mac",
     "package-win": "npm run prebuild && npm run vite-build && electron-builder --win --x64",
     "package-win-universal": "npm run prebuild && npm run vite-build && electron-builder --win --x64 --ia32",
-    
     "test-webassembly": "node test/test-webassembly.js"
   },
   "devDependencies": {
-    "canvas": "^2.11.2",
     "concurrently": "7.6.0",
     "electron": "33.3.1",
     "electron-builder": "^24.13.3",
-    "jsdom": "^23.0.1",
     "sass": "^1.86.3",
     "vite": "^6.3.3",
     "wait-on": "^8.0.3"
@@ -45,7 +40,7 @@
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
-    "@opencv-js/opencv.js": "^4.9.4",
+    "@techstark/opencv-js": "^4.10.0-release.1",
     "@vitejs/plugin-react": "^4.4.1",
     "antd": "^5.24.6",
     "axios": "^0.27.2",
@@ -61,7 +56,7 @@
     "highlight.js": "^11.11.1",
     "lodash": "^4.17.21",
     "openai": "^4.93.0",
-    "photon-web": "^0.1.1",
+    "photon-web": "^0.3.2",
     "react": "^18.2.0",
     "react-codemirror2": "^8.0.1",
     "react-dom": "^18.2.0",
@@ -85,7 +80,7 @@
     "asar": true,
     "asarUnpack": [
       "src/electron/**",
-      "node_modules/@opencv-js/**",
+      "node_modules/@techstark/**",
       "node_modules/tesseract.js/**",
       "node_modules/photon-web/**"
     ],

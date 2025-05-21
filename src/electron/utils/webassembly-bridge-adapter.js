@@ -4,7 +4,7 @@
  * 既存コードとの互換性を保ちつつ、Python依存を排除します
  */
 
-import cv from '@opencv-js/opencv.js';
+import cv from '@techstark/opencv-js';
 import { createWorker } from 'tesseract.js';
 
 // ロード状態の管理
