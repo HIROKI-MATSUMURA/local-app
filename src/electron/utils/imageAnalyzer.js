@@ -1,9 +1,11 @@
 /**
  * 画像分析ユーティリティ
- * Electronモードの場合はMainプロセス経由でPython処理を実行、
- * ブラウザモードの場合はテスト/デモ用の警告を表示
+ * WebAssembly実装による画像処理機能を提供します
+ * 以前のPython版からの完全移行版
  */
 
+// OpenCV.js と Tesseract.js をロード（外部依存は main.js で行われる想定）
+import cv from '@opencv-js/opencv.js';
 import { createWorker } from 'tesseract.js';
 
 // 開発モードかどうかを確認
@@ -16,9 +18,9 @@ if (typeof window !== 'undefined' && !window.api) {
   // 最小限のダミーAPIを提供
   window.api = {
     isElectron: false,
-    extractColorsFromImage: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではPython処理は利用できません' }),
-    extractTextFromImage: () => Promise.resolve({ success: false, data: '', error: 'ブラウザ環境ではPython処理は利用できません' }),
-    analyzeImageSections: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではPython処理は利用できません' })
+    extractColorsFromImage: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではWebAssembly処理は直接実行できません' }),
+    extractTextFromImage: () => Promise.resolve({ success: false, data: '', error: 'ブラウザ環境ではWebAssembly処理は直接実行できません' }),
+    analyzeImageSections: () => Promise.resolve({ success: false, data: [], error: 'ブラウザ環境ではWebAssembly処理は直接実行できません' })
   };
 }
 
@@ -68,11 +70,14 @@ if (isElectron()) {
   }
 }
 
-// Python版の画像分析ユーティリティをインポート（ただしブラウザでは使用しない）
-import * as pythonAnalyzer from './python_bridge_adapter';
+// WebAssembly版の画像分析ユーティリティをインポート
+import * as wasmAnalyzer from './webassembly-image-analyzer';
+import * as wasmBridge from './webassembly-bridge-adapter';
 
 /**
  * 画像の主要な色を抽出する
+ * @param {string} imageBase64 - Base64エンコードされた画像データ
+ * @returns {Promise<Array>} 抽出された色のリスト
  */
 const extractColorsFromImage = async (imageBase64) => {
   const electronEnv = isElectron();
@@ -91,28 +96,30 @@ const extractColorsFromImage = async (imageBase64) => {
   }
 
   try {
-    // Electronのメインプロセス経由でPython処理を実行
-    const result = await window.api.extractColorsFromImage(imageBase64);
-
-    if (result.success) {
-      return result.data;
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      const colors = await wasmAnalyzer.extractColorsFromImage(imageBase64);
+      return colors;
     } else {
-      if (!result?.success) {
-        console.error('Python処理エラー:', result?.error ?? 'unknown');
-      }
+      // Electronのメインプロセス経由で実行（既存互換モード）
+      const result = await window.api.extractColorsFromImage(imageBase64);
 
-      // エラー時のフォールバックカラー
-      return [
-        'rgb(200, 200, 200)', // ライトグレー
-        'rgb(150, 150, 150)', // ミディアムグレー
-        'rgb(100, 100, 100)', // ダークグレー
-        'rgb(50, 50, 50)',    // ベリーダークグレー
-        'rgb(0, 0, 0)'        // ブラック
-      ];
+      if (result.success) {
+        return result.data;
+      } else {
+        console.error('色抽出エラー:', result?.error ?? 'unknown');
+        // エラー時のフォールバックカラー
+        return [
+          'rgb(200, 200, 200)', // ライトグレー
+          'rgb(150, 150, 150)', // ミディアムグレー
+          'rgb(100, 100, 100)', // ダークグレー
+          'rgb(50, 50, 50)',    // ベリーダークグレー
+          'rgb(0, 0, 0)'        // ブラック
+        ];
+      }
     }
   } catch (error) {
-    console.error("Python画像処理エラー:", error);
-
+    console.error("色抽出エラー:", error);
     // エラー時のフォールバックカラー
     return [
       'rgb(200, 200, 200)', // ライトグレー
@@ -126,6 +133,8 @@ const extractColorsFromImage = async (imageBase64) => {
 
 /**
  * 画像からテキストを抽出する（OCR）
+ * @param {string} imageBase64 - Base64エンコードされた画像データ
+ * @returns {Promise<string|object>} 抽出されたテキスト
  */
 const extractTextFromImage = async (imageBase64) => {
   if (!isElectron()) {
@@ -134,25 +143,32 @@ const extractTextFromImage = async (imageBase64) => {
   }
 
   try {
-    // Electronのメインプロセス経由でPython処理を実行
-    const result = await window.api.extractTextFromImage(imageBase64);
-
-    if (result && result.success) {
-      return result.data;
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      const result = await wasmAnalyzer.extractTextFromImage(imageBase64);
+      return result.text || '';
     } else {
-      const errorMessage = result?.error ?? '不明なエラー（successがfalse）';
-      console.error("Python OCR処理エラー:", errorMessage);
-      return "OCR処理中にエラーが発生しました。";
+      // Electronのメインプロセス経由で実行（既存互換モード）
+      const result = await window.api.extractTextFromImage(imageBase64);
+
+      if (result && result.success) {
+        return result.data;
+      } else {
+        const errorMessage = result?.error ?? '不明なエラー（successがfalse）';
+        console.error("OCR処理エラー:", errorMessage);
+        return "OCR処理中にエラーが発生しました。";
+      }
     }
   } catch (error) {
-    console.error("Python OCR処理中に例外が発生しました:", error);
-    return "OCR処理中に例外が発生しました。";
+    console.error("OCR処理中にエラーが発生しました:", error);
+    return "OCR処理中にエラーが発生しました。";
   }
-
 };
 
 /**
  * 画像のセクション分析機能
+ * @param {string} imageBase64 - Base64エンコードされた画像データ
+ * @returns {Promise<Array>} セクション情報の配列
  */
 const analyzeImageSections = async (imageBase64) => {
   if (!isElectron()) {
@@ -189,35 +205,45 @@ const analyzeImageSections = async (imageBase64) => {
   }
 
   try {
-    // Electronのメインプロセス経由でPython処理を実行
-    const result = await window.api.analyzeImageSections(imageBase64);
-
-    if (result.success) {
-      return result.data;
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      const sections = await wasmAnalyzer.analyzeImageSections(imageBase64);
+      return sections;
     } else {
-      console.error("Python セクション分析エラー:", result.error);
-      // エラー時のダミーデータを返す
-      return [];
+      // Electronのメインプロセス経由で実行（既存互換モード）
+      const result = await window.api.analyzeImageSections(imageBase64);
+
+      if (result.success) {
+        return result.data;
+      } else {
+        console.error("セクション分析エラー:", result.error);
+        return [];
+      }
     }
   } catch (error) {
-    console.error("Python セクション分析エラー:", error);
+    console.error("セクション分析エラー:", error);
     return [];
   }
 };
 
 /**
  * レイアウトパターンを分析する関数
- * @param {string} imagePath - 分析する画像のパス
+ * @param {string} imageData - 分析する画像データ
  * @returns {Promise<Object>} - レイアウトタイプとその確信度を含むオブジェクト
  */
-const analyzeLayoutPattern = async (imagePath) => {
+const analyzeLayoutPattern = async (imageData) => {
   try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.analyzeLayoutPattern(imagePath);
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      return await wasmAnalyzer.analyzeLayoutPattern(imageData);
+    } else {
+      // 既存の橋渡し実装を使用
+      return await wasmBridge.analyzeLayoutPattern(imageData);
+    }
   } catch (error) {
-    console.error("Python版レイアウト分析でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+    console.error("レイアウト分析でエラーが発生しました。フォールバックを使用します。", error);
 
-    // フォールバック: JavaScriptでの実装（元のコード）
+    // フォールバック: 簡易実装
     try {
       // デフォルトの結果オブジェクト
       const result = {
@@ -247,7 +273,7 @@ const analyzeLayoutPattern = async (imagePath) => {
 
       // 画像から色を抽出
       try {
-        const colors = await extractColorsFromImage(imagePath);
+        const colors = await extractColorsFromImage(imageData);
         result.layoutDetails.styles.colors = colors;
       } catch (error) {
         console.error('色の抽出に失敗しました:', error);
@@ -256,7 +282,7 @@ const analyzeLayoutPattern = async (imagePath) => {
 
       // テキストを抽出
       try {
-        const text = await extractTextFromImage(imagePath);
+        const text = await extractTextFromImage(imageData);
         result.layoutDetails.text = text;
       } catch (error) {
         console.error('テキストの抽出に失敗しました:', error);
@@ -265,7 +291,7 @@ const analyzeLayoutPattern = async (imagePath) => {
 
       // セクション分析
       try {
-        const sections = await analyzeImageSections(imagePath);
+        const sections = await analyzeImageSections(imageData);
         result.layoutDetails.sections = sections;
       } catch (error) {
         console.error('セクション分析に失敗しました:', error);
@@ -300,18 +326,25 @@ const analyzeLayoutPattern = async (imagePath) => {
 
 /**
  * 画像からヘッダー、メイン、フッターセクションを推測
+ * @param {string} imageData - 分析する画像データ
+ * @returns {Promise<Object>} セクション情報
  */
-const detectMainSections = async (imagePath) => {
+const detectMainSections = async (imageData) => {
   try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.detectMainSections(imagePath);
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      return await wasmAnalyzer.detectMainSections(imageData);
+    } else {
+      // 既存の橋渡し実装を使用
+      return await wasmBridge.detectMainSections(imageData);
+    }
   } catch (error) {
-    console.error("Python版メインセクション検出でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+    console.error("メインセクション検出でエラーが発生しました。フォールバックを使用します。", error);
 
-    // フォールバック: JavaScriptでの実装（元のコード）
+    // フォールバック: 簡易実装
     try {
       // レイアウトパターンを分析
-      const layoutAnalysis = await analyzeLayoutPattern(imagePath);
+      const layoutAnalysis = await analyzeLayoutPattern(imageData);
 
       // 基本情報（仮の値）
       const result = {
@@ -373,18 +406,25 @@ const detectMainSections = async (imagePath) => {
 
 /**
  * カード要素を検出する
+ * @param {string} imageData - 分析する画像データ
+ * @returns {Promise<Object>} 検出されたカード要素情報
  */
-const detectCardElements = async (imagePath) => {
+const detectCardElements = async (imageData) => {
   try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.detectCardElements(imagePath);
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      return await wasmAnalyzer.detectCardElements(imageData);
+    } else {
+      // 既存の橋渡し実装を使用
+      return await wasmBridge.detectCardElements(imageData);
+    }
   } catch (error) {
-    console.error("Python版カード要素検出でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+    console.error("カード要素検出でエラーが発生しました。フォールバックを使用します。", error);
 
-    // フォールバック: JavaScriptでの実装（元のコード）
+    // フォールバック: 簡易実装
     try {
       // レイアウトパターンを分析
-      const layoutAnalysis = await analyzeLayoutPattern(imagePath);
+      const layoutAnalysis = await analyzeLayoutPattern(imageData);
 
       // カード要素を検出（仮の結果）
       const result = {
@@ -438,18 +478,25 @@ const detectCardElements = async (imagePath) => {
 
 /**
  * 特徴的な要素（ボタン、フォーム、ナビゲーションなど）を検出
+ * @param {string} imageData - 分析する画像データ
+ * @returns {Promise<Object>} 検出された要素情報
  */
-const detectFeatureElements = async (imagePath) => {
+const detectFeatureElements = async (imageData) => {
   try {
-    // Python版の実装を使用
-    return await pythonAnalyzer.detectFeatureElements(imagePath);
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      return await wasmAnalyzer.detectFeatureElements(imageData);
+    } else {
+      // 既存の橋渡し実装を使用
+      return await wasmBridge.detectFeatureElements(imageData);
+    }
   } catch (error) {
-    console.error("Python版特徴要素検出でエラーが発生しました。JavaScriptバージョンにフォールバックします。", error);
+    console.error("特徴要素検出でエラーが発生しました。フォールバックを使用します。", error);
 
-    // フォールバック: JavaScriptでの実装（元のコード）
+    // フォールバック: 簡易実装
     try {
       // レイアウトパターンを分析
-      const layoutAnalysis = await analyzeLayoutPattern(imagePath);
+      const layoutAnalysis = await analyzeLayoutPattern(imageData);
 
       // 特徴的な要素を検出（仮の結果）
       const result = {
@@ -505,83 +552,74 @@ const detectFeatureElements = async (imagePath) => {
 };
 
 /**
- * 画像の主要色を抽出するヘルパー関数
+ * 画像解析処理をまとめて実行する
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @param {object} options - オプション
+ * @returns {Promise<object>} 総合分析結果
  */
-function getDominantColor(pixelData) {
-  const colorMap = {};
-
-  // ピクセルデータからRGBカラーを抽出してカウント
-  for (let i = 0; i < pixelData.length; i += 4) {
-    const r = pixelData[i];
-    const g = pixelData[i + 1];
-    const b = pixelData[i + 2];
-
-    // 量子化して同じような色をまとめる
-    const quantizedR = Math.round(r / 32) * 32;
-    const quantizedG = Math.round(g / 32) * 32;
-    const quantizedB = Math.round(b / 32) * 32;
-
-    const colorKey = `${quantizedR},${quantizedG},${quantizedB}`;
-    colorMap[colorKey] = (colorMap[colorKey] || 0) + 1;
+const analyzeAll = async (imageData, options = {}) => {
+  if (!isElectron()) {
+    console.log("Electron環境外での実行 - ダミーデータを返します");
+    return {
+      success: false,
+      error: "ブラウザ環境では直接実行できません",
+      data: {}
+    };
   }
 
-  // 最も多い色を取得
-  let dominantColorKey = "";
-  let maxCount = 0;
-
-  for (const [color, count] of Object.entries(colorMap)) {
-    if (count > maxCount) {
-      maxCount = count;
-      dominantColorKey = color;
+  try {
+    if (window.api && window.api.useWebAssembly !== false) {
+      // WebAssembly実装を直接使用
+      return await wasmAnalyzer.analyzeAll(imageData, options);
+    } else {
+      // メインプロセス経由で実行（既存モード）
+      if (window.api.analyzeAll) {
+        return await window.api.analyzeAll(imageData, options);
+      } else {
+        // 個別APIを使って集約（後方互換性）
+        const colors = await extractColorsFromImage(imageData);
+        const text = await extractTextFromImage(imageData);
+        const sections = await analyzeImageSections(imageData);
+        
+        const result = {
+          success: true,
+          data: {
+            colors,
+            text,
+            sections
+          }
+        };
+        
+        // オプションに応じて追加情報を取得
+        if (options.detectCards !== false) {
+          result.data.cards = await detectCardElements(imageData);
+        }
+        
+        if (options.detectFeatures !== false) {
+          result.data.elements = await detectFeatureElements(imageData);
+        }
+        
+        // レイアウト分析は常に実行
+        result.data.layout = await analyzeLayoutPattern(imageData);
+        
+        return result;
+      }
     }
+  } catch (error) {
+    console.error("総合画像分析エラー:", error);
+    return {
+      success: false,
+      error: `画像分析エラー: ${error.message}`,
+      data: {}
+    };
   }
+};
 
-  // RGBカラーを取得
-  const [r, g, b] = dominantColorKey.split(",").map(Number);
-  const hexColor = `#${r.toString(16).padStart(2, "0")}${g
-    .toString(16)
-    .padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+// WebAssembly環境チェック関数をエクスポート（Python環境チェックの代替）
+export const checkPythonEnvironment = wasmBridge.checkPythonEnvironment;
+export const setupPythonEnvironment = wasmBridge.setupPythonEnvironment;
 
-  return {
-    rgb: `rgb(${r}, ${g}, ${b})`,
-    hex: hexColor,
-  };
-}
-
-/**
- * 画像から主要な色を抽出
- */
-function extractDominantColor(imageData) {
-  // カラーマップを作成
-  const colorMap = {};
-  for (let i = 0; i < imageData.length; i += 4) {
-    const r = imageData[i];
-    const g = imageData[i + 1];
-    const b = imageData[i + 2];
-    const key = `${r},${g},${b}`;
-    colorMap[key] = (colorMap[key] || 0) + 1;
-  }
-
-  // 最も多い色を抽出
-  let maxColor = '';
-  let maxCount = 0;
-  for (const [color, count] of Object.entries(colorMap)) {
-    if (count > maxCount) {
-      maxCount = count;
-      maxColor = color;
-    }
-  }
-
-  // RGBを解析
-  const [r, g, b] = maxColor.split(',').map(Number);
-
-  return `rgb(${r},${g},${b})`;
-}
-
-// Python環境をチェックする関数をエクスポート
-export const checkPythonEnvironment = pythonAnalyzer.checkPythonEnvironment;
-export const setupPythonEnvironment = pythonAnalyzer.setupPythonEnvironment;
-
+// 関数をエクスポート
 export {
   extractColorsFromImage,
   extractTextFromImage,
@@ -589,5 +627,6 @@ export {
   analyzeLayoutPattern,
   detectMainSections,
   detectCardElements,
-  detectFeatureElements
+  detectFeatureElements,
+  analyzeAll
 };

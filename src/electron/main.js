@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electro
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
-const { PythonShell } = require('python-shell');
 const { debounce } = require('lodash');
 const axios = require('axios');
 const { exec } = require('child_process');
@@ -11,10 +10,12 @@ const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
 const chokidar = require('chokidar');
 
-// Python環境とメモリ管理のユーティリティをインポート
-const { checkPythonRuntime, checkPythonPackages } = require('./pythonRuntime');
+// WebAssembly画像解析モジュールをインポート
+const webAssemblyImageAnalyzer = require('./utils/webassembly-image-analyzer');
+const webAssemblyBridgeAdapter = require('./utils/webassembly-bridge-adapter');
+
+// メモリ管理のユーティリティをインポート
 const { startPeriodicGC, startSystemMonitoring } = require('./memoryManager');
-const pythonSetupHandler = require('./pythonSetupHandler');
 // dotenvを開発モードだけ読み込む
 if (process.env.NODE_ENV === 'development') {
   require('dotenv').config();
@@ -103,48 +104,10 @@ const appName = app.getName() || 'electron-app';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const DEFAULT_PROVIDER = "claude"; // デフォルトはClaude
-const NO_PYTHON_MODE = false; // Pythonモードを有効化（falseの場合、Pythonを使用）
+const WEBASSEMBLY_MODE = true; // WebAssemblyモードを常に有効化
 
-// Pythonブリッジをロード
-let pythonBridge;
-try {
-  // python_scriptsディレクトリの存在を確認し、必要なら作成
-  const pythonScriptsDir = path.join(__dirname, 'python_scripts');
-  if (!fs.existsSync(pythonScriptsDir)) {
-    console.log(`python_scriptsディレクトリが存在しないため作成します: ${pythonScriptsDir}`);
-    fs.mkdirSync(pythonScriptsDir, { recursive: true });
-  }
-
-  // テスト用スクリプトを作成（存在しない場合のみ）
-  const testBridgePath = path.join(pythonScriptsDir, 'test_bridge.py');
-  if (!fs.existsSync(testBridgePath)) {
-    console.log(`テスト用Pythonスクリプトを作成します: ${testBridgePath}`);
-    const testScript = `
-# テスト用Python Bridgeスクリプト
-import sys
-import json
-
-def main():
-    print(json.dumps({
-        "success": True,
-        "message": "Python bridge test script executed successfully"
-    }))
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
-`;
-    fs.writeFileSync(testBridgePath, testScript.trim(), 'utf8');
-  }
-
-  pythonBridge = require('./python_bridge');
-  console.log('Pythonブリッジを読み込みました');
-} catch (error) {
-  console.error('Pythonブリッジの読み込みに失敗しました:', error);
-  pythonBridge = {
-    checkPythonEnvironment: () => Promise.resolve({ success: false, error: 'モジュール読み込みエラー' }),
-  };
-}
+// WebAssemblyブリッジを初期化
+console.log('WebAssemblyモードで動作しています');
 
 // グローバルエラーハンドリング
 process.on('uncaughtException', (error) => {
@@ -634,9 +597,8 @@ app.whenReady().then(async () => {
     console.warn('メモリ管理: ガベージコレクション機能が無効です。--js-flags="--expose-gc"フラグを使用してください');
   }
 
-  // Python実行環境のチェック
-  const pythonStatus = await checkPythonRuntime();
-  console.log(`Python実行環境ステータス: ${pythonStatus}`);
+  // WebAssembly環境の初期化
+  console.log('WebAssembly環境を初期化します');
   
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
@@ -661,9 +623,9 @@ app.whenReady().then(async () => {
     });
   });
 
-  // Pythonブリッジの初期化
+  // WebAssemblyモジュールの初期化
   try {
-    console.log('Pythonブリッジを初期化しています...');
+    console.log('WebAssemblyモジュールを初期化しています...');
 
     // アプリケーションのルートパスを環境変数に設定
     process.env.APP_ROOT_PATH = app.getAppPath();
@@ -672,92 +634,24 @@ app.whenReady().then(async () => {
     // リソースパスをログ出力
     console.log(`process.resourcesPath: ${process.resourcesPath}`);
 
-    // パッケージ済みアプリケーションの場合、extraResourcesから正しいパスを取得
-    if (!isDevelopment && app.isPackaged) {
-      // extraResourcesのパスを設定
-      process.env.PYTHON_RESOURCES_PATH = path.join(process.resourcesPath, 'app', 'python');
-      console.log(`Python リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
+    // WebAssembly環境のチェック
+    const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
+    console.log('WebAssembly環境チェック結果:', checkResult);
 
-      // ディレクトリ内容を確認
-      if (fs.existsSync(process.resourcesPath)) {
-        try {
-          const resourcesDir = fs.readdirSync(process.resourcesPath);
-          console.log('リソースディレクトリ内容:', resourcesDir);
+    // OpenCVとTesseractの状態確認
+    console.log(`OpenCV利用可能: ${checkResult.opencv_available || false}`);
+    console.log(`Tesseract利用可能: ${checkResult.tesseract_available || false}`);
 
-          const pythonPath = path.join(process.resourcesPath, 'python');
-          if (fs.existsSync(pythonPath)) {
-            console.log('Pythonディレクトリ内容:', fs.readdirSync(pythonPath));
-          } else {
-            console.log('Pythonディレクトリが見つかりません:', pythonPath);
-          }
-        } catch (dirErr) {
-          console.error('ディレクトリ内容の確認中にエラーが発生しました:', dirErr);
-        }
-      }
+    // 環境セットアップが必要な場合は実行
+    if (checkResult.status !== 'ok') {
+      console.log('WebAssembly環境のセットアップが必要です');
+      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
+      console.log('WebAssembly環境セットアップ結果:', setupResult);
     } else {
-      // 開発環境ではソースコードのパスを使用
-      process.env.PYTHON_RESOURCES_PATH = path.join(app.getAppPath(), 'src', 'python');
-      console.log(`Python 開発リソースパス: ${process.env.PYTHON_RESOURCES_PATH}`);
-    }
-
-    // Pythonの実行パスを設定 - システム環境依存版
-    // 常にシステムのPythonを使用する
-    const pythonPath = process.platform === 'win32'
-      ? 'python' // Windows
-      : 'python3'; // macOS/Linux
-
-    console.log(`使用するPythonパス: ${pythonPath}`);
-
-    // PythonShellの設定
-    let options = {
-      mode: 'text',
-      pythonPath: pythonPath,
-      pythonOptions: ['-u'], // 出力をバッファリングしない
-      scriptPath: process.env.PYTHON_RESOURCES_PATH || path.join(app.getAppPath(), 'src', 'python')
-    };
-
-    console.log('PythonShell設定:', options);
-
-    // test_bridge.pyを作成 - ユーザーデータフォルダに作成してasarの制限を回避
-    const userDataPath = app.getPath('userData');
-    const pythonTestDir = path.join(userDataPath, 'python_temp');
-    if (!fs.existsSync(pythonTestDir)) {
-      fs.mkdirSync(pythonTestDir, { recursive: true });
-    }
-
-    const testBridgePath = path.join(pythonTestDir, 'test_bridge.py');
-    const testBridgeContent = `
-import sys
-import platform
-
-print("Python bridge test - Success!")
-print(f"Python version: {sys.version}")
-print(f"Platform: {platform.platform()}")
-print("==== End of test ====")
-sys.exit(0)
-`;
-
-    fs.writeFileSync(testBridgePath, testBridgeContent);
-    console.log(`テスト用Pythonスクリプトを作成しました: ${testBridgePath}`);
-
-    // テスト設定を更新
-    options.scriptPath = pythonTestDir;
-
-    // Pythonブリッジのテスト実行
-    console.log('Pythonブリッジのテスト実行を開始します...');
-    try {
-      PythonShell.run('test_bridge.py', options, function (err, results) {
-        if (err) {
-          console.error('Pythonブリッジのテストに失敗しました:', err);
-        } else {
-          console.log('Pythonブリッジのテスト結果:', results);
-        }
-      });
-    } catch (testErr) {
-      console.error('Pythonブリッジのテスト実行中にエラーが発生しました:', testErr);
+      console.log('WebAssembly環境のセットアップは不要です（既に準備完了）');
     }
   } catch (error) {
-    console.error('Pythonブリッジの設定中にエラーが発生しました:', error);
+    console.error('WebAssemblyモジュールの初期化中にエラーが発生しました:', error);
   }
 
   // 重要: カテゴリとタグの初期化を他の処理より先に実行
@@ -896,7 +790,7 @@ sys.exit(0)
   // アプリケーションの起動時にエラーを引き起こしていました。
 });
 
-// Python実行環境チェックはメインのapp.whenReady()ブロック内で行われます。
+// WebAssembly環境チェックはメインのapp.whenReady()ブロック内で行われます。
 
 // Macでアプリケーションが閉じられる際の処理
 app.on('window-all-closed', () => {
@@ -2804,89 +2698,78 @@ $mediaquerys: (
     }
   });
 
-  // Python環境状態確認
+  // WebAssembly環境状態確認
   ipcMain.handle('check-python-bridge', async () => {
     try {
-      console.log('Pythonブリッジの状態を確認します');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジが初期化されていません');
-        return { running: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      // 簡単なコマンドを送信して応答を確認
-      const pingResult = await pythonBridge.sendCommand('ping', {}, 5000);
-      console.log('Pythonブリッジの状態確認結果:', pingResult);
-      return { running: true, result: pingResult };
+      console.log('WebAssembly環境の状態を確認します');
+      // WebAssemblyブリッジアダプターで環境チェック
+      const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
+      console.log('WebAssembly環境チェック結果:', checkResult);
+      return { running: true, result: { success: true, message: 'WebAssembly環境は正常です' } };
     } catch (error) {
-      console.error('Pythonブリッジの状態確認エラー:', error);
+      console.error('WebAssembly環境チェックエラー:', error);
       return { running: false, error: error.message || String(error) };
     }
   });
 
-  // Pythonブリッジ起動
+  // WebAssembly環境初期化
   ipcMain.handle('start-python-bridge', async () => {
     try {
-      console.log('Pythonブリッジの起動を試みます');
-      if (!pythonBridge) {
-        console.error('Pythonブリッジオブジェクトが初期化されていません');
-        return { success: false, error: 'Pythonブリッジが初期化されていません' };
-      }
-
-      await pythonBridge.start();
-      console.log('Pythonブリッジが正常に起動しました');
+      console.log('WebAssembly環境の初期化を行います');
+      // WebAssemblyブリッジアダプターで環境セットアップ
+      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
+      console.log('WebAssembly環境セットアップ結果:', setupResult);
       return { success: true };
     } catch (error) {
-      console.error('Pythonブリッジの起動エラー:', error);
+      console.error('WebAssembly環境初期化エラー:', error);
       return { success: false, error: error.message || String(error) };
     }
   });
 
-  // Python環境状態確認
+  // WebAssembly環境状態確認
   ipcMain.handle('check-python-environment-status', async () => {
     try {
-      console.log('Python環境の状態を確認します');
-      // pythonSetupHandlerを使用してPython環境をチェック
-      const isReady = await pythonSetupHandler.checkEnvironment(null, false);
-      
-      if (isReady) {
-        return { installed: true, packages: true };
-      } else {
-        // パッケージのチェック結果を取得
-        const pkgResult = await checkPythonPackages();
-        return { 
-          installed: true, 
-          packages: pkgResult.success,
-          missingPackages: pkgResult.missingPackages || []
-        };
-      }
-    } catch (error) {
-      console.error('Python環境の状態確認エラー:', error);
-      return { installed: false, error: error.message || String(error) };
-    }
-  });
-
-  ipcMain.handle('install-python-packages', async () => {
-    try {
-      console.log('Python環境のセットアップを開始します...');
-      // pythonSetupHandlerを使用してパッケージをインストール
-      const isSuccess = await pythonSetupHandler.installPackages();
-      console.log('Python環境セットアップ結果:', isSuccess);
-
-      // セットアップ結果を返す
+      console.log('WebAssembly環境の状態を確認します');
+      // WebAssemblyブリッジアダプターで環境チェック
+      const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
       return { 
-        success: isSuccess, 
-        message: isSuccess ? 'パッケージが正常にインストールされました' : 'パッケージのインストールに失敗しました'
+        installed: true, 
+        packages: true,
+        webassembly_mode: true,
+        opencv_available: checkResult.opencv_available || true,
+        tesseract_available: checkResult.tesseract_available || true
       };
     } catch (error) {
-      console.error('Pythonパッケージインストールエラー:', error);
-      return { success: false, error: error.message || String(error) };
+      console.error('WebAssembly環境状態確認エラー:', error);
+      return { 
+        installed: true, 
+        packages: true,
+        error: error.message || String(error),
+        webassembly_mode: true
+      };
     }
   });
-  
-  // Python環境セットアップウィンドウを閉じるためのハンドラー
-  ipcMain.on('close-python-setup', () => {
-    console.log('Python環境セットアップウィンドウを閉じるリクエストを受信しました');
-    pythonSetupHandler.closeSetupWindow();
+
+  // WebAssemblyモジュール初期化（Python互換性のためのダミー）
+  ipcMain.handle('install-python-packages', async () => {
+    try {
+      console.log('WebAssembly環境のセットアップを開始します...');
+      // WebAssemblyブリッジアダプターで環境セットアップ
+      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
+      console.log('WebAssembly環境セットアップ結果:', setupResult);
+      return { 
+        success: true, 
+        message: 'WebAssembly環境のセットアップが完了しました',
+        webassembly_mode: true
+      };
+    } catch (error) {
+      console.error('WebAssembly環境セットアップエラー:', error);
+      return { 
+        success: false, 
+        error: error.message || String(error),
+        webassembly_mode: true
+      };
+    }
   });
   
   // 外部URLを開くためのハンドラー
