@@ -157,13 +157,21 @@ async function testBridgeAdapter() {
   try {
     // 実際のモジュールではなくモックを使用
     const wasmBridge = {
+      // 環境チェック関数
+      checkEnvironment: async () => ({ 
+        status: 'ok', 
+        webassembly_mode: true,
+        opencv_available: true,
+        tesseract_available: true
+      }),
+      // 後方互換性のため
       checkPythonEnvironment: async () => ({ 
         status: 'ok', 
         webassembly_mode: true,
         opencv_available: true,
         tesseract_available: true
       }),
-      setupPythonEnvironment: async () => ({
+      setupEnvironment: async () => ({
         success: true,
         webassembly_mode: true,
         message: 'WebAssembly環境が正常に初期化されました'
@@ -177,13 +185,13 @@ async function testBridgeAdapter() {
     info('ブリッジアダプターモックを作成しました');
     
     // 1. 環境チェック関数のテスト
-    const envCheck = await wasmBridge.checkPythonEnvironment();
+    const envCheck = await wasmBridge.checkEnvironment();
     success('環境チェック関数が正常に実行されました');
     assertProperties('環境チェック結果', envCheck, ['status', 'webassembly_mode']);
     assertExpected('webassembly_mode', true, envCheck.webassembly_mode);
     
     // 2. 環境セットアップ関数のテスト
-    const setupResult = await wasmBridge.setupPythonEnvironment();
+    const setupResult = await wasmBridge.setupEnvironment();
     success('環境セットアップ関数が正常に実行されました');
     assertProperties('セットアップ結果', setupResult, ['success', 'webassembly_mode']);
     assertExpected('webassembly_mode', true, setupResult.webassembly_mode);
@@ -427,38 +435,37 @@ async function testImageAnalyzerAPI() {
 }
 
 /**
- * Python依存関係切断の検証（モック版）
+ * WebAssembly移行の検証（モック版）
  */
 async function testPythonIndependence() {
-  console.log('\n--- Python依存関係切断の検証 （モック版）---');
+  console.log('\n--- WebAssembly移行の検証 （モック版）---');
   
   try {
-    // Pythonブリッジの参照を試みる
+    // 旧Pythonブリッジファイルの参照をチェック
     try {
       // ファイル存在チェックでモック
       const pythonBridgePath = path.resolve(__dirname, '../src/electron/python_bridge.js');
       
       if (fs.existsSync(pythonBridgePath)) {
-        info('警告: Pythonブリッジモジュールファイルが存在します。完全に依存関係を切断するには削除が必要です。');
+        info('警告: 旧ブリッジモジュールファイルが存在します。WebAssemblyに完全に移行するには削除が必要です。');
       } else {
-        success('Pythonブリッジモジュールファイルは存在しません');
+        success('旧ブリッジモジュールファイルは存在しません');
       }
     } catch (e) {
-      success('Pythonブリッジモジュールは参照できません');
+      success('旧ブリッジモジュールは参照できません');
     }
     
     // 1. WebAssemblyモードの確認（モック）
-    // WebAssemblyモードが有効でPythonモードが無効なモックを作成
+    // WebAssemblyモードが有効なモックを作成
     const envCheck = {
       webassembly_mode: true,
-      python_mode: false,
       status: 'ok'
     };
     
-    if (envCheck.webassembly_mode === true && envCheck.python_mode === false) {
-      success('WebAssemblyモードが有効で、Pythonモードが無効です');
+    if (envCheck.webassembly_mode === true) {
+      success('WebAssemblyモードが有効です');
     } else {
-      fail(`モード設定が不正です: WebAssembly=${envCheck.webassembly_mode}, Python=${envCheck.python_mode}`);
+      fail(`モード設定が不正です: WebAssembly=${envCheck.webassembly_mode}`);
     }
     
     // 2. package.jsonの依存関係チェック（実際のファイルを読む）
@@ -602,12 +609,12 @@ async function runTests() {
     const bridgeAdapterPassed = await testBridgeAdapter();
     const imageAnalyzerPassed = await testImageAnalyzer();
     const apiPassed = await testImageAnalyzerAPI();
-    const pythonIndependencePassed = await testPythonIndependence();
+    const webAssemblyMigrationPassed = await testPythonIndependence();
     const compatibilityPassed = await testCompatibilityAndPerformance();
     
     // 全テスト結果の集計
     allTestsPassed = bridgeAdapterPassed && imageAnalyzerPassed && apiPassed && 
-                     pythonIndependencePassed && compatibilityPassed;
+                     webAssemblyMigrationPassed && compatibilityPassed;
     
     console.log('\n---------------------------------------');
     if (allTestsPassed) {

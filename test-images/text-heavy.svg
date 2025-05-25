@@ -1,0 +1,36 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="600" fill="white"/>
+  
+  <!-- Title -->
+  <text x="50" y="50" font-family="Arial" font-size="36" fill="#212529">Article Title</text>
+  <text x="50" y="80" font-family="Arial" font-size="16" fill="#6c757d">Published on March 15, 2024</text>
+  
+  <!-- Content -->
+  <text x="50" y="120" font-family="Arial" font-size="18" fill="#495057">Introduction</text>
+  <text x="50" y="150" font-family="Arial" font-size="14" fill="#212529">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod</text>
+  <text x="50" y="170" font-family="Arial" font-size="14" fill="#212529">tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim</text>
+  <text x="50" y="190" font-family="Arial" font-size="14" fill="#212529">veniam, quis nostrud exercitation ullamco laboris.</text>
+  
+  <text x="50" y="230" font-family="Arial" font-size="18" fill="#495057">Main Content</text>
+  <text x="50" y="260" font-family="Arial" font-size="14" fill="#212529">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum</text>
+  <text x="50" y="280" font-family="Arial" font-size="14" fill="#212529">dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non</text>
+  <text x="50" y="300" font-family="Arial" font-size="14" fill="#212529">proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</text>
+  
+  <text x="50" y="340" font-family="Arial" font-size="18" fill="#495057">Conclusion</text>
+  <text x="50" y="370" font-family="Arial" font-size="14" fill="#212529">Sed ut perspiciatis unde omnis iste natus error sit voluptatem</text>
+  <text x="50" y="390" font-family="Arial" font-size="14" fill="#212529">accusantium doloremque laudantium, totam rem aperiam.</text>
+  
+  <!-- Keywords -->
+  <rect x="50" y="430" width="60" height="25" fill="#e9ecef" rx="12"/>
+  <text x="80" y="447" font-family="Arial" font-size="12" fill="#495057" text-anchor="middle">keyword1</text>
+  
+  <rect x="120" y="430" width="60" height="25" fill="#e9ecef" rx="12"/>
+  <text x="150" y="447" font-family="Arial" font-size="12" fill="#495057" text-anchor="middle">keyword2</text>
+  
+  <rect x="190" y="430" width="60" height="25" fill="#e9ecef" rx="12"/>
+  <text x="220" y="447" font-family="Arial" font-size="12" fill="#495057" text-anchor="middle">keyword3</text>
+  
+  <!-- Author -->
+  <text x="50" y="500" font-family="Arial" font-size="16" fill="#495057">Author: John Doe</text>
+  <text x="50" y="520" font-family="Arial" font-size="14" fill="#6c757d">Senior Web Developer</text>
+</svg>

@@ -10,9 +10,24 @@ const execAsync = promisify(exec);
 const { v4: uuidv4 } = require('uuid');
 const chokidar = require('chokidar');
 
-// WebAssembly画像解析モジュールをインポート
-const webAssemblyImageAnalyzer = require('./utils/webassembly-image-analyzer');
-const webAssemblyBridgeAdapter = require('./utils/webassembly-bridge-adapter');
+// モジュール解決ヘルパーをインポート
+const moduleResolver = require('./utils/module-resolver');
+
+// WebAssembly環境チェックモジュールをインポート
+const webassemblySetupHandler = require('./webassemblySetupHandler');
+
+// WebAssembly画像解析モジュールをインポート (エラー処理付き)
+let webAssemblyImageAnalyzer, webAssemblyBridgeAdapter;
+
+try {
+  webAssemblyImageAnalyzer = require('./utils/webassembly-image-analyzer');
+  webAssemblyBridgeAdapter = require('./utils/webassembly-bridge-adapter');
+  console.log('WebAssembly画像解析モジュールを正常にロードしました');
+} catch (error) {
+  console.error('WebAssembly画像解析モジュールのロード中にエラーが発生しました:', error.message);
+  // エラーをキャッチしても処理を続行（後でセットアップハンドラが対応）
+}
+// WebAssemblyセットアップハンドラを使用
 
 // メモリ管理のユーティリティをインポート
 const { startPeriodicGC, startSystemMonitoring } = require('./memoryManager');
@@ -200,19 +215,7 @@ function setupFileWatcher(mainWindow) {
       }
     );
 
-    // バックエンドのPythonコードを監視
-    const pythonWatcher = watchDirectory(
-      path.join(__dirname, '..', 'python'),
-      (changedPath, event) => {
-        if (path.extname(changedPath) === '.py') {
-          console.log(`Pythonファイルが変更されました: ${changedPath} (${event})`);
-          mainWindow.webContents.send('python-file-changed', {
-            path: changedPath,
-            event: event
-          });
-        }
-      }
-    );
+    // WebAssemblyモードで動作するため、外部コード監視は不要
 
     // 環境設定ファイルを監視
     const configWatcher = watchDirectory(
@@ -229,7 +232,6 @@ function setupFileWatcher(mainWindow) {
     // アプリ終了時に監視を停止
     app.on('will-quit', () => {
       if (frontendWatcher) frontendWatcher.close();
-      if (pythonWatcher) pythonWatcher.close();
       if (configWatcher) configWatcher.close();
       console.log('ファイル監視を停止しました');
     });
@@ -519,33 +521,33 @@ function createMainWindow() {
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
-        
-        // Python環境をチェック（UIを表示する）
+
+        // WebAssembly環境をチェック（UIを表示する）
         setTimeout(() => {
-          pythonSetupHandler.checkEnvironment(mainWindow, true)
+          webassemblySetupHandler.checkEnvironment(mainWindow, true)
             .then(isReady => {
-              console.log(`Python環境確認結果（UIあり）: ${isReady ? '準備完了' : '設定が必要'}`);
-              // Python環境が準備できていない場合、ユーザーに通知
+              console.log(`WebAssembly環境確認結果（UIあり）: ${isReady ? '準備完了' : '設定が必要'}`);
+              // WebAssembly環境が準備できていない場合、ユーザーに通知
               if (!isReady && mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('python-environment-status', {
+                mainWindow.webContents.send('webassembly-environment-status', {
                   ready: false,
-                  message: 'Python環境のセットアップが必要です。マニュアルセットアップウィンドウを表示します。'
+                  message: 'WebAssembly環境のセットアップが必要です。マニュアルセットアップウィンドウを表示します。'
                 });
               } else if (isReady && mainWindow && !mainWindow.isDestroyed()) {
                 // 正常な場合も通知
-                mainWindow.webContents.send('python-environment-status', {
+                mainWindow.webContents.send('webassembly-environment-status', {
                   ready: true,
-                  message: 'Python環境のセットアップが完了しています'
+                  message: 'WebAssembly環境のセットアップが完了しています'
                 });
               }
             })
             .catch(error => {
-              console.error('Python環境チェック中にエラーが発生しました:', error);
+              console.error('WebAssembly環境チェック中にエラーが発生しました:', error);
               if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('python-environment-status', {
+                mainWindow.webContents.send('webassembly-environment-status', {
                   ready: false,
                   error: true,
-                  message: `Python環境チェック中にエラーが発生しました: ${error.message || '不明なエラー'}`
+                  message: `WebAssembly環境チェック中にエラーが発生しました: ${error.message || '不明なエラー'}`
                 });
               }
             });
@@ -599,7 +601,7 @@ app.whenReady().then(async () => {
 
   // WebAssembly環境の初期化
   console.log('WebAssembly環境を初期化します');
-  
+
   // ユーザーデータディレクトリとパスを確認
   const userDataPath = app.getPath('userData');
   console.log('ユーザーデータディレクトリ:', userDataPath);
@@ -617,7 +619,7 @@ app.whenReady().then(async () => {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self'; connect-src 'self' https://payments.codeups.jp; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;"
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' data: blob: https://fonts.googleapis.com; img-src 'self' data: blob: file:; font-src 'self' data: blob: https://fonts.gstatic.com; connect-src 'self' https://payments.codeups.jp data: blob:; worker-src 'self' data: blob:; child-src 'self' data: blob:;"
         ]
       }
     });
@@ -634,18 +636,46 @@ app.whenReady().then(async () => {
     // リソースパスをログ出力
     console.log(`process.resourcesPath: ${process.resourcesPath}`);
 
-    // WebAssembly環境のチェック
-    const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
-    console.log('WebAssembly環境チェック結果:', checkResult);
+    // 必要なモジュールを事前にチェック
+    const moduleCheck = await webassemblySetupHandler.checkRequiredModules();
+    console.log('WebAssemblyモジュール確認結果:', moduleCheck);
+
+    // 不足しているモジュールがある場合は警告を出力
+    if (moduleCheck.missingModules && moduleCheck.missingModules.length > 0) {
+      console.warn(`不足しているWebAssemblyモジュール: ${moduleCheck.missingModules.join(', ')}`);
+      console.log('モジュール解決ヘルパーを使用して読み込みを試みます...');
+
+      if (moduleCheck.missingModules.includes('photon-web')) {
+        const photonResult = moduleResolver.resolvePhotonWeb();
+        console.log('photon-web解決結果:', photonResult.success ? '成功' : '失敗');
+      }
+    }
+
+    // WebAssembly環境のチェック (ここで設定UIが表示される可能性があります)
+    let checkResult = { success: false };
+    if (webAssemblyBridgeAdapter) {
+      checkResult = await webAssemblyBridgeAdapter.checkEnvironment();
+      console.log('WebAssembly環境チェック結果:', checkResult);
+    } else {
+      console.error('WebAssemblyBridgeAdapterがロードできませんでした。アプリケーションはWebAssembly環境がないまま動作します。');
+
+      // メインウィンドウの作成後にWebAssembly設定ウィンドウを表示するために使用
+      setTimeout(() => {
+        if (mainWindow) {
+          webassemblySetupHandler.checkEnvironment(mainWindow, true, false);
+        }
+      }, 3000);
+    }
 
     // OpenCVとTesseractの状態確認
+    console.log(`WebAssembly環境セットアップ成功: ${checkResult.success || false}`);
     console.log(`OpenCV利用可能: ${checkResult.opencv_available || false}`);
     console.log(`Tesseract利用可能: ${checkResult.tesseract_available || false}`);
 
     // 環境セットアップが必要な場合は実行
     if (checkResult.status !== 'ok') {
       console.log('WebAssembly環境のセットアップが必要です');
-      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
+      const setupResult = await webAssemblyBridgeAdapter.setupEnvironment();
       console.log('WebAssembly環境セットアップ結果:', setupResult);
     } else {
       console.log('WebAssembly環境のセットアップは不要です（既に準備完了）');
@@ -739,7 +769,7 @@ app.whenReady().then(async () => {
         path: changedPath
       });
     });
-    
+
     // システムモニタリングを開始
     startSystemMonitoring(mainWindow);
   }, 1000);
@@ -1097,6 +1127,70 @@ async function loadSelectedTags() {
 
 // IPC ハンドラーを設定する関数
 function setupIPCHandlers() {
+
+  // WebAssembly設定ウィンドウを閉じるハンドラー
+  ipcMain.on('close-webassembly-setup', () => {
+    console.log('WebAssembly設定ウィンドウを閉じる要求を受信しました');
+    webassemblySetupHandler.closeSetupWindow();
+  });
+
+  // テスト用：手動でセットアップウィンドウを表示
+  ipcMain.on('test-show-setup-window', () => {
+    console.log('🧪 テスト: セットアップウィンドウを手動表示します');
+    if (webassemblySetupHandler && mainWindow) {
+      webassemblySetupHandler._showSetupWindow(mainWindow, {
+        modulesInstalled: false,
+        missingModules: ['photon-web'],
+        reinstallRecommended: true
+      });
+    }
+  });
+
+  // 自動セットアップを実行するハンドラー
+  ipcMain.on('run-auto-setup', async () => {
+    console.log('🚀 main.js: 自動セットアップの実行要求を受信しました');
+    try {
+      // パスを正しく解決
+      const setupScriptPath = path.resolve(__dirname, '../scripts/setup-webassembly-deps.js');
+      console.log('セットアップスクリプトパス:', setupScriptPath);
+
+      // require ではなく直接実行
+      const { spawn } = require('child_process');
+      const appRoot = path.resolve(__dirname, '../');
+
+      console.log('自動セットアップを実行中...');
+      const setupProcess = spawn('node', ['scripts/setup-webassembly-deps.js'], {
+        cwd: appRoot,
+        stdio: 'inherit'
+      });
+
+      setupProcess.on('close', async (code) => {
+        if (code === 0) {
+          console.log('自動セットアップが完了しました (終了コード: 0)');
+
+          // セットアップ完了後、環境を再チェック
+          setTimeout(async () => {
+            const checkResult = await webassemblySetupHandler.checkEnvironment(null, false, false);
+            if (checkResult) {
+              console.log('環境チェック成功：セットアップウィンドウを閉じます');
+              webassemblySetupHandler.closeSetupWindow();
+            } else {
+              console.log('環境チェックで問題が見つかりました');
+            }
+          }, 2000);
+        } else {
+          console.error(`自動セットアップが失敗しました (終了コード: ${code})`);
+        }
+      });
+
+      setupProcess.on('error', (error) => {
+        console.error('自動セットアップ実行中にエラーが発生しました:', error);
+      });
+
+    } catch (error) {
+      console.error('自動セットアップ中にエラーが発生しました:', error);
+    }
+  });
 
   // 選択されたカテゴリを同期的に保存するハンドラー
   ipcMain.on('save-selected-category-sync', (event, category) => {
@@ -1780,7 +1874,7 @@ $mediaquerys: (
         }
 
         const requestData = {
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-3-haiku-20240307',
           messages: [{
             role: 'user',
             content: messageContent
@@ -1807,6 +1901,12 @@ $mediaquerys: (
       }
     } catch (error) {
       console.error('AIコード生成エラー:', error);
+
+      // APIエラーレスポンスの詳細を確認
+      if (error.response && error.response.data) {
+        console.error('API エラーレスポンス:', JSON.stringify(error.response.data, null, 2));
+      }
+
       throw new Error(`コード生成中にエラーが発生しました: ${error.message}`);
     }
   });
@@ -2699,11 +2799,11 @@ $mediaquerys: (
   });
 
   // WebAssembly環境状態確認
-  ipcMain.handle('check-python-bridge', async () => {
+  ipcMain.handle('check-env-bridge', async () => {
     try {
       console.log('WebAssembly環境の状態を確認します');
       // WebAssemblyブリッジアダプターで環境チェック
-      const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
+      const checkResult = await webAssemblyBridgeAdapter.checkEnvironment();
       console.log('WebAssembly環境チェック結果:', checkResult);
       return { running: true, result: { success: true, message: 'WebAssembly環境は正常です' } };
     } catch (error) {
@@ -2712,12 +2812,24 @@ $mediaquerys: (
     }
   });
 
+  // 後方互換性のためのエイリアス
+  ipcMain.handle('check-python-bridge', async () => {
+    try {
+      console.log('後方互換性用: WebAssembly環境の状態を確認します');
+      const checkResult = await webAssemblyBridgeAdapter.checkEnvironment();
+      return { running: true, result: { success: true, message: 'WebAssembly環境は正常です' } };
+    } catch (error) {
+      console.error('WebAssembly環境チェックエラー:', error);
+      return { running: false, error: error.message || String(error) };
+    }
+  });
+
   // WebAssembly環境初期化
-  ipcMain.handle('start-python-bridge', async () => {
+  ipcMain.handle('start-env-bridge', async () => {
     try {
       console.log('WebAssembly環境の初期化を行います');
       // WebAssemblyブリッジアダプターで環境セットアップ
-      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
+      const setupResult = await webAssemblyBridgeAdapter.setupEnvironment();
       console.log('WebAssembly環境セットアップ結果:', setupResult);
       return { success: true };
     } catch (error) {
@@ -2726,14 +2838,26 @@ $mediaquerys: (
     }
   });
 
+  // 後方互換性のためのエイリアス
+  ipcMain.handle('start-python-bridge', async () => {
+    try {
+      console.log('後方互換性用: WebAssembly環境の初期化を行います');
+      const setupResult = await webAssemblyBridgeAdapter.setupEnvironment();
+      return { success: true };
+    } catch (error) {
+      console.error('WebAssembly環境初期化エラー:', error);
+      return { success: false, error: error.message || String(error) };
+    }
+  });
+
   // WebAssembly環境状態確認
-  ipcMain.handle('check-python-environment-status', async () => {
+  ipcMain.handle('check-env-status', async () => {
     try {
       console.log('WebAssembly環境の状態を確認します');
       // WebAssemblyブリッジアダプターで環境チェック
-      const checkResult = await webAssemblyBridgeAdapter.checkPythonEnvironment();
-      return { 
-        installed: true, 
+      const checkResult = await webAssemblyBridgeAdapter.checkEnvironment();
+      return {
+        installed: true,
         packages: true,
         webassembly_mode: true,
         opencv_available: checkResult.opencv_available || true,
@@ -2741,8 +2865,8 @@ $mediaquerys: (
       };
     } catch (error) {
       console.error('WebAssembly環境状態確認エラー:', error);
-      return { 
-        installed: true, 
+      return {
+        installed: true,
         packages: true,
         error: error.message || String(error),
         webassembly_mode: true
@@ -2750,28 +2874,51 @@ $mediaquerys: (
     }
   });
 
-  // WebAssemblyモジュール初期化（Python互換性のためのダミー）
-  ipcMain.handle('install-python-packages', async () => {
+  // 後方互換性のためのエイリアス
+  ipcMain.handle('check-python-environment-status', async () => {
     try {
-      console.log('WebAssembly環境のセットアップを開始します...');
-      // WebAssemblyブリッジアダプターで環境セットアップ
-      const setupResult = await webAssemblyBridgeAdapter.setupPythonEnvironment();
-      console.log('WebAssembly環境セットアップ結果:', setupResult);
-      return { 
-        success: true, 
-        message: 'WebAssembly環境のセットアップが完了しました',
-        webassembly_mode: true
+      console.log('後方互換性用: WebAssembly環境の状態を確認します');
+      const checkResult = await webAssemblyBridgeAdapter.checkEnvironment();
+      return {
+        installed: true,
+        packages: true,
+        webassembly_mode: true,
+        opencv_available: checkResult.opencv_available || true,
+        tesseract_available: checkResult.tesseract_available || true
       };
     } catch (error) {
-      console.error('WebAssembly環境セットアップエラー:', error);
-      return { 
-        success: false, 
+      console.error('WebAssembly環境状態確認エラー:', error);
+      return {
+        installed: true,
+        packages: true,
         error: error.message || String(error),
         webassembly_mode: true
       };
     }
   });
-  
+
+  // 後方互換性のためのエイリアス
+  ipcMain.handle('install-python-packages', async () => {
+    try {
+      console.log('WebAssembly環境のセットアップを開始します...');
+      // WebAssemblyブリッジアダプターで環境セットアップ
+      const setupResult = await webAssemblyBridgeAdapter.setupEnvironment();
+      console.log('WebAssembly環境セットアップ結果:', setupResult);
+      return {
+        success: true,
+        message: 'WebAssembly環境のセットアップが完了しました',
+        webassembly_mode: true
+      };
+    } catch (error) {
+      console.error('WebAssembly環境セットアップエラー:', error);
+      return {
+        success: false,
+        error: error.message || String(error),
+        webassembly_mode: true
+      };
+    }
+  });
+
   // 外部URLを開くためのハンドラー
   ipcMain.on('open-external-url', (event, url) => {
     console.log(`外部URLを開きます: ${url}`);
@@ -2856,13 +3003,26 @@ $mediaquerys: (
     try {
       console.log('プロンプトプレビュー生成リクエストを受信しました');
       // promptGenerator.jsからプロンプト生成関数をロード
-      const promptGenerator = require('./promptGenerator');
+      const promptGenerator = require('./utils/promptGenerator');
       // プロンプト生成
       const prompt = promptGenerator.generatePromptFromCompressedData(analysisData);
       return prompt;
     } catch (error) {
       console.error('プロンプトプレビュー生成エラー:', error);
       return `プロンプト生成エラー: ${error.message}`;
+    }
+  });
+
+  // プロンプト生成のIPCハンドラー
+  ipcMain.handle('generatePrompt', async (event, options) => {
+    try {
+      console.log('プロンプト生成リクエストを受信しました');
+      const promptGenerator = require('./utils/promptGenerator');
+      const prompt = await promptGenerator.generatePrompt(options);
+      return prompt;
+    } catch (error) {
+      console.error('プロンプト生成エラー:', error);
+      throw error;
     }
   });
 
@@ -2906,7 +3066,7 @@ $mediaquerys: (
         ...requestOptions
       };
 
-      console.log('[analyze_all] Pythonへ送信するpayload:', {
+      console.log('[analyze_all] WebAssemblyへ送信するpayload:', {
         type: requestPayload.type,
         image: '(base64省略)',
         options: requestOptions
@@ -2915,16 +3075,16 @@ $mediaquerys: (
       // 追加: タイムスタンプ記録
       const startTime = Date.now();
       console.log(`[analyze_all] analyzeAll呼び出し開始: ${new Date(startTime).toISOString()}`);
-      
+
       try {
-        console.log(`[analyze_all] pythonBridge.analyzeAllを呼び出します (タイムアウト: 90秒)`);
-        const result = await pythonBridge.analyzeAll(requestPayload);
-        
+        console.log(`[analyze_all] webAssemblyBridge.analyzeAllを呼び出します (タイムアウト: 90秒)`);
+        const result = await wasmImageAnalyzer.analyzeAll(requestPayload.image_data, requestPayload.options);
+
         // 追加: 処理時間計算
         const endTime = Date.now();
         const processingTime = (endTime - startTime) / 1000;
         console.log(`[analyze_all] レスポンス受信完了: 処理時間=${processingTime.toFixed(2)}秒`);
-        
+
         // 追加: 結果の詳細ログ
         if (result) {
           console.log('[analyze_all] 受信データ構造:', {
@@ -3021,7 +3181,7 @@ $mediaquerys: (
         const messageContent = requestOptions.prompt;
 
         const requestData = {
-          model: requestOptions.model || 'claude-3-5-haiku-20241022',
+          model: requestOptions.model || 'claude-3-haiku-20240307',
           messages: [{
             role: 'user',
             content: messageContent
@@ -3265,9 +3425,103 @@ $mediaquerys: (
     }
   });
 
-  // Python実行環境チェックは外部モジュール(pythonRuntime.js)から提供される関数を使用
+  // 画像解析デバッガー用のハンドラー
+  ipcMain.handle('analyze-image-debug', async (event, imageData) => {
+    try {
+      console.log('🔍 メインプロセス: 画像解析デバッガー開始');
 
-  // Python実行環境チェックは外部モジュール(pythonRuntime.js)から提供される関数を使用
+      if (!webAssemblyImageAnalyzer) {
+        throw new Error('WebAssembly画像解析エンジンが利用できません');
+      }
+
+      // 画像解析を実行
+      const analysisResult = await webAssemblyImageAnalyzer.analyzeAll(imageData, {
+        detectCards: true,
+        detectFeatures: true,
+        detectMainSections: true
+      });
+
+      // 検証システムを使用して品質評価
+      const { AnalysisValidator } = require('./utils/analysis-validation-system');
+      const validator = new AnalysisValidator();
+      const validation = validator.validateComprehensiveAnalysis(analysisResult, imageData);
+
+      // 結果をまとめて返す
+      const result = {
+        ...analysisResult,
+        validation: validation
+      };
+
+      console.log('🔍 メインプロセス: 画像解析デバッガー完了');
+      return result;
+
+    } catch (error) {
+      console.error('🔍 メインプロセス: 画像解析デバッガーエラー:', error);
+      return {
+        success: false,
+        error: error.message,
+        data: {
+          colors: [],
+          text: '',
+          textBlocks: []
+        },
+        validation: {
+          overallScore: 0,
+          criticalIssues: [`解析エラー: ${error.message}`],
+          recommendations: ['WebAssembly環境の確認が必要です']
+        }
+      };
+    }
+  });
+
+  // HTTPリクエスト用のハンドラー（axiosの代替）
+  ipcMain.handle('http-request', async (event, options) => {
+    try {
+      console.log('🌐 メインプロセス: HTTPリクエスト開始');
+      console.log('🌐 Method:', options.method);
+      console.log('🌐 URL:', options.url);
+      console.log('🌐 Data:', JSON.stringify(options.data, null, 2));
+      console.log('🌐 Headers:', JSON.stringify(options.headers, null, 2));
+
+      const axios = require('axios');
+      const response = await axios({
+        method: options.method || 'GET',
+        url: options.url,
+        data: options.data,
+        headers: options.headers,
+        timeout: options.timeout || 10000
+      });
+
+      console.log('🌐 メインプロセス: HTTPリクエスト完了');
+      console.log('🌐 Response Status:', response.status);
+      console.log('🌐 Response Data:', JSON.stringify(response.data, null, 2));
+
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        headers: response.headers
+      };
+
+    } catch (error) {
+      console.error('🌐 メインプロセス: HTTPリクエストエラー:', error.message);
+      if (error.response) {
+        console.error('🌐 エラーレスポンス Status:', error.response.status);
+        console.error('🌐 エラーレスポンス Data:', JSON.stringify(error.response.data, null, 2));
+        return {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          headers: error.response.headers
+        };
+      }
+      throw new Error(`HTTPリクエスト失敗: ${error.message}`);
+    }
+  });
+
+  // WebAssembly実行環境チェックは外部モジュールから提供される関数を使用
+
+  // WebAssembly関連機能は全てwebassembly-bridge-adapter.jsモジュールから提供
 }
 
 // プロジェクトデータの保存

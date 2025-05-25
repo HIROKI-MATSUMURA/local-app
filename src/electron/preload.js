@@ -7,25 +7,28 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
 
+console.log("🔥 preload.js: contextBridge利用可能:", !!contextBridge);
+console.log("🔥 preload.js: ipcRenderer利用可能:", !!ipcRenderer);
+
 // 強化されたエラーロギング
 const logError = (error, context = '') => {
   const timestamp = new Date().toISOString();
   const errorMessage = error instanceof Error
     ? `${error.name}: ${error.message}\n${error.stack || '(スタックトレースなし)'}`
     : String(error);
-    
+
   const formattedMessage = `[${timestamp}] ${context ? context + ': ' : ''}${errorMessage}`;
-  
+
   // コンソールに出力
   console.error(formattedMessage);
-  
+
   // エラーログファイルにも書き込む
   try {
     const logDir = path.join(__dirname, '..', 'logs');
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
-    
+
     const logFile = path.join(logDir, `renderer_errors_${new Date().toISOString().split('T')[0]}.log`);
     fs.appendFileSync(logFile, formattedMessage + '\n', 'utf8');
   } catch (ioError) {
@@ -149,32 +152,32 @@ contextBridge.exposeInMainWorld('api', {
     try {
       // APIリクエストの開始をログに記録
       console.log(`[API Request] ${channel} 開始`);
-      
+
       // リクエストを実行
       const result = await ipcRenderer.invoke(channel, ...args);
-      
+
       // 成功結果をログに記録（必要に応じて)
       if (channel.includes('analyze') || channel.includes('extract')) {
         console.log(`[API Request] ${channel} 完了: データサイズ=${JSON.stringify(result).length}バイト`);
       } else {
         console.log(`[API Request] ${channel} 完了`);
       }
-      
-      // エラーチェック（Pythonブリッジからのエラーレスポンス）
+
+      // エラーチェック（WebAssemblyブリッジからのエラーレスポンス）
       if (result && typeof result === 'object') {
         if (result.error || (result.success === false)) {
           const errorMessage = result.error || '不明なエラー';
-          logError(errorMessage, `PythonError in ${channel}`);
-          console.error(`[Python Error] ${channel}: ${errorMessage}`);
+          logError(errorMessage, `WebAssemblyError in ${channel}`);
+          console.error(`[WebAssembly Error] ${channel}: ${errorMessage}`);
         }
       }
-      
+
       return result;
     } catch (error) {
       // エラーを詳細にログに記録
       logError(error, `API Error in ${channel}`);
       console.error(`[API Error] ${channel}:`, error);
-      
+
       // エラーをスローして呼び出し元にも伝える
       throw error;
     }
@@ -186,7 +189,7 @@ contextBridge.exposeInMainWorld('api', {
       'toMain', 'saveFile', 'openFile', 'generateCode',
       'save-html-file', 'save-scss-file', 'delete-html-file',
       'rename-file', 'save-ai-generated-code', 'rename-and-save-ai-code',
-      'switch-tab'
+      'switch-tab', 'run-auto-setup', 'close-webassembly-setup'
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
@@ -203,16 +206,26 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(channel, (event, ...args) => func(...args));
     }
   },
-  
-  // Python環境イベントリスナー
+
+  // WebAssembly環境イベントリスナー
+  onWebAssemblyEnvironmentStatus: (callback) => {
+    if (typeof callback !== 'function') {
+      console.error('onWebAssemblyEnvironmentStatus: コールバックが関数ではありません');
+      return;
+    }
+    ipcRenderer.on('webassembly-environment-status', (event, data) => callback(data));
+  },
+
+  // 後方互換性のための古いリスナー（非推奨）
   onPythonEnvironmentStatus: (callback) => {
+    console.warn('[非推奨] onPythonEnvironmentStatus は使用されました。onWebAssemblyEnvironmentStatus をご利用ください。');
     if (typeof callback !== 'function') {
       console.error('onPythonEnvironmentStatus: コールバックが関数ではありません');
       return;
     }
-    ipcRenderer.on('python-environment-status', (event, data) => callback(data));
+    ipcRenderer.on('webassembly-environment-status', (event, data) => callback(data));
   },
-  
+
   // 強化されたエラーログ関数
   logError: (error, context) => logError(error, context),
 
@@ -360,11 +373,27 @@ contextBridge.exposeInMainWorld('api', {
       return Promise.resolve(false);
     }
   },
-  //Python関連機能
-  checkPythonBridge: () => ipcRenderer.invoke('check-python-bridge'),
-  startPythonBridge: () => ipcRenderer.invoke('start-python-bridge'),
-  checkPythonEnvironmentStatus: () => ipcRenderer.invoke('check-python-environment-status'),
-  installPythonPackages: () => ipcRenderer.invoke('install-python-packages'),
+  // WebAssembly環境検証機能
+  checkEnvironment: () => ipcRenderer.invoke('check-environment'),
+  setupEnvironment: () => ipcRenderer.invoke('setup-environment'),
+
+  // 後方互換性のための古い関数名（非推奨）
+  checkPythonBridge: () => {
+    console.warn('[非推奨] checkPythonBridge は使用されました。checkEnvironment をご利用ください。');
+    return ipcRenderer.invoke('check-environment');
+  },
+  startPythonBridge: () => {
+    console.warn('[非推奨] startPythonBridge は使用されました。setupEnvironment をご利用ください。');
+    return ipcRenderer.invoke('setup-environment');
+  },
+  checkPythonEnvironmentStatus: () => {
+    console.warn('[非推奨] checkPythonEnvironmentStatus は使用されました。checkEnvironment をご利用ください。');
+    return ipcRenderer.invoke('check-environment');
+  },
+  installPythonPackages: () => {
+    console.warn('[非推奨] installPythonPackages は使用されました。setupEnvironment をご利用ください。');
+    return ipcRenderer.invoke('setup-environment');
+  },
 
   // 画像分析API
   // 画像の総合分析（旧 analyzeImage のロジックを統合）
@@ -439,7 +468,19 @@ contextBridge.exposeInMainWorld('api', {
       return { success: false, error: err };
     }
   },
+
+  // プロンプト生成
+  generatePrompt: async (options) => {
+    try {
+      return await ipcRenderer.invoke('generatePrompt', options);
+    } catch (err) {
+      console.error('generatePrompt failed:', err);
+      throw err;
+    }
+  },
+
   // 画像の総合分析
+  // 非推奨API（WebAssemblyモードでは使用しないことを推奨）
   analyzeImage: async (data) => {
     console.warn('[非推奨] analyzeImage は使用されました。analyzeAll をご利用ください。');
     return await window.api.analyzeAll(data);
@@ -454,6 +495,18 @@ contextBridge.exposeInMainWorld('api', {
   // 現在のディレクトリを開く
   openCurrentDirectory: () => ipcRenderer.invoke('open-current-directory'),
 
+  // HTTPリクエスト用API（axiosの代替）
+  httpRequest: async (options) => {
+    try {
+      console.log('🌐 HTTPリクエスト: 開始', options.method, options.url);
+      const result = await ipcRenderer.invoke('http-request', options);
+      console.log('🌐 HTTPリクエスト: 完了', result.status);
+      return result;
+    } catch (error) {
+      console.error('🌐 HTTPリクエスト: エラー', error);
+      throw error;
+    }
+  }
 });
 
 // Electronオブジェクトも公開
@@ -469,8 +522,14 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.once(channel, (event, ...args) => listener(...args));
     }
   },
-  // Pythonセットアップ用の追加API
-  closePythonSetup: () => ipcRenderer.send('close-python-setup'),
+  // WebAssemblyセットアップ用のAPI
+  closeWebAssemblySetup: () => ipcRenderer.send('close-webassembly-setup'),
+
+  // 後方互換性のための古いAPI（非推奨）
+  closePythonSetup: () => {
+    console.warn('[非推奨] closePythonSetup は使用されました。closeWebAssemblySetup をご利用ください。');
+    ipcRenderer.send('close-webassembly-setup');
+  },
   openExternalUrl: (url) => ipcRenderer.send('open-external-url', url)
 });
 
@@ -486,7 +545,7 @@ contextBridge.exposeInMainWorld('codeGeneration', {
     return await ipcRenderer.invoke('get-saved-ai-code', blockId);
   },
 
-  // 画像解析結果からコードを生成
+  // 画像解析結果からコードを生成（WebAssembly生成エンジン使用）
   generateCodeFromAnalysis: async (analysisData, options = {}) => {
     return await ipcRenderer.invoke('generate-code-from-analysis', {
       analysisData,
@@ -694,7 +753,32 @@ contextBridge.exposeInMainWorld('aiApi', {
       console.error('aiApi: リクエスト失敗:', error);
       throw new Error(`AIリクエスト失敗: ${error.message}`);
     }
+  },
+
+  // 画像解析デバッガー用API
+  analyzeImageDebug: async (imageData) => {
+    try {
+      console.log('🔍 画像解析デバッガー: リクエスト開始');
+      const result = await ipcRenderer.invoke('analyze-image-debug', imageData);
+      console.log('🔍 画像解析デバッガー: 結果受信');
+      return result;
+    } catch (error) {
+      console.error('🔍 画像解析デバッガー: エラー', error);
+      throw error;
+    }
+  },
+
+  // UUID生成用API（uuidの代替）
+  generateUUID: () => {
+    // シンプルなUUID v4の実装
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 });
 
+console.log('🔥 preload.js: contextBridge.exposeInMainWorld完了');
+console.log('🔥 preload.js: window.api設定完了');
 console.log('Preload script loaded successfully');

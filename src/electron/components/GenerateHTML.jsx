@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid'; // UUIDを使う
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Header from './Header';
 import '../styles/GenerateHTML.scss';
 import projectDataStore from '../utils/projectDataStore';
@@ -147,7 +146,7 @@ const GenerateHTML = ({ activeProject }) => {
               // index.htmlがない場合は追加
               console.log('index.htmlがないため追加します');
               data.push({
-                id: uuidv4(),
+                id: window.api.generateUUID(),
                 name: 'index.html',
                 status: '保存済',
               });
@@ -172,7 +171,7 @@ const GenerateHTML = ({ activeProject }) => {
             console.log('初期データを設定します');
             // 初期データの設定
             const initialData = [{
-              id: uuidv4(),
+              id: window.api.generateUUID(),
               name: 'index.html',
               status: '保存済',
             }];
@@ -231,7 +230,7 @@ const GenerateHTML = ({ activeProject }) => {
                           // ファイルリストを更新
                           setFileList(prev => {
                             const newList = [...prev, {
-                              id: uuidv4(),
+                              id: window.api.generateUUID(),
                               name: fileName,
                               status: '保存済'
                             }];
@@ -518,7 +517,7 @@ const GenerateHTML = ({ activeProject }) => {
                     if (!fileExists) {
                       // 新規ファイル
                       const newFile = {
-                        id: uuidv4(),
+                        id: window.api.generateUUID(),
                         name: fileName,
                         status: '保存済'
                       };
@@ -676,7 +675,7 @@ const GenerateHTML = ({ activeProject }) => {
     }
 
     const newFile = {
-      id: uuidv4(), // 一意なUUIDを追加
+      id: window.api.generateUUID(),
       name: fileNameWithHtml,
       status: '未保存',
     };

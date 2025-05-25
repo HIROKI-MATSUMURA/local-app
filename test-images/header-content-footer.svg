@@ -1,0 +1,29 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="600" fill="#ffffff"/>
+  
+  <!-- Header -->
+  <rect x="0" y="0" width="800" height="100" fill="#2c3e50"/>
+  <text x="50" y="40" font-family="Arial" font-size="28" fill="white">My Website</text>
+  <text x="50" y="70" font-family="Arial" font-size="16" fill="#ecf0f1">Professional Web Design</text>
+  
+  <!-- Navigation -->
+  <rect x="0" y="100" width="800" height="50" fill="#34495e"/>
+  <text x="50" y="130" font-family="Arial" font-size="14" fill="white">Home</text>
+  <text x="120" y="130" font-family="Arial" font-size="14" fill="white">About</text>
+  <text x="190" y="130" font-family="Arial" font-size="14" fill="white">Services</text>
+  <text x="260" y="130" font-family="Arial" font-size="14" fill="white">Contact</text>
+  
+  <!-- Main Content -->
+  <rect x="50" y="180" width="700" height="300" fill="#ecf0f1"/>
+  <text x="70" y="210" font-family="Arial" font-size="24" fill="#2c3e50">Welcome to Our Website</text>
+  <text x="70" y="240" font-family="Arial" font-size="16" fill="#34495e">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</text>
+  <text x="70" y="260" font-family="Arial" font-size="16" fill="#34495e">Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</text>
+  
+  <rect x="70" y="300" width="120" height="40" fill="#3498db"/>
+  <text x="115" y="325" font-family="Arial" font-size="14" fill="white">Learn More</text>
+  
+  <!-- Footer -->
+  <rect x="0" y="500" width="800" height="100" fill="#2c3e50"/>
+  <text x="50" y="530" font-family="Arial" font-size="14" fill="white">© 2024 My Website. All rights reserved.</text>
+  <text x="50" y="550" font-family="Arial" font-size="12" fill="#95a5a6">Contact: info@example.com</text>
+</svg>

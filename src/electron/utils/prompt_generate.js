@@ -1,4 +1,5 @@
-import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
+// CommonJS形式でイメージ分析機能をインポート
+const { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } = require("./imageAnalyzer");
 
 // 共通のエラーハンドリング関数
 const handleAnalysisError = (operation, error, defaultValue) => {
@@ -711,4 +712,8 @@ Accurately reproduce the layout, elements, text, and colors in the image.
   }
 };
 
-export { generatePrompt };
+// このモジュール用のエクスポート
+const moduleExports = { generatePrompt };
+
+// Node.js/Electron環境の場合はCommonJS形式でエクスポート
+module.exports = moduleExports;

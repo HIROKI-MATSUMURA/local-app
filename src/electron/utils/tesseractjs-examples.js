@@ -2,7 +2,7 @@
  * Tesseract.js OCR Examples
  * 
  * This file contains example implementations of OCR (Optical Character Recognition)
- * functions using Tesseract.js as a replacement for Python's pytesseract.
+ * functions using Tesseract.js for WebAssembly-based text recognition.
  */
 
 // In a real implementation, you'd import Tesseract.js properly:

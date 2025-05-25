@@ -1,0 +1,33 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="600" fill="#f8f9fa"/>
+  
+  <!-- Title -->
+  <text x="400" y="50" font-family="Arial" font-size="32" fill="#212529" text-anchor="middle">Our Products</text>
+  
+  <!-- Card 1 -->
+  <rect x="60" y="100" width="200" height="300" fill="white" stroke="#dee2e6" stroke-width="1" rx="8"/>
+  <rect x="70" y="110" width="180" height="120" fill="#e9ecef"/>
+  <text x="160" y="175" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">Product Image</text>
+  <text x="160" y="250" font-family="Arial" font-size="18" fill="#212529" text-anchor="middle">Product A</text>
+  <text x="160" y="270" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">$29.99</text>
+  <rect x="90" y="320" width="140" height="35" fill="#007bff" rx="4"/>
+  <text x="160" y="342" font-family="Arial" font-size="14" fill="white" text-anchor="middle">Add to Cart</text>
+  
+  <!-- Card 2 -->
+  <rect x="300" y="100" width="200" height="300" fill="white" stroke="#dee2e6" stroke-width="1" rx="8"/>
+  <rect x="310" y="110" width="180" height="120" fill="#e9ecef"/>
+  <text x="400" y="175" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">Product Image</text>
+  <text x="400" y="250" font-family="Arial" font-size="18" fill="#212529" text-anchor="middle">Product B</text>
+  <text x="400" y="270" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">$39.99</text>
+  <rect x="330" y="320" width="140" height="35" fill="#28a745" rx="4"/>
+  <text x="400" y="342" font-family="Arial" font-size="14" fill="white" text-anchor="middle">Add to Cart</text>
+  
+  <!-- Card 3 -->
+  <rect x="540" y="100" width="200" height="300" fill="white" stroke="#dee2e6" stroke-width="1" rx="8"/>
+  <rect x="550" y="110" width="180" height="120" fill="#e9ecef"/>
+  <text x="640" y="175" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">Product Image</text>
+  <text x="640" y="250" font-family="Arial" font-size="18" fill="#212529" text-anchor="middle">Product C</text>
+  <text x="640" y="270" font-family="Arial" font-size="14" fill="#6c757d" text-anchor="middle">$49.99</text>
+  <rect x="570" y="320" width="140" height="35" fill="#dc3545" rx="4"/>
+  <text x="640" y="342" font-family="Arial" font-size="14" fill="white" text-anchor="middle">Add to Cart</text>
+</svg>

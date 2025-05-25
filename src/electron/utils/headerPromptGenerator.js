@@ -1,4 +1,29 @@
-import { extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
+// デュアルモード対応インポート - ESM形式と CommonJS形式の両方をサポート
+let extractTextFromImage, extractColorsFromImage, analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements;
+
+// ブラウザ環境(ESM)かNode.js環境(CommonJS)かを判定
+if (typeof require !== 'undefined') {
+  // CommonJS環境
+  const imageAnalyzer = require("./imageAnalyzer");
+  extractTextFromImage = imageAnalyzer.extractTextFromImage;
+  extractColorsFromImage = imageAnalyzer.extractColorsFromImage;
+  analyzeImageSections = imageAnalyzer.analyzeImageSections;
+  detectMainSections = imageAnalyzer.detectMainSections;
+  detectCardElements = imageAnalyzer.detectCardElements;
+  detectFeatureElements = imageAnalyzer.detectFeatureElements;
+} else {
+  // ESM環境（ブラウザ）
+  import("./imageAnalyzer").then(imageAnalyzer => {
+    extractTextFromImage = imageAnalyzer.extractTextFromImage;
+    extractColorsFromImage = imageAnalyzer.extractColorsFromImage;
+    analyzeImageSections = imageAnalyzer.analyzeImageSections;
+    detectMainSections = imageAnalyzer.detectMainSections;
+    detectCardElements = imageAnalyzer.detectCardElements;
+    detectFeatureElements = imageAnalyzer.detectFeatureElements;
+  }).catch(error => {
+    console.error("imageAnalyzerのインポートエラー:", error);
+  });
+}
 
 // ローカルストレージから設定を取得する関数
 const getSettingsFromLocalStorage = () => {

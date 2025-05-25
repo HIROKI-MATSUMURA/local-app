@@ -1,6 +1,6 @@
 // src/components/Login.jsx
 import React, { useState } from 'react';
-import axios from 'axios';
+// import axios from 'axios'; // 削除：ブラウザ環境では使用不可
 import styled, { keyframes } from 'styled-components';
 import { motion } from 'framer-motion';
 import logo from '../../../public/icon.png';
@@ -136,17 +136,41 @@ const Login = ({ onLoginSuccess }) => {
     setError('');
 
     try {
-      const res = await axios.post(
-        'https://payments.codeups.jp/auth',
-        { activeKey: activationKey }
-      );
-      if (res.status === 200) {
+      // window.apiの存在確認
+      console.log('🔍 window.api:', window.api);
+      console.log('🔍 window.api.httpRequest:', window.api?.httpRequest);
+
+      if (!window.api || !window.api.httpRequest) {
+        throw new Error('window.api.httpRequestが利用できません');
+      }
+
+      const requestData = { activeKey: activationKey };
+      console.log('🔑 認証リクエスト送信:', requestData);
+
+      // window.apiを使用してHTTPリクエストを送信
+      const result = await window.api.httpRequest({
+        method: 'POST',
+        url: 'https://payments.codeups.jp/auth',
+        data: requestData,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('🔑 認証レスポンス:', result);
+      console.log('🔑 レスポンスステータス:', result.status);
+      console.log('🔑 レスポンスデータ:', result.data);
+
+      if (result.status === 200) {
+        console.log('✅ 認証成功');
         onLoginSuccess();
       } else {
-        setError('認証に失敗しました');
+        console.log('❌ 認証失敗 - ステータス:', result.status);
+        setError(`認証に失敗しました (ステータス: ${result.status})`);
       }
-    } catch {
-      setError('認証に失敗しました');
+    } catch (error) {
+      console.error('❌ 認証エラー:', error);
+      setError(`認証エラー: ${error.message || '不明なエラー'}`);
     } finally {
       setLoading(false);
     }

@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   root: 'src/electron',
   base: './',
+  publicDir: 'public',
   plugins: [react()],
   css: {
     modules: {
@@ -51,7 +52,13 @@ export default defineConfig({
         'net',
         'tls',
         'events',
-        'antd'
+        'antd',
+        'lodash',
+        'axios',
+        'uuid',
+        'chokidar',
+        'dotenv',
+        'express'
       ],
     },
     polyfillModulePreload: false,
@@ -106,7 +113,13 @@ export default defineConfig({
       'https',
       'net',
       'tls',
-      'events'
+      'events',
+      'lodash',
+      'axios',
+      'uuid',
+      'chokidar',
+      'dotenv',
+      'express'
     ]
   }
 });

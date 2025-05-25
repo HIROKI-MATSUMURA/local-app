@@ -1,4 +1,5 @@
-import { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } from "./imageAnalyzer";
+// CommonJS形式でイメージ分析機能をインポート
+const { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } = require("./imageAnalyzer");
 
 // 分析モジュールの名前空間（第1段階：基盤作り）
 const AnalysisModules = {
@@ -4128,7 +4129,8 @@ const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
 };
 
 // メイン関数を修正して新機能を統合
-export const generatePrompt = async (options) => {
+// リエクスポート用に変数に代入
+const generatePrompt = async (options) => {
   console.log('プロンプト生成処理を開始');
   const {
     pcImage, spImage,
@@ -4399,3 +4401,9 @@ export const generatePrompt = async (options) => {
     return 'プロンプト生成中にエラーが発生しました。再試行してください。';
   }
 };
+
+// このモジュール用のエクスポート
+const moduleExports = { generatePrompt };
+
+// Node.js/Electron環境の場合はCommonJS形式でエクスポート
+module.exports = moduleExports;

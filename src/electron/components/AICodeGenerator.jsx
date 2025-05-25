@@ -14,7 +14,7 @@ import 'codemirror/addon/fold/brace-fold';
 import 'codemirror/addon/fold/xml-fold';
 import CodeDisplay from "./CodeDisplay";
 import CodeGenerationSettings from "./CodeGenerationSettings";
-import { generatePrompt } from "../utils/promptGenerator";
+// import { generatePrompt } from "../utils/promptGenerator";
 // import { extractTextFromImage, extractColorsFromImage } from "../utils/imageAnalyzer.js";
 import "../styles/AICodeGenerator.scss";
 import 'highlight.js/styles/github.css';
@@ -2072,7 +2072,7 @@ ${editingCSS}
         let prompt;
         try {
           // プロンプト生成を別のtry-catchで囲む
-          prompt = await generatePrompt({
+          prompt = await window.api.generatePrompt({
             responsiveMode,
             aiBreakpoints,
             pcImage: pcImageBase64, // ✅ ここ！！

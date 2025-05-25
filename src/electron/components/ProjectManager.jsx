@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import React, { useState, useEffect, useRef } from 'react';
 import styles from '../styles/ProjectManager.module.scss';
 
 const ProjectManager = ({ onProjectChange }) => {
@@ -304,7 +303,7 @@ const ProjectManager = ({ onProjectChange }) => {
 
       const defaultSettings = await window.api.loadDefaultSettings();
       return {
-        id: uuidv4(),
+        id: window.api.generateUUID(),
         name: name || getBaseName(projectPath),
         path: projectPath, // 既に文字列に変換済み
         settings: defaultSettings || {

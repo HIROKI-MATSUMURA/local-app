@@ -5,6 +5,7 @@
   "main": "src/electron/main.js",
   "scripts": {
     "start": "electron --js-flags=\"--expose-gc\" .",
+    "postinstall": "node scripts/setup-webassembly-deps.js",
     "electron-dev": "NODE_ENV=development electron --js-flags=\"--expose-gc\" .",
     "electron-dev:win": "set NODE_ENV=development && electron --js-flags=\"--expose-gc\" .",
     "vite-dev": "vite",
@@ -17,7 +18,9 @@
     "package-mac": "npm run prebuild && npm run vite-build && electron-builder --mac",
     "package-win": "npm run prebuild && npm run vite-build && electron-builder --win --x64",
     "package-win-universal": "npm run prebuild && npm run vite-build && electron-builder --win --x64 --ia32",
-    "test-webassembly": "node test/test-webassembly.js"
+    "test-webassembly": "node test/test-webassembly.js",
+    "setup-deps": "node scripts/setup-webassembly-deps.js",
+    "fix-photon": "node scripts/fix-photon-web.js"
   },
   "devDependencies": {
     "concurrently": "7.6.0",

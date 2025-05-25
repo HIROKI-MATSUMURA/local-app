@@ -2,14 +2,14 @@
  * OpenCV.js Image Analysis Examples
  * 
  * This file contains example implementations of common image analysis functions
- * using OpenCV.js as a replacement for Python-based image analysis.
+ * using OpenCV.js for WebAssembly-based image processing.
  */
 
 // Need to load OpenCV.js first - in a real implementation this would be imported properly
-// <script async src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+// <script async src="./opencv.js"></script>
 
 /**
- * Extract sections from an image (similar to Python's contour detection)
+ * Extract sections from an image using contour detection
  * @param {ImageData} imageData - The image data to process
  * @returns {Array} - Array of detected sections with their coordinates
  */
@@ -84,7 +84,7 @@ async function extractSections(imageData) {
 }
 
 /**
- * Analyze colors in an image (similar to Python's color histogram analysis)
+ * Analyze colors in an image using histogram analysis
  * @param {ImageData} imageData - The image data to process
  * @param {Object} region - Optional region to analyze {x, y, width, height}
  * @returns {Object} - Color analysis results
@@ -187,7 +187,7 @@ function analyzeColors(imageData, region = null) {
 }
 
 /**
- * Recognize text in an image using Tesseract.js (replacement for Python's pytesseract)
+ * Recognize text in an image using Tesseract.js for OCR
  * @param {HTMLImageElement|HTMLCanvasElement|ImageData} image - The image to process
  * @param {Object} options - Options for OCR
  * @returns {Promise<Object>} - Recognized text and bounding boxes
