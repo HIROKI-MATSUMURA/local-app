@@ -96,7 +96,7 @@ const waitForOpenCV = async () => {
 
       console.log('OpenCV状態チェック:', status);
 
-      // より厳密なチェック - 基本的な関数群が全て利用可能かを確認
+      // 基本的なOpenCV関数の可用性チェック（imdecodeは必須ではない）
       if (window.cv &&
         typeof window.cv.Mat === 'function' &&
         typeof window.cv.cvtColor === 'function' &&
@@ -181,10 +181,73 @@ const waitForOpenCV = async () => {
 // Tesseractワーカーのキャッシュ
 let tesseractWorker = null;
 
+// Tesseract設定（完全ローカルファイルを使用）
+const TESSERACT_CONFIG = {
+  corePath: 'https://unpkg.com/tesseract.js-core@5.0.0',
+  workerPath: 'https://unpkg.com/tesseract.js@5.0.4/dist/worker.min.js',
+  langPath: './', // アプリケーションルートディレクトリを参照（eng.traineddata, jpn.traineddataが存在）
+  logger: function(m) {
+    if (m.status !== 'recognizing text') { // 進行状況ログを制限
+      console.log('Tesseract:', m);
+    }
+  }
+};
+
 // 定数定義
 const MAX_COLORS = 5;
 const RESIZE_WIDTH = 300;
 const MIN_SECTION_HEIGHT_RATIO = 0.05;
+
+/**
+ * Canvas APIを使用した画像デコード（OpenCV imdecodeの代替）
+ * @param {string} imageBase64 - Base64エンコードされた画像データ
+ * @returns {Promise<object>} - OpenCV互換のMatオブジェクト
+ */
+const decodeImageUsingCanvas = async (imageBase64) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // OpenCV Matを作成（複数の方法を試行）
+        if (cv && cv.matFromImageData && typeof cv.matFromImageData === 'function') {
+          const mat = cv.matFromImageData(imageData);
+          console.log(`✅ Canvas経由で画像デコード完了: ${canvas.width}x${canvas.height}px (matFromImageData使用)`);
+          resolve(mat);
+        } else if (cv && cv.Mat && cv.CV_8UC4) {
+          // 手動でMatを作成
+          try {
+            const mat = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
+            mat.data.set(imageData.data);
+            console.log(`✅ Canvas経由で画像デコード完了: ${canvas.width}x${canvas.height}px (手動Mat作成)`);
+            resolve(mat);
+          } catch (manualError) {
+            console.warn('⚠️ 手動Mat作成失敗:', manualError);
+            resolve(createMockImageMatrix(imageBase64));
+          }
+        } else {
+          console.warn('⚠️ OpenCV Mat作成機能が利用できません');
+          resolve(createMockImageMatrix(imageBase64));
+        }
+      } catch (error) {
+        console.error('Canvas画像デコードエラー:', error);
+        resolve(createMockImageMatrix(imageBase64));
+      }
+    };
+    img.onerror = () => {
+      console.error('画像読み込みエラー');
+      resolve(createMockImageMatrix(imageBase64));
+    };
+    img.src = imageBase64;
+  });
+};
 
 /**
  * base64エンコードされた画像データをデコードしてOpenCV用のMatに変換
@@ -197,6 +260,12 @@ const decodeImageToMat = async (imageBase64) => {
     if (!cv || !cv.Mat) {
       console.warn('OpenCV.jsが利用できません。フォールバック処理を実行します。');
       return createMockImageMatrix(imageBase64);
+    }
+
+    // Canvas経由での画像デコードを優先使用
+    if (typeof cv.matFromImageData === 'function') {
+      console.log('Canvas API経由で画像をデコードします');
+      return await decodeImageUsingCanvas(imageBase64);
     }
 
     // imdecodeが利用できるかチェック
@@ -229,78 +298,6 @@ const decodeImageToMat = async (imageBase64) => {
   }
 };
 
-/**
- * Canvasを使用してBase64画像をOpenCV Matに変換（imdecodeのフォールバック）
- * @param {string} imageBase64 - Base64エンコードされた画像データ
- * @returns {Promise<object>} - OpenCV用のMat
- */
-const decodeImageUsingCanvas = async (imageBase64) => {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log('Canvas を使用した画像デコードを開始...');
-      
-      // Base64データの正規化
-      let dataUrl = imageBase64;
-      if (!imageBase64.startsWith('data:image')) {
-        dataUrl = `data:image/jpeg;base64,${imageBase64}`;
-      }
-
-      // 画像要素を作成
-      const img = new Image();
-      
-      img.onload = () => {
-        try {
-          // Canvasを作成
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          // 画像をCanvasに描画
-          ctx.drawImage(img, 0, 0);
-          
-          // ImageDataを取得
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          
-          // OpenCV Matを作成（cv.matFromImageDataが利用できる場合）
-          if (cv.matFromImageData && typeof cv.matFromImageData === 'function') {
-            const mat = cv.matFromImageData(imageData);
-            console.log('Canvas経由でMatを正常に作成しました');
-            resolve(mat);
-          } else {
-            // cv.matFromImageDataが利用できない場合は手動でMatを作成
-            console.log('cv.matFromImageData が利用できません。手動でMatを作成します。');
-            const mat = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
-            mat.data.set(imageData.data);
-            
-            // BGRAからBGRに変換
-            const bgrMat = new cv.Mat();
-            cv.cvtColor(mat, bgrMat, cv.COLOR_RGBA2BGR);
-            mat.delete();
-            
-            console.log('手動でMatを正常に作成しました');
-            resolve(bgrMat);
-          }
-        } catch (canvasError) {
-          console.error('Canvas処理エラー:', canvasError);
-          resolve(createMockImageMatrix(imageBase64));
-        }
-      };
-      
-      img.onerror = (imgError) => {
-        console.error('画像読み込みエラー:', imgError);
-        resolve(createMockImageMatrix(imageBase64));
-      };
-      
-      img.src = dataUrl;
-      
-    } catch (error) {
-      console.error('Canvas使用画像デコードエラー:', error);
-      resolve(createMockImageMatrix(imageBase64));
-    }
-  });
-};
 
 // フォールバック用のモック画像マトリックス作成
 const createMockImageMatrix = (imageData) => {
@@ -320,7 +317,11 @@ const createMockImageMatrix = (imageData) => {
     isMock: true, // フォールバック用フラグ
     data: new Uint8Array(width * height * 3).fill(128), // グレーで埋める
     delete: () => { }, // OpenCVのMat.delete()相当のダミー関数
-    size: () => ({ width, height })
+    size: () => ({ width, height }),
+    Size: { width, height }, // OpenCVのSize互換プロパティ
+    clone: () => createMockImageMatrix(imageData), // clone機能
+    copyTo: () => {}, // copyTo機能
+    convertTo: () => createMockImageMatrix(imageData) // convertTo機能
   }
 };
 
@@ -531,15 +532,26 @@ const getTesseractWorker = async () => {
       return null;
     }
 
-    // ブラウザ環境向けの設定
+    // ローカルファイルを使用する設定
     const options = {
-      workerPath: 'https://unpkg.com/tesseract.js@5.0.4/dist/worker.min.js',
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-      corePath: 'https://unpkg.com/tesseract.js-core@5.0.0',
+      workerPath: TESSERACT_CONFIG.workerPath,
+      langPath: TESSERACT_CONFIG.langPath, // ローカルディレクトリ（eng.traineddata, jpn.traineddataが配置されている）
+      corePath: TESSERACT_CONFIG.corePath,
       workerBlobURL: false, // ブラウザ環境では無効
+      logger: TESSERACT_CONFIG.logger
     };
 
-    tesseractWorker = await createWorker('jpn+eng', options);
+    try {
+      tesseractWorker = await createWorker('jpn+eng', options);
+    } catch (error) {
+      console.warn('日英両言語でのワーカー作成に失敗。英語のみで再試行:', error);
+      try {
+        tesseractWorker = await createWorker('eng', options);
+      } catch (fallbackError) {
+        console.error('Tesseractワーカーの作成に完全に失敗:', fallbackError);
+        return null;
+      }
+    }
     await tesseractWorker.setParameters({
       preserve_interword_spaces: '1'
     });

@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import styles from '../styles/ProjectManager.module.scss';
 
 const ProjectManager = ({ onProjectChange }) => {
-  console.log('ProjectManager コンポーネントが初期化されました');
+  // デバッグログを制限（初期化時のみ10%の確率でログ出力）
+  if (Math.random() < 0.1) {
+    console.log('ProjectManager コンポーネントが初期化されました');
+  }
 
   const [projects, setProjects] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(null);
@@ -30,7 +33,7 @@ const ProjectManager = ({ onProjectChange }) => {
   const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [showManageTagsDialog, setShowManageTagsDialog] = useState(false);
-  const [forceRender, setForceRender] = useState(false); // 強制再レンダリング用の状態
+  // forceRender状態を削除 - 適切な依存関係で再レンダリングを制御
 
   // カテゴリとタグのローディング状態を追跡
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
@@ -1179,8 +1182,7 @@ const ProjectManager = ({ onProjectChange }) => {
       const savedCategory = window.api.loadSelectedCategory();
       console.log(`保存された選択カテゴリ: ${savedCategory}`);
 
-      // プロジェクトのフィルタリング状態を更新するために強制再レンダリング
-      setForceRender(prev => !prev);
+      // カテゴリ変更時に自動的に再レンダリングされる（selectedCategoryが更新されるため）
     } catch (error) {
       console.error(`カテゴリ選択の保存中にエラーが発生しました: ${error.message}`);
       setError(`カテゴリ選択の保存中にエラーが発生しました: ${error.message}`);

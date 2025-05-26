@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://payments.codeups.jp https://docs.opencv.org https://tessdata.projectnaptha.com https://cdn.jsdelivr.net data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; worker-src 'self' blob: data: https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; media-src 'self'; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://payments.codeups.jp https://docs.opencv.org https://tessdata.projectnaptha.com https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm/* https://cdn.jsdelivr.net/npm/@tesseract.js-data/* https://unpkg.com https://unpkg.com/* data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; worker-src 'self' blob: data: https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; media-src 'self'; object-src 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -110,7 +110,7 @@
         console.log('🔍 window.webAssemblyAnalyzerReady:', window.webAssemblyAnalyzerReady);
         console.log('🔍 window.Tesseract存在確認:', typeof window.Tesseract);
         console.log('🔍 window.cv存在確認:', typeof window.cv);
-        
+
         // analyzeAll関数の存在確認
         if (window.webAssemblyAnalyzer && window.webAssemblyAnalyzer.analyzeAll) {
           console.log('✅ webAssemblyAnalyzer.analyzeAll 利用可能');

@@ -613,13 +613,48 @@ app.whenReady().then(async () => {
   console.log(`- SELECTED_CATEGORY_PATH: ${SELECTED_CATEGORY_PATH}`);
   console.log(`- SELECTED_TAGS_PATH: ${SELECTED_TAGS_PATH}`);
 
+  // ローカルファイルの提供設定（Tesseract訓練データ用）
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    const url = details.url;
+
+    // Tesseract訓練データファイルへのリクエストをローカルファイルにリダイレクト
+    if (url.includes('tesseract.js-data') && (url.includes('eng') || url.includes('jpn'))) {
+      const filename = url.includes('eng') ? 'eng.traineddata' : 'jpn.traineddata';
+
+      // 開発環境と本番環境でパスを適切に解決
+      let localPath;
+      if (isDevelopment) {
+        // 開発環境: プロジェクトルートディレクトリ
+        localPath = path.join(__dirname, '..', '..', filename);
+      } else {
+        // 本番環境: アプリケーションリソースディレクトリ
+        localPath = path.join(process.resourcesPath, filename);
+      }
+
+      if (fs.existsSync(localPath)) {
+        console.log(`🔄 Tesseractデータファイルをローカルから提供: ${filename}`);
+        console.log(`📁 ローカルパス: ${localPath}`);
+        console.log(`🌐 元のURL: ${url}`);
+        callback({ redirectURL: `file://${localPath}` });
+        return;
+      } else {
+        console.warn(`⚠️ Tesseractデータファイルが見つかりません: ${localPath}`);
+        // パスのデバッグ情報を出力
+        console.log(`🔍 __dirname: ${__dirname}`);
+        console.log(`🔍 isDevelopment: ${isDevelopment}`);
+      }
+    }
+
+    callback({});
+  });
+
   // CSPの設定
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' data: blob: https://fonts.googleapis.com; img-src 'self' data: blob: file:; font-src 'self' data: blob: https://fonts.gstatic.com; connect-src 'self' https://payments.codeups.jp data: blob:; worker-src 'self' data: blob:; child-src 'self' data: blob:;"
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdn.jsdelivr.net https://unpkg.com https://unpkg.com/*; style-src 'self' 'unsafe-inline' data: blob: https://fonts.googleapis.com; img-src 'self' data: blob: file:; font-src 'self' data: blob: https://fonts.gstatic.com; connect-src 'self' https://payments.codeups.jp https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm/* https://tessdata.projectnaptha.com https://tessdata.projectnaptha.com/* https://unpkg.com https://unpkg.com/* data: blob: file:; worker-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://unpkg.com/* blob: data:; child-src 'self' blob: data:;"
         ]
       }
     });
@@ -673,10 +708,12 @@ app.whenReady().then(async () => {
     console.log(`Tesseract利用可能: ${checkResult.tesseract_available || false}`);
 
     // 環境セットアップが必要な場合は実行
-    if (checkResult.status !== 'ok') {
+    if (checkResult.status !== 'ok' && webAssemblyBridgeAdapter) {
       console.log('WebAssembly環境のセットアップが必要です');
       const setupResult = await webAssemblyBridgeAdapter.setupEnvironment();
       console.log('WebAssembly環境セットアップ結果:', setupResult);
+    } else if (checkResult.status !== 'ok') {
+      console.log('WebAssemblyBridgeAdapterが利用できないため、セットアップをスキップします');
     } else {
       console.log('WebAssembly環境のセットアップは不要です（既に準備完了）');
     }

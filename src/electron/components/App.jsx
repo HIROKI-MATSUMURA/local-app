@@ -213,7 +213,10 @@ const App = () => {
   }, [activeProject?.id, activeProject?.name, activeProject?.path, activeProject?.category]);
 
   const renderContent = useCallback(() => {
-    console.log('renderContent が呼び出されました。activeTab:', activeTab);
+    // デバッグログを制限（連続呼び出しを避ける）
+    if (Math.random() < 0.1) { // 10%の確率でログ出力
+      console.log('renderContent が呼び出されました。activeTab:', activeTab);
+    }
 
     // project-managerなら無条件で表示
     if (activeTab === 'project-manager') {
