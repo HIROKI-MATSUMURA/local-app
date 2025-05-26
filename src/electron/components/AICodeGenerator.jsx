@@ -2186,7 +2186,13 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
         try {
           // デバッグ
-          console.log("generateCode関数を呼び出し中...");
+          console.log("🔥🔥🔥 フロントエンド: generateCode関数を呼び出し中... 🔥🔥🔥");
+          console.log("🔥 フロントエンド: 引数詳細:");
+          console.log("🔥 フロントエンド: prompt存在:", !!prompt);
+          console.log("🔥 フロントエンド: prompt長さ:", prompt ? prompt.length : 0);
+          console.log("🔥 フロントエンド: uploadedImage存在:", !!uploadedImage);
+          console.log("🔥 フロントエンド: uploadedImageサイズ:", uploadedImage?.data ? uploadedImage.data.length : 0);
+
           setLoadingStage("AIにコード生成を依頼中...");
           setLoadingProgress(60);
 
@@ -2195,7 +2201,10 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
             prompt: prompt,
             uploadedImage: uploadedImage
           });
-          console.log("generateCode関数からの結果を受信:", result ? "データあり" : "データなし");
+
+          console.log("🔥🔥🔥 フロントエンド: generateCode関数からの結果を受信 🔥🔥🔥");
+          console.log("🔥 フロントエンド: result存在:", !!result);
+          console.log("🔥 フロントエンド: result詳細:", result);
 
           setLoadingProgress(80);
           setLoadingStage("コードの解析と最適化中...");
@@ -2208,20 +2217,20 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
 
           // 生成されたコードをHTMLとCSSに分割（複数のパターンに対応）
-          let htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/) || 
-                         generatedCode.match(/```html\r?\n([\s\S]*?)```/) ||
-                         generatedCode.match(/<html[\s\S]*?<\/html>/i) ||
-                         generatedCode.match(/<!DOCTYPE html[\s\S]*?<\/html>/i);
-          
-          let cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || 
-                        generatedCode.match(/```css\n([\s\S]*?)```/) ||
-                        generatedCode.match(/```scss\r?\n([\s\S]*?)```/) ||
-                        generatedCode.match(/```css\r?\n([\s\S]*?)```/) ||
-                        generatedCode.match(/\/\*[\s\S]*?\*\/|[.#][a-zA-Z0-9_-]+[\s\S]*?}/);
+          let htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/) ||
+            generatedCode.match(/```html\r?\n([\s\S]*?)```/) ||
+            generatedCode.match(/<html[\s\S]*?<\/html>/i) ||
+            generatedCode.match(/<!DOCTYPE html[\s\S]*?<\/html>/i);
+
+          let cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) ||
+            generatedCode.match(/```css\n([\s\S]*?)```/) ||
+            generatedCode.match(/```scss\r?\n([\s\S]*?)```/) ||
+            generatedCode.match(/```css\r?\n([\s\S]*?)```/) ||
+            generatedCode.match(/\/\*[\s\S]*?\*\/|[.#][a-zA-Z0-9_-]+[\s\S]*?}/);
 
           console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
           console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
-          
+
           // もしマッチしない場合は、生成されたコード全体をログ出力
           if (!htmlMatch || !cssMatch) {
             console.log("生成されたコード全体:", generatedCode);
@@ -2233,7 +2242,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           // HTMLとCSSが抽出できない場合は、より柔軟にパースを試行
           if (!html || !css) {
             console.warn("標準パターンで抽出できませんでした。別の方法を試行します。");
-            
+
             // HTMLの別の抽出方法
             if (!html) {
               const htmlPatterns = [
@@ -2242,7 +2251,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 /<article[\s\S]*?<\/article>/i,
                 /<main[\s\S]*?<\/main>/i
               ];
-              
+
               for (const pattern of htmlPatterns) {
                 const match = generatedCode.match(pattern);
                 if (match) {
@@ -2252,7 +2261,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 }
               }
             }
-            
+
             // CSSの別の抽出方法
             if (!css) {
               const cssPatterns = [
@@ -2260,7 +2269,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                 /#[\w-]+\s*{[\s\S]*?}/g,
                 /[a-zA-Z]+\s*{[\s\S]*?}/g
               ];
-              
+
               let extractedCss = "";
               for (const pattern of cssPatterns) {
                 const matches = generatedCode.match(pattern);
@@ -2268,7 +2277,7 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
                   extractedCss += matches.join('\n') + '\n';
                 }
               }
-              
+
               if (extractedCss.trim()) {
                 css = extractedCss.trim();
                 console.log("CSSを別パターンで抽出しました");

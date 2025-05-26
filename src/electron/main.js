@@ -1788,9 +1788,23 @@ $mediaquerys: (
   });
 
   // AIコード生成ハンドラ
-  ipcMain.handle('generate-code', async (event, params) => {
+  ipcMain.handle('generate-code', async (event, { prompt, uploadedImage, provider = 'claude' }) => {
     try {
-      console.log('AIコード生成リクエストを受信しました');
+      console.log('🔥🔥🔥 AIコード生成リクエストを受信しました 🔥🔥🔥');
+      console.log('🔥 受信したparams:', {
+        promptExists: !!prompt,
+        promptLength: prompt ? prompt.length : 0,
+        promptType: typeof prompt,
+        hasUploadedImage: !!uploadedImage,
+        uploadedImageData: uploadedImage?.data ? 'あり' : 'なし',
+        provider
+      });
+
+      if (prompt) {
+        console.log('🔥 プロンプトの最初の100文字:', prompt.substring(0, 100) + '...');
+      } else {
+        console.log('🔥 ❌ プロンプトが空または未定義です！');
+      }
 
       // JavaScript環境でコード生成を実行します
       console.log('JavaScript環境でコード生成を実行します');
@@ -1833,8 +1847,6 @@ $mediaquerys: (
       if (!apiKey) {
         throw new Error(`APIキーが設定されていません`);
       }
-
-      const { prompt, uploadedImage } = params;
 
       if (!prompt) {
         throw new Error('プロンプトが指定されていません');
@@ -1890,25 +1902,56 @@ $mediaquerys: (
       } else {
         // Claude APIリクエスト
         console.log('Claude APIにリクエスト送信...');
+        console.log('プロンプト内容:', prompt ? `存在(${prompt.length}文字)` : '空');
+        console.log('画像データ:', uploadedImage ? `存在(${uploadedImage.data ? uploadedImage.data.length + ' bytes' : 'データなし'})` : '画像なし');
 
-        let messageContent;
+        // messageContentを常に配列形式で構築
+        let messageContent = [];
 
-        // 画像がある場合
+        // プロンプトテキストを追加
+        if (prompt && prompt.trim() !== '') {
+          messageContent.push({ type: 'text', text: prompt });
+          console.log('✅ プロンプトテキストをmessageContentに追加しました');
+        } else {
+          console.error('❌ プロンプトが空です！');
+          throw new Error('プロンプトが空のため、リクエストを送信できません');
+        }
+
+        // 画像がある場合は追加
         if (uploadedImage && uploadedImage.data) {
-          messageContent = [
-            { type: 'text', text: prompt },
-            {
+          try {
+            // Base64データの処理
+            let imageData;
+            if (uploadedImage.data.startsWith('data:')) {
+              // data URLの場合、Base64部分のみを抽出
+              imageData = uploadedImage.data.split(',')[1];
+            } else {
+              // すでにBase64形式の場合はそのまま使用
+              imageData = uploadedImage.data;
+            }
+
+            messageContent.push({
               type: 'image',
               source: {
                 type: 'base64',
                 media_type: uploadedImage.mimeType || 'image/jpeg',
-                data: uploadedImage.data.split(',')[1] // Base64データ部分のみ抽出
+                data: imageData
               }
-            }
-          ];
+            });
+            console.log('✅ 画像データをmessageContentに追加しました');
+            console.log('画像メディアタイプ:', uploadedImage.mimeType || 'image/jpeg');
+          } catch (imageError) {
+            console.error('❌ 画像データの処理中にエラー:', imageError);
+            // 画像エラーがあってもテキストのみで続行
+          }
         } else {
-          messageContent = prompt;
+          console.log('ℹ️ 画像データなし - テキストのみでリクエスト');
         }
+
+        console.log('最終的なmessageContent構造:', {
+          length: messageContent.length,
+          types: messageContent.map(item => item.type)
+        });
 
         const requestData = {
           model: 'claude-3-haiku-20240307',
@@ -1920,6 +1963,13 @@ $mediaquerys: (
           temperature: 0.7
         };
 
+        console.log('Claude APIリクエストデータ:', {
+          model: requestData.model,
+          messageCount: requestData.messages.length,
+          contentItems: requestData.messages[0].content.length,
+          maxTokens: requestData.max_tokens
+        });
+
         response = await axios.post('https://api.anthropic.com/v1/messages', requestData, {
           headers: {
             'Content-Type': 'application/json',
@@ -1930,6 +1980,7 @@ $mediaquerys: (
         });
 
         console.log(`Claude APIレスポンス: HTTP ${response.status}`);
+        console.log('Claude APIレスポンス内容:', response.data.content[0].text.substring(0, 200) + '...');
 
         return {
           generatedCode: response.data.content[0].text,
@@ -3233,8 +3284,8 @@ $mediaquerys: (
             role: 'user',
             content: messageContent
           }],
-          max_tokens: requestOptions.maxTokens || 4096,
-          temperature: requestOptions.temperature || 0.7
+          max_tokens: 4096,
+          temperature: 0.7
         };
 
         console.log('AI送信: Claudeリクエストデータ', {
@@ -3276,7 +3327,7 @@ $mediaquerys: (
         const requestData = {
           model: requestOptions.model || 'gpt-4o',
           messages,
-          max_tokens: requestOptions.maxTokens || 4096,
+          max_tokens: 4096,
           temperature: requestOptions.temperature || 0.7
         };
 
