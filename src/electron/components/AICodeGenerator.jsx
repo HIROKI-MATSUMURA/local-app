@@ -175,48 +175,48 @@ const convertPxToRem = (scss) => {
 };
 
 // 画像から色を抽出する関数
-const analyzeImageColors = async (file) => {
-  return new Promise((resolve) => {
-    // 実際の実装では色抽出ライブラリを使用するか、APIを呼び出す
-    // ここではモックデータを返す
-    setTimeout(() => {
-      const mockColors = [
-        'rgb(45, 52, 64)',
-        'rgb(76, 86, 106)',
-        'rgb(236, 239, 244)',
-        'rgb(129, 161, 193)',
-        'rgb(94, 129, 172)'
-      ];
-      resolve(mockColors);
-    }, 1000);
-  });
-};
+// const analyzeImageColors = async (file) => {
+//   return new Promise((resolve) => {
+//     // 実際の実装では色抽出ライブラリを使用するか、APIを呼び出す
+//     // ここではモックデータを返す
+//     setTimeout(() => {
+//       const mockColors = [
+//         'rgb(45, 52, 64)',
+//         'rgb(76, 86, 106)',
+//         'rgb(236, 239, 244)',
+//         'rgb(129, 161, 193)',
+//         'rgb(94, 129, 172)'
+//       ];
+//       resolve(mockColors);
+//     }, 1000);
+//   });
+// };
 
 // 画像からテキストを抽出する関数（OCR）
-const analyzeImageText = async (file, updateProgress) => {
-  return new Promise((resolve) => {
-    // 実際の実装ではTesseractなどのOCRライブラリを使用するか、APIを呼び出す
-    // ここではモックデータを返す
+// const analyzeImageText = async (file, updateProgress) => {
+//   return new Promise((resolve) => {
+//     // 実際の実装ではTesseractなどのOCRライブラリを使用するか、APIを呼び出す
+//     // ここではモックデータを返す
 
-    // 進捗状況をシミュレート - 40%から70%の範囲で進捗を更新
-    let progress = 40;
-    const interval = setInterval(() => {
-      progress += 3;
-      if (progress <= 70) {
-        updateProgress(progress);
-      } else {
-        clearInterval(interval);
-      }
-    }, 300);
+//     // 進捗状況をシミュレート - 40%から70%の範囲で進捗を更新
+//     let progress = 40;
+//     const interval = setInterval(() => {
+//       progress += 3;
+//       if (progress <= 70) {
+//         updateProgress(progress);
+//       } else {
+//         clearInterval(interval);
+//       }
+//     }, 300);
 
-    setTimeout(() => {
-      clearInterval(interval);
-      updateProgress(70);  // 最終進捗を70%に設定
-      const mockText = "サンプルテキスト:\nヘッダー：ロゴ、ナビゲーション\nメインセクション：画像、テキスト\nフッター：著作権情報、リンク";
-      resolve(mockText);
-    }, 3000);
-  });
-};
+//     setTimeout(() => {
+//       clearInterval(interval);
+//       updateProgress(70);  // 最終進捗を70%に設定
+//       const mockText = "サンプルテキスト:\nヘッダー：ロゴ、ナビゲーション\nメインセクション：画像、テキスト\nフッター：著作権情報、リンク";
+//       resolve(mockText);
+//     }, 3000);
+//   });
+// };
 
 // SCSSをCSSに擬似的に変換する関数
 const processSCSS = (scssCode, breakpointsArr = []) => {
@@ -2072,17 +2072,25 @@ ${editingCSS}
         let prompt;
         try {
           // プロンプト生成を別のtry-catchで囲む
+          console.log("🔥 フロントエンド: generatePrompt関数を呼び出します");
+          console.log("🔥 フロントエンド: responsiveMode =", responsiveMode);
+          console.log("🔥 フロントエンド: aiBreakpoints =", aiBreakpoints);
+          console.log("🔥 フロントエンド: pcImageBase64 =", pcImageBase64 ? `${pcImageBase64.length}文字` : "なし");
+          console.log("🔥 フロントエンド: spImageBase64 =", spImageBase64 ? `${spImageBase64.length}文字` : "なし");
+
           prompt = await window.api.generatePrompt({
             responsiveMode,
             aiBreakpoints,
             pcImage: pcImageBase64, // ✅ ここ！！
             spImage: spImageBase64, // ✅ ここ！！
           });
-          console.log("プロンプト生成成功");
+
+          console.log("🔥 フロントエンド: プロンプト生成成功");
+          console.log("🔥 フロントエンド: 生成されたプロンプトの長さ =", prompt ? prompt.length : 0);
           setLoadingProgress(30);
           setLoadingStage("AIに問合せ中...");
         } catch (promptError) {
-          console.error("プロンプト生成でエラーが発生:", promptError);
+          console.error("🔥 フロントエンド: プロンプト生成でエラーが発生:", promptError);
           // エラー時はデフォルトのプロンプトを使用
           prompt = `
 Generate HTML and SCSS code based on the image.
@@ -2199,21 +2207,83 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
           const generatedCode = result.generatedCode;
           console.log("生成されたコード:", generatedCode.substring(0, 100) + "...");
 
-          // 生成されたコードをHTMLとCSSに分割
-          const htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/);
-          const cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || generatedCode.match(/```css\n([\s\S]*?)```/);
+          // 生成されたコードをHTMLとCSSに分割（複数のパターンに対応）
+          let htmlMatch = generatedCode.match(/```html\n([\s\S]*?)```/) || 
+                         generatedCode.match(/```html\r?\n([\s\S]*?)```/) ||
+                         generatedCode.match(/<html[\s\S]*?<\/html>/i) ||
+                         generatedCode.match(/<!DOCTYPE html[\s\S]*?<\/html>/i);
+          
+          let cssMatch = generatedCode.match(/```scss\n([\s\S]*?)```/) || 
+                        generatedCode.match(/```css\n([\s\S]*?)```/) ||
+                        generatedCode.match(/```scss\r?\n([\s\S]*?)```/) ||
+                        generatedCode.match(/```css\r?\n([\s\S]*?)```/) ||
+                        generatedCode.match(/\/\*[\s\S]*?\*\/|[.#][a-zA-Z0-9_-]+[\s\S]*?}/);
 
           console.log("HTML抽出結果:", htmlMatch ? "マッチしました" : "マッチしませんでした");
           console.log("CSS抽出結果:", cssMatch ? "マッチしました" : "マッチしませんでした");
+          
+          // もしマッチしない場合は、生成されたコード全体をログ出力
+          if (!htmlMatch || !cssMatch) {
+            console.log("生成されたコード全体:", generatedCode);
+          }
 
-          const html = htmlMatch ? htmlMatch[1].trim() : "";
-          const css = cssMatch ? cssMatch[1].trim() : "";
+          let html = htmlMatch ? (htmlMatch[1] || htmlMatch[0] || "").trim() : "";
+          let css = cssMatch ? (cssMatch[1] || cssMatch[0] || "").trim() : "";
+
+          // HTMLとCSSが抽出できない場合は、より柔軟にパースを試行
+          if (!html || !css) {
+            console.warn("標準パターンで抽出できませんでした。別の方法を試行します。");
+            
+            // HTMLの別の抽出方法
+            if (!html) {
+              const htmlPatterns = [
+                /<div[\s\S]*?<\/div>/i,
+                /<section[\s\S]*?<\/section>/i,
+                /<article[\s\S]*?<\/article>/i,
+                /<main[\s\S]*?<\/main>/i
+              ];
+              
+              for (const pattern of htmlPatterns) {
+                const match = generatedCode.match(pattern);
+                if (match) {
+                  html = match[0].trim();
+                  console.log("HTMLを別パターンで抽出しました:", pattern);
+                  break;
+                }
+              }
+            }
+            
+            // CSSの別の抽出方法
+            if (!css) {
+              const cssPatterns = [
+                /\.[\w-]+\s*{[\s\S]*?}/g,
+                /#[\w-]+\s*{[\s\S]*?}/g,
+                /[a-zA-Z]+\s*{[\s\S]*?}/g
+              ];
+              
+              let extractedCss = "";
+              for (const pattern of cssPatterns) {
+                const matches = generatedCode.match(pattern);
+                if (matches) {
+                  extractedCss += matches.join('\n') + '\n';
+                }
+              }
+              
+              if (extractedCss.trim()) {
+                css = extractedCss.trim();
+                console.log("CSSを別パターンで抽出しました");
+              }
+            }
+          }
 
           if (!html || !css) {
             console.error("エラー: HTMLまたはCSSのコードが見つかりませんでした");
             console.log("HTML:", html);
             console.log("CSS:", css);
-            alert("生成されたコードの形式が正しくありません。");
+            alert("生成されたコードの形式が正しくありません。手動でコードを確認してください。");
+            // エラーでも続行して、生成されたコード全体を表示
+            setGeneratedCode(generatedCode);
+            setShowGeneratedCode(true);
             setLoading(false);
             clearInterval(progressTimer);
             return;
@@ -4027,10 +4097,15 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
   const handleAnalyzeImage = async (type) => {
     try {
       const image = type === 'pc' ? pcImage : spImage;
-      if (!image) {
+      const imageBase64 = type === 'pc' ? pcImageBase64 : spImageBase64;
+
+      if (!image || !imageBase64) {
         alert(`${type.toUpperCase()}画像がアップロードされていません`);
         return;
       }
+
+      console.log(`🔥 画像解析開始: ${type}画像`);
+      console.log(`🔥 画像データサイズ: ${imageBase64.length}文字`);
 
       // 分析開始前に状態を更新
       setAnalyzingImage(true);
@@ -4041,21 +4116,76 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
 
       // 進捗状況を更新する関数
       const updateProgress = (progress) => {
-        console.log(`画像分析進捗: ${progress}%`);
+        console.log(`🔥 画像分析進捗: ${progress}%`);
         setAnalysisProgress(progress);
       };
 
       // 初期進捗を表示
       updateProgress(10);
 
-      // 画像から色を抽出
-      const colors = await analyzeImageColors(image.file);
-      updateProgress(40);
+      // APIが存在するか確認
+      if (!window.api || !window.api.analyzeAll) {
+        console.error("🔥 window.api.analyzeAllが利用できません");
+        throw new Error("画像解析APIが利用できません");
+      }
 
-      // 画像からテキストを抽出（OCR）
-      const text = await analyzeImageText(image.file, updateProgress);
+      updateProgress(20);
+
+      console.log("🔥 window.api.analyzeAllを呼び出します");
+
+      // 実際の画像解析APIを呼び出し
+      const analysisResult = await window.api.analyzeAll(imageBase64, {
+        extract_text: true,
+        extract_colors: true,
+        detect_objects: true,
+        analyze_layout: true
+      });
+
+      console.log("🔥 画像解析結果を受信:", analysisResult);
       updateProgress(80);
 
+      // 結果から色とテキストを抽出
+      let colors = [];
+      let text = "";
+
+      if (analysisResult) {
+        // 色情報の抽出
+        if (analysisResult.colors && Array.isArray(analysisResult.colors)) {
+          colors = analysisResult.colors.map(color => {
+            if (typeof color === 'string') {
+              return color;
+            } else if (color.hex) {
+              return color.hex;
+            } else if (color.rgb) {
+              return `rgb(${color.rgb.r}, ${color.rgb.g}, ${color.rgb.b})`;
+            }
+            return color;
+          });
+        } else if (analysisResult.dominant_colors && Array.isArray(analysisResult.dominant_colors)) {
+          colors = analysisResult.dominant_colors.map(color => {
+            if (typeof color === 'string') {
+              return color;
+            } else if (color.hex) {
+              return color.hex;
+            }
+            return color;
+          });
+        }
+
+        // テキスト情報の抽出
+        if (analysisResult.text) {
+          text = analysisResult.text;
+        } else if (analysisResult.extracted_text) {
+          text = analysisResult.extracted_text;
+        } else if (analysisResult.ocr_text) {
+          text = analysisResult.ocr_text;
+        }
+      }
+
+      console.log(`🔥 抽出された色: ${colors.length}個`);
+      console.log(`🔥 抽出されたテキスト: ${text.length}文字`);
+
+      // 結果をステートに保存
       if (type === 'pc') {
         setPcColors(colors);
         setPcText(text);
@@ -4070,13 +4200,14 @@ Provide code in \`\`\`html\` and \`\`\`scss\` format.
       setTimeout(() => {
         setAnalyzingImage(false);
         setAnalysisProgress(0);
+        console.log(`🔥 ${type}画像の解析が完了しました`);
       }, 1000);
 
     } catch (error) {
-      console.error('Image analysis error:', error);
+      console.error('🔥 画像解析エラー:', error);
       setAnalyzingImage(false);
       setAnalysisProgress(0);
-      alert('画像分析中にエラーが発生しました');
+      alert(`画像分析中にエラーが発生しました: ${error.message}`);
     }
   };
 

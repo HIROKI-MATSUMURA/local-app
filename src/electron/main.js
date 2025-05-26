@@ -439,8 +439,8 @@ function createMainWindow() {
     },
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
+      contextIsolation: false,  // 一時的に無効化してWebAssemblyアナライザーの動作をテスト
+      webSecurity: false,  // 開発環境でWebAssemblyライブラリのCDN読み込みを許可
       sandbox: false,  // falseに変更
       preload: preloadPath
     }
@@ -3016,12 +3016,22 @@ $mediaquerys: (
   // プロンプト生成のIPCハンドラー
   ipcMain.handle('generatePrompt', async (event, options) => {
     try {
-      console.log('プロンプト生成リクエストを受信しました');
+      console.log('🔥 main.js: プロンプト生成リクエストを受信しました');
+      console.log('🔥 main.js: options =', options);
+      console.log('🔥 main.js: promptGeneratorモジュールを読み込みます');
+
       const promptGenerator = require('./utils/promptGenerator');
-      const prompt = await promptGenerator.generatePrompt(options);
+
+      console.log('🔥 main.js: promptGenerator.generatePrompt関数を呼び出します');
+      // mainWindowを渡してRenderer processで画像解析を実行できるようにする
+      const prompt = await promptGenerator.generatePrompt(options, mainWindow);
+
+      console.log('🔥 main.js: プロンプト生成完了');
+      console.log('🔥 main.js: 生成されたプロンプトの長さ =', prompt ? prompt.length : 0);
+
       return prompt;
     } catch (error) {
-      console.error('プロンプト生成エラー:', error);
+      console.error('🔥 main.js: プロンプト生成エラー:', error);
       throw error;
     }
   });

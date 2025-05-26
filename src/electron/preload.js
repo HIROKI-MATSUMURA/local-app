@@ -43,8 +43,8 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// APIをコンテキストブリッジを通してウェブコンテンツに公開
-contextBridge.exposeInMainWorld('api', {
+// contextIsolation無効化のため、直接windowオブジェクトに設定
+window.api = {
   // Electron環境のフラグ
   isElectron: true,
 
@@ -472,9 +472,18 @@ contextBridge.exposeInMainWorld('api', {
   // プロンプト生成
   generatePrompt: async (options) => {
     try {
-      return await ipcRenderer.invoke('generatePrompt', options);
+      console.log("🔥 preload.js: generatePrompt関数が呼び出されました");
+      console.log("🔥 preload.js: options =", options);
+      console.log("🔥 preload.js: IPCでgeneratePromptチャンネルを呼び出します");
+
+      const result = await ipcRenderer.invoke('generatePrompt', options);
+
+      console.log("🔥 preload.js: IPCからの応答を受信しました");
+      console.log("🔥 preload.js: 結果の長さ =", result ? result.length : 0);
+
+      return result;
     } catch (err) {
-      console.error('generatePrompt failed:', err);
+      console.error('🔥 preload.js: generatePrompt failed:', err);
       throw err;
     }
   },
@@ -506,11 +515,74 @@ contextBridge.exposeInMainWorld('api', {
       console.error('🌐 HTTPリクエスト: エラー', error);
       throw error;
     }
+  },
+
+  // レンダラープロセスで画像解析を実行（WebAssembly環境で実行）
+  analyzeImageInRenderer: async (imageData, options = {}) => {
+    try {
+      console.log('🔍 analyzeImageInRenderer: 開始 - データサイズ:', imageData ? imageData.length : 0);
+      
+      // imageData の検証
+      if (!imageData || typeof imageData !== 'string') {
+        console.error('🔍 analyzeImageInRenderer: 無効な画像データ');
+        return { success: false, error: '無効な画像データが提供されました' };
+      }
+
+      // WebAssemblyAnalyzerの初期化を待つ（最大5秒）
+      let attempts = 0;
+      const maxAttempts = 50; // 5秒間（100ms x 50回）
+      
+      while (attempts < maxAttempts) {
+        if (window.webAssemblyAnalyzer && window.webAssemblyAnalyzer.analyzeAll) {
+          console.log('🔍 analyzeImageInRenderer: WebAssemblyAnalyzer利用可能（試行', attempts + 1, '回目）');
+          
+          try {
+            const result = await window.webAssemblyAnalyzer.analyzeAll(imageData, options);
+            console.log('🔍 analyzeImageInRenderer: 解析完了 - 成功:', result && result.success !== false);
+            return result;
+          } catch (analysisError) {
+            console.error('🔍 analyzeImageInRenderer: 解析中エラー:', analysisError);
+            // 解析エラーでもフォールバックデータを返す
+            break;
+          }
+        }
+        
+        // 100ms待機
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+
+      // グローバル関数が利用できない場合のエラー
+      console.error('🔍 analyzeImageInRenderer: window.webAssemblyAnalyzerが利用できません（', attempts, '回試行）');
+      console.error('🔍 window.webAssemblyAnalyzer:', typeof window.webAssemblyAnalyzer);
+      console.error('🔍 window.webAssemblyAnalyzerReady:', window.webAssemblyAnalyzerReady);
+      console.error('🔍 利用可能なwindowプロパティ:', Object.keys(window).filter(key => 
+        key.includes('cv') || key.includes('Tesseract') || key.includes('webAssembly')));
+      
+      return { 
+        success: false, 
+        error: 'WebAssembly画像解析モジュールが利用できません',
+        fallbackData: {
+          colors: [],
+          text: '',
+          textBlocks: [],
+          sections: [],
+          elements: []
+        }
+      };
+    } catch (error) {
+      console.error('🔍 analyzeImageInRenderer: エラー発生:', error);
+      return { 
+        success: false, 
+        error: error.message || String(error),
+        stack: error.stack
+      };
+    }
   }
-});
+};
 
 // Electronオブジェクトも公開
-contextBridge.exposeInMainWorld('electron', {
+window.electron = {
   ipcRenderer: {
     send: (channel, ...args) => ipcRenderer.send(channel, ...args),
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
@@ -531,10 +603,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.send('close-webassembly-setup');
   },
   openExternalUrl: (url) => ipcRenderer.send('open-external-url', url)
-});
+};
 
 // コード生成
-contextBridge.exposeInMainWorld('codeGeneration', {
+window.codeGeneration = {
   // 新しいAIコード生成リクエスト
   requestAICodeGeneration: async (data) => {
     return await ipcRenderer.invoke('request-ai-code-generation', data);
@@ -562,10 +634,10 @@ contextBridge.exposeInMainWorld('codeGeneration', {
   saveAICode: async (data) => {
     return await ipcRenderer.invoke('save-ai-code', data);
   }
-});
+};
 
 // 画像解析
-contextBridge.exposeInMainWorld('imageAnalysis', {
+window.imageAnalysis = {
   // 画像の色を抽出
   extractColors: async (imageData) => {
     return await ipcRenderer.invoke('extract-colors', imageData);
@@ -607,10 +679,10 @@ contextBridge.exposeInMainWorld('imageAnalysis', {
   checkEnvironment: async () => {
     return await ipcRenderer.invoke('check-environment');
   }
-});
+};
 
 // 画像分析とコード生成のためのAPIをレンダラープロセスに公開
-contextBridge.exposeInMainWorld('electronAPI', {
+window.electronAPI = {
   // 画像保存
   saveImage: (imageData) => {
     return ipcRenderer.invoke('save-image', imageData);
@@ -663,10 +735,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateNaturalLanguagePrompt: (analysisData) => {
     return ipcRenderer.invoke('generate-nl-prompt', analysisData);
   }
-});
+};
 
 // AI API関連の機能をレンダラープロセスに公開
-contextBridge.exposeInMainWorld('aiApi', {
+window.aiApi = {
   // APIキーを安全に取得
   getConfig: async () => {
     try {
@@ -777,8 +849,8 @@ contextBridge.exposeInMainWorld('aiApi', {
       return v.toString(16);
     });
   }
-});
+};
 
-console.log('🔥 preload.js: contextBridge.exposeInMainWorld完了');
+console.log('🔥 preload.js: window APIs設定完了');
 console.log('🔥 preload.js: window.api設定完了');
 console.log('Preload script loaded successfully');

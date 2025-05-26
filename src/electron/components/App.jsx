@@ -19,8 +19,9 @@ import InitialSetup from './InitialSetup';
 const OUTPUT_PATH = '../output';
 
 const App = () => {
-  const isElectronContext = typeof window !== 'undefined' && window.api;
-  console.log('App コンポーネントがレンダリングされました');  // デバッグログ追加
+  const isElectronContext = useMemo(() => typeof window !== 'undefined' && window.api, []);
+  // デバッグログを削減（必要時のみ）
+  // console.log('App コンポーネントがレンダリングされました');
   const [isLoggedIn, setIsLoggedIn] = useState(false); // ★ログイン判定追加
   const SESSION_TIMEOUT_MINUTES = 180; // 3時間
 
@@ -54,13 +55,16 @@ const App = () => {
   }, [lastActivityTime]);
 
 
+  const [activeTab, setActiveTab] = useState("project-manager");
+  
   // ログイン成功時に呼ばれる関数
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = useCallback(() => {
     setIsLoggedIn(true);
     setActiveTab('project-manager');
-  };
-  const [activeTab, setActiveTab] = useState("project-manager");
-  console.log('現在のアクティブタブ:', activeTab);  // デバッグログ追加
+  }, []);
+  
+  // デバッグログを削減（必要時のみ）
+  // console.log('現在のアクティブタブ:', activeTab);
 
   const [activeProject, setActiveProject] = useState(null);
   const variableConfigRef = useRef(null);
@@ -72,52 +76,63 @@ const App = () => {
 
 
   useEffect(() => {
-    if (!isElectronContext) return;
-    if (!window.api.fs) {
-      console.warn("fs API がまだ来ていません");
-      return;
-    }
-    window.api.fs
-      .ensureDir(OUTPUT_PATH)
-      .then(() => console.log(`出力ディレクトリ準備OK: ${OUTPUT_PATH}`))
+    if (!isElectronContext || !window.api?.fs) return;
+    
+    window.api.fs.ensureDir(OUTPUT_PATH)
+      .then((result) => {
+        if (result?.success) {
+          console.log(`出力ディレクトリ準備OK: ${OUTPUT_PATH}`);
+        } else {
+          console.error("ensureDir エラー", result?.error || '不明なエラー');
+        }
+      })
       .catch((e) => console.error("ensureDir エラー", e));
   }, [isElectronContext]);
   // ——— activeProject が変わるたびに、そのプロジェクト内に output フォルダを作成 ———
 
   useEffect(() => {
-    if (!isElectronContext || !window.api.fs || !activeProject) return;
+    if (!isElectronContext || !window.api?.fs || !activeProject?.path) return;
+    
     const projectOut = `${activeProject.path}/output`;
-
-    window.api.fs
-      .ensureDir(projectOut)
-      .then(() => console.log(`プロジェクト出力先準備OK: ${projectOut}`))
+    window.api.fs.ensureDir(projectOut)
+      .then((result) => {
+        if (result?.success) {
+          console.log(`プロジェクト出力先準備OK: ${projectOut}`);
+        } else {
+          console.error("プロジェクト用 ensureDir エラー", result?.error || '不明なエラー');
+        }
+      })
       .catch((e) => console.error("プロジェクト用 ensureDir エラー", e));
-  }, [isElectronContext, activeProject]);
+  }, [isElectronContext, activeProject?.path]);
 
-  // activeProjectの変更をログに出力
-  useEffect(() => {
-    console.log('activeProject更新:', activeProject);
-  }, [activeProject]);
+  // activeProjectの変更をログに出力（デバッグ時のみ）
+  // useEffect(() => {
+  //   console.log('activeProject更新:', activeProject);
+  // }, [activeProject]);
 
   const handleProjectChange = useCallback((project) => {
     if (!project) return;
 
-    console.log('handleProjectChange called with:', project);
+    // デバッグログ削減
+    // console.log('handleProjectChange called with:', project);
 
     setActiveProject(prev => {
       // 同じプロジェクトなら state を更新しない
-      if (prev?.id === project.id) {
-        console.log('同じプロジェクトなので更新をスキップ');
+      if (prev?.id === project.id && 
+          prev?.name === project.name && 
+          prev?.path === project.path &&
+          prev?.category === project.category) {
+        // console.log('同じプロジェクトなので更新をスキップ');
         return prev;
       }
 
-      // 新しいプロジェクト情報を詳細にログ出力
-      console.log('プロジェクト情報更新:', {
-        id: project.id,
-        name: project.name,
-        category: project.category,
-        tags: project.tags
-      });
+      // 新しいプロジェクト情報を詳細にログ出力（デバッグ時のみ）
+      // console.log('プロジェクト情報更新:', {
+      //   id: project.id,
+      //   name: project.name,
+      //   category: project.category,
+      //   tags: project.tags
+      // });
 
       // path を正規化
       const normalizedPath =
@@ -132,17 +147,17 @@ const App = () => {
     });
   }, []);
 
-  const menuItems = [
+  const menuItems = useMemo(() => [
     { id: "project-manager", label: "プロジェクト管理", icon: "📁" },
     { id: "generate-html", label: "HTMLファイル生成", icon: "📄" },
     { id: "reset-css", label: "リセットCSS関連", icon: "🎨" },
     { id: "responsive-config", label: "レスポンシブ関連", icon: "📱" },
     { id: "variable-config", label: "変数設定", icon: "⚙️" },
     { id: "ai-code-generator", label: "AIコード生成", icon: "🤖" },
-  ];
+  ], []);
 
   // タブ切り替え前に未保存の変更をチェック
-  const handleTabChange = (newTabId) => {
+  const handleTabChange = useCallback((newTabId) => {
     console.log('タブ切り替え開始:', newTabId);
 
     // 現在のタブと新しいタブが同じ場合は何もしない
@@ -171,9 +186,8 @@ const App = () => {
       console.log('Electron APIを使用してタブ切り替えを通知');
       window.api.switchTab(newTabId);
     }
-  };
+  }, [activeTab]);
 
-  // activeProjectが存在する場合だけメモ化
   // activeProjectが存在する場合だけメモ化
   const memoizedProject = useMemo(() => {
     if (!activeProject) return null;
@@ -196,9 +210,9 @@ const App = () => {
     }
 
     return validated;
-  }, [activeProject]);
+  }, [activeProject?.id, activeProject?.name, activeProject?.path, activeProject?.category]);
 
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     console.log('renderContent が呼び出されました。activeTab:', activeTab);
 
     // project-managerなら無条件で表示
@@ -226,7 +240,7 @@ const App = () => {
       default:
         return <GenerateHTML activeProject={memoizedProject} />;
     }
-  };
+  }, [activeTab, memoizedProject, handleProjectChange]);
 
   if (!isLoggedIn) {
     return (

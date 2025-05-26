@@ -200,6 +200,53 @@ function registerDetectFeatureElements() {
   };
 }
 
+// 環境チェック関数
+async function checkEnvironment() {
+  console.log('WebAssembly環境をチェックしています...');
+  
+  try {
+    const openCVLoaded = await checkOpenCVLoaded();
+    const tesseractAvailable = typeof createWorker !== 'undefined' || (typeof window !== 'undefined' && window.Tesseract);
+    
+    const status = {
+      success: openCVLoaded && tesseractAvailable,
+      opencv: openCVLoaded,
+      tesseract: tesseractAvailable,
+      message: openCVLoaded && tesseractAvailable ? 'WebAssembly環境の準備完了' : 'WebAssembly環境に問題があります'
+    };
+    
+    console.log('WebAssembly環境チェック結果:', status);
+    return status;
+  } catch (error) {
+    console.error('WebAssembly環境チェック中にエラーが発生:', error);
+    return {
+      success: false,
+      opencv: false,
+      tesseract: false,
+      message: error.message || 'WebAssembly環境チェックに失敗しました'
+    };
+  }
+}
+
+// 環境セットアップ関数
+async function setupEnvironment() {
+  console.log('WebAssembly環境をセットアップしています...');
+  
+  try {
+    const initResult = await initializeBridgeAdapter();
+    return {
+      success: initResult,
+      message: initResult ? 'WebAssembly環境のセットアップ完了' : 'WebAssembly環境のセットアップに失敗しました'
+    };
+  } catch (error) {
+    console.error('WebAssembly環境セットアップ中にエラーが発生:', error);
+    return {
+      success: false,
+      message: error.message || 'WebAssembly環境のセットアップに失敗しました'
+    };
+  }
+}
+
 // 初期化関数
 async function initializeBridgeAdapter() {
   console.log('WebAssembly Bridge Adapter初期化中...');
@@ -220,5 +267,7 @@ module.exports = {
   registerDetectMainSections,
   registerDetectCardElements,
   registerDetectFeatureElements,
-  initializeBridgeAdapter
+  initializeBridgeAdapter,
+  checkEnvironment,
+  setupEnvironment
 };

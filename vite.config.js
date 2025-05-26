@@ -82,7 +82,7 @@ export default defineConfig({
     headers: {
       'Content-Type': 'application/javascript',
       'Access-Control-Allow-Origin': '*',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; worker-src 'self' blob: data: https://unpkg.com; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://docs.opencv.org https://tessdata.projectnaptha.com data: blob:"
     },
     middlewareMode: false,
     fs: {

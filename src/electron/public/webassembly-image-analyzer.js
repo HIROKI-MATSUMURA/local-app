@@ -90,38 +90,24 @@ const waitForOpenCV = async () => {
         'window.cv': typeof window.cv,
         'window.cv.Mat': window.cv ? typeof window.cv.Mat : 'undefined',
         'window.cv.imdecode': window.cv ? typeof window.cv.imdecode : 'undefined',
-        'window.cv.imread': window.cv ? typeof window.cv.imread : 'undefined',
-        'window.cv.cvtColor': window.cv ? typeof window.cv.cvtColor : 'undefined'
+        'window.cv.imread': window.cv ? typeof window.cv.imread : 'undefined'
       };
 
       console.log('OpenCV状態チェック:', status);
 
-      // より厳密なチェック - 基本的な関数群が全て利用可能かを確認
+      // より厳密なチェック
       if (window.cv &&
         typeof window.cv.Mat === 'function' &&
-        typeof window.cv.cvtColor === 'function' &&
-        typeof window.cv.resize === 'function') {
+        typeof window.cv.imdecode === 'function' &&
+        typeof window.cv.imread === 'function' &&
+        typeof window.cv.cvtColor === 'function') {
         cv = window.cv;
-        
-        // 利用可能な関数をログ出力
-        const availableFunctions = {
+        console.log('OpenCV.js初期化完了 - 利用可能な主要関数:', {
           Mat: typeof cv.Mat,
           imdecode: typeof cv.imdecode,
           imread: typeof cv.imread,
-          cvtColor: typeof cv.cvtColor,
-          resize: typeof cv.resize,
-          GaussianBlur: typeof cv.GaussianBlur,
-          Canny: typeof cv.Canny,
-          findContours: typeof cv.findContours
-        };
-        
-        console.log('OpenCV.js初期化完了 - 利用可能な関数:', availableFunctions);
-        
-        // imdecodeが利用できない場合の警告
-        if (typeof cv.imdecode === 'undefined') {
-          console.warn('⚠️ cv.imdecode は利用できません - フォールバック処理を使用します');
-        }
-        
+          cvtColor: typeof cv.cvtColor
+        });
         return true;
       }
       return false;
@@ -146,21 +132,15 @@ const waitForOpenCV = async () => {
       });
     }
 
-    // フォールバック: ポーリング（段階的に間隔を延長）
+    // フォールバック: ポーリング（間隔を長くして負荷軽減）
     let attempts = 0;
-    const maxAttempts = 50; // 10秒間に延長
-    let intervalTime = 100; // 初期間隔100ms
+    const maxAttempts = 30; // 6秒間（200ms × 30回）に短縮
 
     const checkInterval = setInterval(() => {
       attempts++;
-      
-      // 段階的に間隔を延長（初期は短く、後半は長く）
-      if (attempts > 20) intervalTime = 300;
-      else if (attempts > 10) intervalTime = 200;
-      
-      // 10回おきにログ出力（ログの量を削減）
-      if (attempts % 10 === 0 || attempts === maxAttempts) {
-        console.log(`OpenCV初期化チェック ${attempts}/${maxAttempts} (${intervalTime}ms間隔)`);
+      // 5回おきにログ出力（ログの量を削減）
+      if (attempts % 5 === 0 || attempts === maxAttempts) {
+        console.log(`OpenCV初期化チェック ${attempts}/${maxAttempts}`);
       }
 
       if (checkOpenCV()) {
@@ -170,11 +150,11 @@ const waitForOpenCV = async () => {
       } else if (attempts >= maxAttempts) {
         clearInterval(checkInterval);
         // タイムアウト時にフォールバック処理（エラーではなく警告として扱う）
-        console.warn(`⚠️ OpenCV.js初期化がタイムアウト（約${Math.round(maxAttempts * intervalTime / 1000)}秒）。フォールバック処理を実行します。`);
+        console.warn(`⚠️ OpenCV.js初期化がタイムアウト（${maxAttempts * 200}ms）。フォールバック処理を実行します。`);
         // エラーではなく成功として扱い、フォールバック処理を後で実装
         resolve();
       }
-    }, intervalTime);
+    }, 200);
   });
 };
 
@@ -194,15 +174,9 @@ const MIN_SECTION_HEIGHT_RATIO = 0.05;
 const decodeImageToMat = async (imageBase64) => {
   try {
     // OpenCVが初期化されているかチェック
-    if (!cv || !cv.Mat) {
+    if (!cv || !cv.imdecode) {
       console.warn('OpenCV.jsが利用できません。フォールバック処理を実行します。');
       return createMockImageMatrix(imageBase64);
-    }
-
-    // imdecodeが利用できるかチェック
-    if (typeof cv.imdecode !== 'function') {
-      console.warn('cv.imdecode が利用できません。代替方法を試行します。');
-      return await decodeImageUsingCanvas(imageBase64);
     }
 
     // Base64データを処理
@@ -225,81 +199,8 @@ const decodeImageToMat = async (imageBase64) => {
   } catch (error) {
     console.error('画像のデコードに失敗しました:', error);
     console.warn('フォールバック処理を実行します。');
-    return await decodeImageUsingCanvas(imageBase64);
+    return createMockImageMatrix(imageBase64);
   }
-};
-
-/**
- * Canvasを使用してBase64画像をOpenCV Matに変換（imdecodeのフォールバック）
- * @param {string} imageBase64 - Base64エンコードされた画像データ
- * @returns {Promise<object>} - OpenCV用のMat
- */
-const decodeImageUsingCanvas = async (imageBase64) => {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log('Canvas を使用した画像デコードを開始...');
-      
-      // Base64データの正規化
-      let dataUrl = imageBase64;
-      if (!imageBase64.startsWith('data:image')) {
-        dataUrl = `data:image/jpeg;base64,${imageBase64}`;
-      }
-
-      // 画像要素を作成
-      const img = new Image();
-      
-      img.onload = () => {
-        try {
-          // Canvasを作成
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          // 画像をCanvasに描画
-          ctx.drawImage(img, 0, 0);
-          
-          // ImageDataを取得
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          
-          // OpenCV Matを作成（cv.matFromImageDataが利用できる場合）
-          if (cv.matFromImageData && typeof cv.matFromImageData === 'function') {
-            const mat = cv.matFromImageData(imageData);
-            console.log('Canvas経由でMatを正常に作成しました');
-            resolve(mat);
-          } else {
-            // cv.matFromImageDataが利用できない場合は手動でMatを作成
-            console.log('cv.matFromImageData が利用できません。手動でMatを作成します。');
-            const mat = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
-            mat.data.set(imageData.data);
-            
-            // BGRAからBGRに変換
-            const bgrMat = new cv.Mat();
-            cv.cvtColor(mat, bgrMat, cv.COLOR_RGBA2BGR);
-            mat.delete();
-            
-            console.log('手動でMatを正常に作成しました');
-            resolve(bgrMat);
-          }
-        } catch (canvasError) {
-          console.error('Canvas処理エラー:', canvasError);
-          resolve(createMockImageMatrix(imageBase64));
-        }
-      };
-      
-      img.onerror = (imgError) => {
-        console.error('画像読み込みエラー:', imgError);
-        resolve(createMockImageMatrix(imageBase64));
-      };
-      
-      img.src = dataUrl;
-      
-    } catch (error) {
-      console.error('Canvas使用画像デコードエラー:', error);
-      resolve(createMockImageMatrix(imageBase64));
-    }
-  });
 };
 
 // フォールバック用のモック画像マトリックス作成
@@ -459,18 +360,6 @@ const kmeans = (pixels, k = MAX_COLORS) => {
  */
 const extractColors = async (imageData, options = {}) => {
   try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('extractColors: OpenCV.jsが利用できません - フォールバック処理');
-      return [
-        { rgb: 'rgb(51, 51, 51)', hex: '#333333', ratio: 0.3, role: 'primary' },
-        { rgb: 'rgb(255, 255, 255)', hex: '#FFFFFF', ratio: 0.25, role: 'background' },
-        { rgb: 'rgb(0, 123, 255)', hex: '#007BFF', ratio: 0.2, role: 'accent' },
-        { rgb: 'rgb(108, 117, 125)', hex: '#6C757D', ratio: 0.15, role: 'secondary' },
-        { rgb: 'rgb(33, 37, 41)', hex: '#212529', ratio: 0.1, role: 'text' }
-      ];
-    }
-
     // モジュール初期化
     await initializeModules();
 
@@ -732,32 +621,6 @@ const analyzeImageSections = async (imageData) => {
  */
 const analyzeLayoutPattern = async (imageData) => {
   try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('analyzeLayoutPattern: OpenCV.jsが利用できません - フォールバック処理');
-      return {
-        layoutType: "grid",
-        confidence: 0.6,
-        patterns: {
-          grid: 0.6,
-          list: 0.2,
-          card: 0.1,
-          hero: 0.05,
-          sidebar: 0.05
-        },
-        layoutDetails: {
-          dimensions: {
-            width: 1200,
-            height: 800,
-            aspectRatio: 1.5
-          },
-          horizontalLines: 3,
-          verticalLines: 3,
-          significantAreas: 6
-        }
-      };
-    }
-
     // 画像をデコード
     const img = await decodeImageToMat(imageData);
     const height = img.rows;
@@ -936,16 +799,6 @@ const analyzeLayoutPattern = async (imageData) => {
  */
 const detectMainSections = async (imageData) => {
   try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('detectMainSections: OpenCV.jsが利用できません - フォールバック処理');
-      return {
-        sectionsDetected: false,
-        sections: [],
-        message: 'OpenCV.jsが利用できないため、セクション検出をスキップしました'
-      };
-    }
-
     // 画像をデコード
     const img = await decodeImageToMat(imageData);
     const height = img.rows;
@@ -1094,37 +947,6 @@ const detectMainSections = async (imageData) => {
  */
 const detectCardElements = async (imageData) => {
   try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('detectCardElements: OpenCV.jsが利用できません - フォールバック処理');
-      return {
-        cardsDetected: true,
-        confidence: 0.7,
-        cards: [
-          {
-            id: 'card_1',
-            position: {
-              top: 100,
-              left: 50,
-              width: 300,
-              height: 200
-            },
-            confidence: 0.8
-          },
-          {
-            id: 'card_2',
-            position: {
-              top: 100,
-              left: 400,
-              width: 300,
-              height: 200
-            },
-            confidence: 0.8
-          }
-        ]
-      };
-    }
-
     // 画像をデコード
     const img = await decodeImageToMat(imageData);
     const height = img.rows;
@@ -1229,60 +1051,6 @@ const detectCardElements = async (imageData) => {
  */
 const detectFeatureElements = async (imageData) => {
   try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('detectFeatureElements: OpenCV.jsが利用できません - フォールバック処理');
-      return {
-        elementsDetected: true,
-        confidence: 0.7,
-        elements: [
-          {
-            type: 'navigation',
-            position: {
-              top: 0,
-              left: 0,
-              width: 1200,
-              height: 60,
-              center: [600, 30]
-            },
-            confidence: 0.8
-          },
-          {
-            type: 'button',
-            position: {
-              top: 300,
-              left: 100,
-              width: 120,
-              height: 40,
-              center: [160, 320]
-            },
-            confidence: 0.8
-          },
-          {
-            type: 'input',
-            position: {
-              top: 200,
-              left: 100,
-              width: 250,
-              height: 35,
-              center: [225, 217.5]
-            },
-            confidence: 0.7
-          }
-        ],
-        summary: {
-          counts: {
-            navigation: 1,
-            button: 1,
-            input: 1
-          },
-          total: 3,
-          hasForms: true,
-          hasNavigation: true
-        }
-      };
-    }
-
     // 画像をデコード
     const img = await decodeImageToMat(imageData);
     const height = img.rows;
@@ -1538,40 +1306,12 @@ const moduleExports = {
   extractTextFromImage: extractText
 };
 
-// ブラウザ環境でもグローバルに設定（初期化チェック付き）
+// ブラウザ環境でもグローバルに設定
 if (typeof window !== 'undefined') {
   console.log('🔧 window環境を検出 - webAssemblyAnalyzerを設定します');
-  
-  // OpenCVとTesseractの初期化完了を待つ
-  const initializeWithDependencies = async () => {
-    try {
-      console.log('🔧 依存関係の初期化を開始...');
-      await initializeModules();
-      console.log('🔧 依存関係の初期化完了');
-      
-      window.webAssemblyAnalyzer = moduleExports;
-      console.log('🔧 window.webAssemblyAnalyzer設定完了:', typeof window.webAssemblyAnalyzer);
-      console.log('🔧 利用可能な関数:', Object.keys(moduleExports));
-      
-      // グローバルフラグを設定
-      window.webAssemblyAnalyzerReady = true;
-      
-    } catch (error) {
-      console.error('🔧 webAssemblyAnalyzer初期化エラー:', error);
-      // エラー時もオブジェクトは設定（フォールバック動作）
-      window.webAssemblyAnalyzer = moduleExports;
-      window.webAssemblyAnalyzerReady = false;
-    }
-  };
-  
-  // DOMContentLoaded後に初期化
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeWithDependencies);
-  } else {
-    // 既に読み込み完了している場合は即座に実行
-    initializeWithDependencies();
-  }
-  
+  window.webAssemblyAnalyzer = moduleExports;
+  console.log('🔧 window.webAssemblyAnalyzer設定完了:', typeof window.webAssemblyAnalyzer);
+  console.log('🔧 利用可能な関数:', Object.keys(moduleExports));
 } else {
   console.log('🔧 window環境が見つかりません');
 }

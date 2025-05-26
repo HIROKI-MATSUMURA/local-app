@@ -1,5 +1,5 @@
 // CommonJS形式でイメージ分析機能をインポート
-const { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements } = require("./imageAnalyzer");
+const { analyzeImageSections, detectMainSections, detectCardElements, detectFeatureElements, analyzeAll } = require("./imageAnalyzer");
 
 // 分析モジュールの名前空間（第1段階：基盤作り）
 const AnalysisModules = {
@@ -2951,8 +2951,8 @@ const generatevariableSettingsFromSettings = (settings) => {
 
 
 
-// 画像解析を実行して結果を取得する関数（Python APIを使用）
-const analyzeImage = async (imageBase64, imageType, setState = {}) => {
+// 画像解析を実行して結果を取得する関数（WebAssembly in Renderer Process使用）
+const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = null) => {
   const {
     setColorData = () => { },
     setTextData = () => { },
@@ -2973,21 +2973,69 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
     };
   }
 
-  console.log(`${imageType}画像の解析を開始します...`);
+  console.log(`🔍 ${imageType}画像の解析を開始します...`);
+  console.log(`🔍 画像データサイズ: ${imageBase64.length} bytes`);
 
-  // ❶ メイン解析（analyzeAll）
+  // ❶ メイン解析（Renderer Processで実行）
   let analysisResult;
+  let rawResult;
   try {
-    console.log('🔍 画像解析を開始...');
-    const rawResult = await window.api.analyzeAll(imageBase64);
-    console.log('🐛 result内容:', rawResult);
+    if (!mainWindow || !mainWindow.webContents) {
+      console.error('🔍 mainWindow が利用できません。従来の方法にフォールバック...');
+      // フォールバック: 従来の方法
+      rawResult = await analyzeAll(imageBase64, {
+        detectCards: true,
+        detectFeatures: true,
+        detectMainSections: true
+      });
+      console.log('🔍 フォールバック解析完了');
+    } else {
+      console.log('🔍 Renderer Processで画像解析を実行中...');
+      const startTime = Date.now();
+
+      // Renderer processで解析実行
+      rawResult = await mainWindow.webContents.executeJavaScript(`
+        (async () => {
+          try {
+            console.log('🔍 Renderer: analyzeImageInRenderer開始');
+            const result = await window.api.analyzeImageInRenderer('${imageBase64}', {
+              detectCards: true,
+              detectFeatures: true,
+              detectMainSections: true
+            });
+            console.log('🔍 Renderer: analyzeImageInRenderer完了');
+            return result;
+          } catch (error) {
+            console.error('🔍 Renderer: エラー発生:', error);
+            return { success: false, error: error.message };
+          }
+        })()
+      `);
+
+      const endTime = Date.now();
+      const processingTime = (endTime - startTime) / 1000;
+      console.log(`🔍 画像解析完了 - 処理時間: ${processingTime.toFixed(2)}秒`);
+    }
+
+    console.log('🔍 rawResult構造:', {
+      type: typeof rawResult,
+      keys: rawResult && typeof rawResult === 'object' ? Object.keys(rawResult) : 'オブジェクトではない',
+      success: rawResult?.success,
+      error: rawResult?.error
+    });
 
     // 修正: rawResultを直接resに代入
     const res = rawResult;
-    console.log('🐛 抽出されたres:', res);
+    console.log('🔍 解析結果の詳細:');
+    console.log('  - colors:', res?.colors ? `${res.colors.length}個の色` : '色情報なし');
+    console.log('  - text:', res?.text ? `テキスト長: ${res.text.length}文字` : 'テキストなし');
+    console.log('  - textBlocks:', res?.textBlocks ? `${res.textBlocks.length}個のテキストブロック` : 'テキストブロックなし');
+    console.log('  - sections:', res?.sections ? `${res.sections.length}個のセクション` : 'セクションなし');
+    console.log('  - layout:', res?.layout ? 'レイアウト情報あり' : 'レイアウト情報なし');
+    console.log('  - elements:', res?.elements ? `${res.elements.length}個の要素` : '要素なし');
 
     if (!res || res.success === false || res.error) {
-      console.warn(`${imageType}画像の解析に失敗:`, res.error || '未知のエラー');
+      console.warn(`❌ ${imageType}画像の解析に失敗:`, res?.error || '未知のエラー');
       analysisResult = {
         colors: [],
         text: '',
@@ -2998,6 +3046,7 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
         compressedAnalysis: null
       };
     } else {
+      console.log(`✅ ${imageType}画像の解析成功`);
       analysisResult = {
         colors: res.colors || [],
         text: res.text || '',
@@ -3007,9 +3056,30 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
         elements: res.elements || [],
         compressedAnalysis: res.compressed || null
       };
+
+      // 詳細な結果ログ
+      console.log(`🎨 色情報: ${analysisResult.colors.length}個`);
+      if (analysisResult.colors.length > 0) {
+        console.log('  主要色:', analysisResult.colors.slice(0, 3).map(c => c.hex || c).join(', '));
+      }
+
+      console.log(`📝 テキスト情報: ${analysisResult.text.length}文字`);
+      if (analysisResult.text.length > 0) {
+        console.log('  テキスト抜粋:', analysisResult.text.substring(0, 100) + '...');
+      }
+
+      console.log(`📦 要素情報: ${analysisResult.elements.length}個`);
+      if (analysisResult.elements.length > 0) {
+        const elementTypes = analysisResult.elements.map(e => e.type || 'unknown').slice(0, 5);
+        console.log('  要素タイプ:', elementTypes.join(', '));
+      }
     }
   } catch (error) {
-    console.error(`${imageType}画像の解析でエラーが発生しました:`, error);
+    console.error(`❌ ${imageType}画像の解析でエラーが発生しました:`, error);
+    console.error('エラー詳細:', {
+      message: error.message,
+      stack: error.stack?.substring(0, 500)
+    });
     analysisResult = {
       colors: [],
       text: '',
@@ -3037,6 +3107,15 @@ const analyzeImage = async (imageBase64, imageType, setState = {}) => {
   if (setSections) setSections(sections);
   if (setLayout) setLayout(layout);
   if (setElements) setElements(elements);
+
+  console.log(`🏁 ${imageType}画像解析完了 - 最終結果:`, {
+    colorsCount: Array.isArray(colors) ? colors.length : 0,
+    textLength: typeof text === 'string' ? text.length : 0,
+    textBlocksCount: Array.isArray(textBlocks) ? textBlocks.length : 0,
+    sectionsCount: Array.isArray(sections) ? sections.length : 0,
+    elementsCount: Array.isArray(elements) ? elements.length : 0,
+    hasCompressedAnalysis: !!compressedAnalysis
+  });
 
   // ✅ 最終返却
   return {
@@ -4130,8 +4209,17 @@ const buildCorePrompt = (responsiveMode, aiBreakpoints) => {
 
 // メイン関数を修正して新機能を統合
 // リエクスポート用に変数に代入
-const generatePrompt = async (options) => {
-  console.log('プロンプト生成処理を開始');
+const generatePrompt = async (options, mainWindow = null) => {
+  console.log('🚀 プロンプト生成処理を開始');
+  console.log('🚀 受信したoptions:', {
+    hasPcImage: !!options.pcImage,
+    hasSpImage: !!options.spImage,
+    pcImageLength: options.pcImage ? options.pcImage.length : 0,
+    spImageLength: options.spImage ? options.spImage.length : 0,
+    responsiveMode: options.responsiveMode,
+    aiBreakpoints: options.aiBreakpoints
+  });
+
   const {
     pcImage, spImage,
     responsiveMode = "pc",
@@ -4139,15 +4227,21 @@ const generatePrompt = async (options) => {
   } = options;
   console.log("🔥 generatePrompt 開始");
 
-  console.log("🔥 pcImage:", pcImage ? pcImage.slice(0, 100) : 'なし');
-  console.log("🔥 spImage:", spImage ? spImage.slice(0, 100) : 'なし');
+  console.log("🔥 pcImage:", pcImage ? `データあり(${pcImage.length}文字) - ${pcImage.slice(0, 100)}...` : 'なし');
+  console.log("🔥 spImage:", spImage ? `データあり(${spImage.length}文字) - ${spImage.slice(0, 100)}...` : 'なし');
 
   try {
+    console.log('🔍 画像解析を開始します...');
+
     // 画像解析を実行
     const [pcAnalysis, spAnalysis] = await Promise.all([
-      pcImage ? analyzeImage(pcImage, 'pc') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }),
-      spImage ? analyzeImage(spImage, 'sp') : Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })
+      pcImage ? (console.log('🔍 PC画像解析を実行中...'), analyzeImage(pcImage, 'pc', {}, mainWindow)) : (console.log('🔍 PC画像なし - スキップ'), Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })),
+      spImage ? (console.log('🔍 SP画像解析を実行中...'), analyzeImage(spImage, 'sp', {}, mainWindow)) : (console.log('🔍 SP画像なし - スキップ'), Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }))
     ]);
+
+    console.log('🔍 画像解析完了 - 結果確認:');
+    console.log('  PC解析結果:', pcAnalysis ? Object.keys(pcAnalysis) : 'null');
+    console.log('  SP解析結果:', spAnalysis ? Object.keys(spAnalysis) : 'null');
 
     // 解析結果の検証
     if (!pcImage && !spImage) {
