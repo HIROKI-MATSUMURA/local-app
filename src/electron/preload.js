@@ -533,7 +533,36 @@ window.api = {
       const maxAttempts = 50; // 5秒間（100ms x 50回）
 
       while (attempts < maxAttempts) {
-        if (window.webAssemblyAnalyzer && window.webAssemblyAnalyzer.analyzeAll) {
+        // より詳細な存在チェック
+        const hasAnalyzer = window.webAssemblyAnalyzer && typeof window.webAssemblyAnalyzer === 'object';
+        const isReady = window.webAssemblyAnalyzerReady === true;
+
+        // より厳密なanalyzeAll関数の検出
+        let hasAnalyzeAll = false;
+        if (hasAnalyzer) {
+          // 複数の方法で関数の存在を確認
+          hasAnalyzeAll = (
+            typeof window.webAssemblyAnalyzer.analyzeAll === 'function' ||
+            'analyzeAll' in window.webAssemblyAnalyzer ||
+            Object.getOwnPropertyNames(window.webAssemblyAnalyzer).includes('analyzeAll') ||
+            Object.keys(window.webAssemblyAnalyzer).includes('analyzeAll')
+          );
+        }
+
+        if (attempts % 10 === 0) { // 10回に1回詳細ログ
+          console.log('🔍 analyzeImageInRenderer: 待機中 (試行', attempts + 1, '/', maxAttempts, ')');
+          console.log('🔍 hasAnalyzer:', hasAnalyzer);
+          console.log('🔍 isReady:', isReady);
+          console.log('🔍 hasAnalyzeAll:', hasAnalyzeAll);
+          if (hasAnalyzer) {
+            console.log('🔍 利用可能な関数:', Object.keys(window.webAssemblyAnalyzer));
+            console.log('🔍 analyzeAll タイプ:', typeof window.webAssemblyAnalyzer.analyzeAll);
+            console.log('🔍 in operator:', 'analyzeAll' in window.webAssemblyAnalyzer);
+            console.log('🔍 getOwnPropertyNames:', Object.getOwnPropertyNames(window.webAssemblyAnalyzer).includes('analyzeAll'));
+          }
+        }
+
+        if (hasAnalyzer && isReady && hasAnalyzeAll) {
           console.log('🔍 analyzeImageInRenderer: WebAssemblyAnalyzer利用可能（試行', attempts + 1, '回目）');
 
           try {

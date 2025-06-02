@@ -20,11 +20,11 @@ const webassemblySetupHandler = require('./webassemblySetupHandler');
 let webAssemblyImageAnalyzer, webAssemblyBridgeAdapter;
 
 try {
-  webAssemblyImageAnalyzer = require('./utils/webassembly-image-analyzer');
+  // webAssemblyImageAnalyzer = require('./utils/webassembly-image-analyzer'); // 削除済み
   webAssemblyBridgeAdapter = require('./utils/webassembly-bridge-adapter');
-  console.log('WebAssembly画像解析モジュールを正常にロードしました');
+  console.log('WebAssembly bridgeモジュールを正常にロードしました');
 } catch (error) {
-  console.error('WebAssembly画像解析モジュールのロード中にエラーが発生しました:', error.message);
+  console.error('WebAssembly bridgeモジュールのロード中にエラーが発生しました:', error.message);
   // エラーをキャッチしても処理を続行（後でセットアップハンドラが対応）
 }
 // WebAssemblyセットアップハンドラを使用

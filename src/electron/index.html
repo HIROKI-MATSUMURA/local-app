@@ -10,7 +10,71 @@
   <!-- sass.js CDN - 最初に読み込む -->
   <script src="https://cdn.jsdelivr.net/npm/sass.js@0.11.1/dist/sass.sync.min.js" defer></script>
   <!-- Tesseract.js CDN -->
-  <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js" defer></script>
+  <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+  <script>
+    // 言語ファイルの読み込みを事前に行う
+    document.addEventListener('DOMContentLoaded', () => {
+      // 言語ファイルのプリフェッチ（現在有効なCDNパスを使用）
+      setTimeout(() => {
+        try {
+          console.log('🔄 言語ファイルのプリフェッチを試行します');
+          const engUrl = 'https://tessdata.projectnaptha.com/4.0.0_fast/eng.traineddata.gz';
+          const jpnUrl = 'https://tessdata.projectnaptha.com/4.0.0_fast/jpn.traineddata.gz';
+
+          // 言語ファイルをフェッチ
+          fetch(engUrl)
+            .then(response => {
+              if (response.ok) {
+                console.log(`✅ 英語の言語ファイルがアクセス可能です: ${engUrl}`);
+              } else {
+                console.warn(`⚠️ 英語の言語ファイルが見つかりません: ${engUrl}`);
+              }
+            })
+            .catch(error => {
+              console.error(`❌ 英語の言語ファイルのフェッチエラー: ${engUrl}`, error);
+            });
+
+          // 日本語の言語ファイルをフェッチ
+          fetch(jpnUrl)
+            .then(response => {
+              if (response.ok) {
+                console.log(`✅ 日本語の言語ファイルがアクセス可能です: ${jpnUrl}`);
+              } else {
+                console.warn(`⚠️ 日本語の言語ファイルが見つかりません: ${jpnUrl}`);
+              }
+            })
+            .catch(error => {
+              console.error(`❌ 日本語の言語ファイルのフェッチエラー: ${jpnUrl}`, error);
+            });
+        } catch (error) {
+          console.error('言語ファイルのプリフェッチ中にエラーが発生しました:', error);
+        }
+      }, 2000);
+    });
+  </script>
+  <script>
+    // Tesseract設定確認
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        if (window.Tesseract) {
+          console.log('✅ Tesseract.jsが正常に読み込まれました:', window.Tesseract);
+          console.log('✅ Tesseractメソッド:', Object.keys(window.Tesseract));
+
+          // Tesseractがサポートする言語を確認
+          if (window.Tesseract.detect) {
+            console.log('✅ Tesseract.detectメソッドが利用可能です');
+          }
+
+          // createWorkerの可用性を確認
+          if (window.Tesseract.createWorker) {
+            console.log('✅ Tesseract.createWorkerメソッドが利用可能です');
+          }
+        } else {
+          console.error('❌ Tesseract.jsが読み込まれていません');
+        }
+      }, 1000);
+    });
+  </script>
   <!-- OpenCV.js初期化コールバック -->
   <script>
     window.Module = {
@@ -32,9 +96,45 @@
     };
   </script>
   <!-- OpenCV.js ローカルから読み込み -->
-  <script src="/opencv.js"></script>
+  <script src="opencv.js"></script>
   <!-- WebAssembly Image Analyzer をHTMLスクリプトとして読み込み（OpenCV.js後） -->
-  <script src="/webassembly-image-analyzer.js" onload="console.log('✅ webassembly-image-analyzer.js loaded')" onerror="console.error('❌ webassembly-image-analyzer.js loading failed')"></script>
+  <script>
+    // ブラウザ環境用のWebAssemblyAnalyzer設定（パス問題を回避）
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        // 既に初期化されているかをチェック
+        if (window.webAssemblyAnalyzer && Object.keys(window.webAssemblyAnalyzer).length > 0) {
+          console.log('✅ webAssemblyAnalyzer は既に初期化されています。関数一覧:', Object.keys(window.webAssemblyAnalyzer));
+          window.webAssemblyAnalyzerReady = true;
+          window.dispatchEvent(new CustomEvent('webassemblyanalyzerready'));
+          return;
+        }
+
+        // スクリプトタグによる直接読み込みを優先
+        const script = document.createElement('script');
+        script.src = 'webassembly-image-analyzer.js';
+        script.onload = () => {
+          console.log('✅ webassembly-image-analyzer.js を直接読み込みました');
+          console.log('✅ 利用可能な関数:', Object.keys(window.webAssemblyAnalyzer || {}));
+
+          // 初期化完了イベントを発火
+          if (window.webAssemblyAnalyzer) {
+            window.webAssemblyAnalyzerReady = true;
+            window.dispatchEvent(new CustomEvent('webassemblyanalyzerready'));
+          }
+        };
+        script.onerror = async (e) => {
+          console.error('❌ webassembly-image-analyzer.js の読み込みに失敗しました:', e);
+          // 読み込み失敗時はアプリケーションにエラーを通知
+          window.webAssemblyAnalyzerReady = false;
+          window.dispatchEvent(new CustomEvent('webassemblyanalyzererror', { detail: e }));
+        };
+        document.head.appendChild(script);
+      } catch (err) {
+        console.error('❌ webassembly-image-analyzer.js の読み込みに失敗:', err);
+      }
+    });
+  </script>
   <title>CreAIteCode - HTMLコード生成ツール</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
   <!-- Node.jsモジュールをブラウザで使用できるようにするスクリプト -->
@@ -102,7 +202,7 @@
       validateAPI();
       checkSassAvailability();
 
-      // WebAssembly環境の初期化確認（段階的チェック）
+      // WebAssembly環境の初期化確認（即時＋イベントリスナー）
       const checkWebAssemblyEnvironment = () => {
         console.log('🔍 WebAssembly環境チェック開始');
         checkOpenCVAvailability();
@@ -111,23 +211,184 @@
         console.log('🔍 window.Tesseract存在確認:', typeof window.Tesseract);
         console.log('🔍 window.cv存在確認:', typeof window.cv);
 
-        // analyzeAll関数の存在確認
-        if (window.webAssemblyAnalyzer && window.webAssemblyAnalyzer.analyzeAll) {
-          console.log('✅ webAssemblyAnalyzer.analyzeAll 利用可能');
+        // analyzeAll関数の存在確認（動的インポート後のみ）
+        if (window.webAssemblyAnalyzerReady && window.webAssemblyAnalyzer) {
+          // 複数の方法で関数の存在を確認
+          const methods = [
+            typeof window.webAssemblyAnalyzer.analyzeAll === 'function',
+            'analyzeAll' in window.webAssemblyAnalyzer,
+            Object.getOwnPropertyNames(window.webAssemblyAnalyzer).includes('analyzeAll'),
+            Object.keys(window.webAssemblyAnalyzer).includes('analyzeAll'),
+            window.webAssemblyAnalyzer.hasOwnProperty('analyzeAll')
+          ];
+
+          console.log('🔍 analyzeAll検出テスト:');
+          console.log('🔍 typeof === function:', methods[0]);
+          console.log('🔍 in operator:', methods[1]);
+          console.log('🔍 getOwnPropertyNames:', methods[2]);
+          console.log('🔍 Object.keys:', methods[3]);
+          console.log('🔍 hasOwnProperty:', methods[4]);
+          console.log('🔍 Object.keys結果:', Object.keys(window.webAssemblyAnalyzer));
+          console.log('🔍 getOwnPropertyNames結果:', Object.getOwnPropertyNames(window.webAssemblyAnalyzer));
+
+          if (methods.some(m => m)) {
+            console.log('✅ webAssemblyAnalyzer.analyzeAll 利用可能');
+            // 関数が正常に呼び出せることを確認するテスト
+            try {
+              console.log('✅ webAssemblyAnalyzer.analyzeAll 関数タイプ:', typeof window.webAssemblyAnalyzer.analyzeAll);
+            } catch (err) {
+              console.warn('⚠️ webAssemblyAnalyzer.analyzeAll テストエラー:', err);
+            }
+          } else {
+            console.log('⚠️ webAssemblyAnalyzer.analyzeAll 関数が見つかりません');
+            console.log('🔍 利用可能な関数一覧:', Object.keys(window.webAssemblyAnalyzer || {}));
+          }
         } else {
-          console.log('❌ webAssemblyAnalyzer.analyzeAll 利用不可');
+          console.log('⚠️ webAssemblyAnalyzer または webAssemblyAnalyzerReady が false');
         }
       };
 
-      setTimeout(checkWebAssemblyEnvironment, 2000);
-      setTimeout(checkWebAssemblyEnvironment, 5000);
-      setTimeout(checkWebAssemblyEnvironment, 10000);
+      // 初期化完了イベントのリスナー（優先）
+      window.addEventListener('webassemblyanalyzerready', () => {
+        console.log('🎉 webassemblyanalyzerready イベントを受信しました');
+        // 少し遅延させてから詳細チェック
+        setTimeout(checkWebAssemblyEnvironment, 100);
+      });
+
+      // 初期チェック（動的インポート前なので制限的）
+      setTimeout(() => {
+        console.log('🔍 WebAssembly環境チェック開始');
+        checkOpenCVAvailability();
+        console.log('🔍 window.webAssemblyAnalyzer存在確認:', typeof window.webAssemblyAnalyzer);
+        console.log('🔍 window.webAssemblyAnalyzerReady:', window.webAssemblyAnalyzerReady);
+        console.log('🔍 window.Tesseract存在確認:', typeof window.Tesseract);
+        console.log('🔍 window.cv存在確認:', typeof window.cv);
+        console.log('🔄 動的インポート完了を待機中...');
+      }, 500);
+
+      // フォールバック: タイマーによる最終チェック
+      setTimeout(checkWebAssemblyEnvironment, 3000);
     });
   </script>
 </head>
 <body>
   <h1 style="display: none;">CreAIteCode</h1>
   <div id="root"></div>
+  <div id="ocr-test" style="margin: 20px; padding: 20px; border: 1px solid #ccc;">
+    <h3>テスト機能: OCR</h3>
+    <p>ここではTesseract.jsの動作を直接テストできます。</p>
+    <button id="test-ocr" style="padding: 10px; margin: 10px 0;">テスト実行</button>
+    <div id="ocr-result" style="white-space: pre-wrap; font-family: monospace; margin-top: 10px; padding: 10px; background: #f0f0f0; max-height: 300px; overflow: auto;"></div>
+
+    <script>
+      document.getElementById('test-ocr').addEventListener('click', async () => {
+        const resultDiv = document.getElementById('ocr-result');
+        resultDiv.innerHTML = 'テスト開始...';
+
+        // テスト実行関数
+        async function runTest() {
+          try {
+            resultDiv.innerHTML += '\n\n1. Tesseract.jsの存在確認...';
+            if (!window.Tesseract) {
+              throw new Error('Tesseract.jsが読み込まれていません');
+            }
+            resultDiv.innerHTML += '\n   ✅ OK';
+
+            resultDiv.innerHTML += '\n\n2. createWorkerメソッドの存在確認...';
+            if (!window.Tesseract.createWorker) {
+              throw new Error('Tesseract.createWorkerメソッドが見つかりません');
+            }
+            resultDiv.innerHTML += '\n   ✅ OK';
+
+            resultDiv.innerHTML += '\n\n3. WebAssemblyAnalyzerの存在確認...';
+            if (!window.webAssemblyAnalyzer) {
+              throw new Error('WebAssemblyAnalyzerが読み込まれていません');
+            }
+            resultDiv.innerHTML += '\n   ✅ OK';
+
+            resultDiv.innerHTML += '\n\n4. extractTextFromImage関数の存在確認...';
+            if (!window.webAssemblyAnalyzer.extractTextFromImage) {
+              throw new Error('extractTextFromImage関数が見つかりません');
+              resultDiv.innerHTML += '\n   利用可能な関数: ' + Object.keys(window.webAssemblyAnalyzer).join(', ');
+            }
+            resultDiv.innerHTML += '\n   ✅ OK';
+
+            // 直接ワーカー作成テスト（動作確認用）
+            resultDiv.innerHTML += '\n\n5. 直接ワーカーを使用したテスト...';
+
+            // 7a04f3d時点と同じ設定を使用
+            const options = {
+              workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/worker.min.js',
+              langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast/',
+              corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
+              workerBlobURL: true,
+              logger: (m) => {
+                if (m.status !== 'recognizing text') {
+                  console.log('Tesseract Worker:', m);
+                }
+              }
+            };
+
+            // サンプル画像のURL
+            const imageUrl = 'https://tesseract.projectnaptha.com/img/eng_bw.png';
+
+            resultDiv.innerHTML += '\n   ワーカー作成中...';
+            const worker = await window.Tesseract.createWorker('eng', 1, options);
+            resultDiv.innerHTML += '\n   ✅ ワーカー作成成功';
+
+            resultDiv.innerHTML += `\n   OCR実行中 (${imageUrl})...`;
+            const result = await worker.recognize(imageUrl);
+            resultDiv.innerHTML += '\n   ✅ OCR実行成功';
+
+            // 結果表示
+            resultDiv.innerHTML += '\n\n6. 直接テスト結果:';
+            resultDiv.innerHTML += `\n\n${result.data.text}`;
+
+            // リソース解放
+            await worker.terminate();
+
+            // WebAssemblyAnalyzer経由のテスト
+            resultDiv.innerHTML += '\n\n7. WebAssemblyAnalyzer経由でテスト...';
+            try {
+              // Base64形式に変換するためにフェッチする
+              const response = await fetch(imageUrl);
+              const blob = await response.blob();
+
+              // Base64に変換
+              const reader = new FileReader();
+              const base64Promise = new Promise(resolve => {
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+              });
+              const base64Data = await base64Promise;
+
+              resultDiv.innerHTML += '\n   画像をBase64に変換しました';
+              resultDiv.innerHTML += '\n   WebAssemblyAnalyzer.extractTextFromImage実行中...';
+
+              const textResult = await window.webAssemblyAnalyzer.extractTextFromImage(base64Data);
+              resultDiv.innerHTML += '\n   ✅ テキスト抽出成功';
+
+              // 結果表示
+              resultDiv.innerHTML += '\n\n8. WebAssemblyAnalyzer経由の結果:';
+              resultDiv.innerHTML += `\n\n${textResult.text}`;
+            } catch (waError) {
+              resultDiv.innerHTML += `\n   ❌ WebAssemblyAnalyzer経由のテストエラー: ${waError.message}`;
+              console.error('WebAssemblyAnalyzerテストエラー:', waError);
+            }
+
+            resultDiv.innerHTML += '\n\nテスト完了';
+
+          } catch (error) {
+            resultDiv.innerHTML += `\n\nエラー: ${error.message}`;
+            console.error('テストエラー:', error);
+          }
+        }
+
+        // テスト実行
+        runTest();
+      });
+    </script>
+  </div>
   <script type="module" src="./main.jsx"></script>
 </body>
 </html>
