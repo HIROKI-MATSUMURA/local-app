@@ -275,10 +275,53 @@ const extractText = async (imageData, options = {}) => {
     // ワーカーを作成または再利用
     if (!tesseractWorker) {
       console.log("🔧 新しいTesseractワーカーを作成");
-      tesseractWorker = createWorker();
-      await tesseractWorker.load();
-      await tesseractWorker.loadLanguage('eng+jpn');
-      await tesseractWorker.initialize('eng+jpn');
+
+      // 7a04f3d時点の動作していた設定を使用
+      const TESSERACT_CONFIG = {
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/worker.min.js',
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
+        workerBlobURL: true
+      };
+
+      const options = {
+        workerPath: TESSERACT_CONFIG.workerPath,
+        langPath: TESSERACT_CONFIG.langPath,
+        corePath: TESSERACT_CONFIG.corePath,
+        workerBlobURL: TESSERACT_CONFIG.workerBlobURL
+      };
+
+      try {
+        // 7a04f3d時点と同様にjpn言語でワーカーを作成
+        console.log('✅ Tesseractオブジェクトを直接使用します');
+        tesseractWorker = await window.Tesseract.createWorker('jpn', 1, options);
+        console.log('✅ Tesseractワーカー作成成功');
+      } catch (error) {
+        console.warn('jpn言語でのワーカー作成に失敗。eng言語で再試行:', error);
+        try {
+          tesseractWorker = await window.Tesseract.createWorker('eng', 1, options);
+          console.log('✅ 英語ワーカー作成成功');
+        } catch (fallbackError) {
+          console.error('Tesseractワーカーの作成に完全に失敗:', fallbackError);
+          tesseractWorker = null;
+        }
+      }
+
+      if (tesseractWorker) {
+        // パラメータ設定
+        await tesseractWorker.setParameters({
+          preserve_interword_spaces: '1'
+        });
+      }
+    }
+
+    if (!tesseractWorker) {
+      console.warn('OCR機能が利用できません - 空の結果を返します');
+      return {
+        text: '',
+        textBlocks: [],
+        confidence: 0
+      };
     }
 
     console.log("🔍 OCR処理を実行中...");
