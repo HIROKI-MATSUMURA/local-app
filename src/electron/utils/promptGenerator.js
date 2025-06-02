@@ -3026,13 +3026,19 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
 
     // 修正: rawResultを直接resに代入
     const res = rawResult;
+
+    // WebAssembly解析器の結果はdata内にネストされている場合があるため、適切にアクセス
+    const actualData = res?.data || res; // data内にネストされていればそれを使用、そうでなければresを直接使用
+
     console.log('🔍 解析結果の詳細:');
-    console.log('  - colors:', res?.colors ? `${res.colors.length}個の色` : '色情報なし');
-    console.log('  - text:', res?.text ? `テキスト長: ${res.text.length}文字` : 'テキストなし');
-    console.log('  - textBlocks:', res?.textBlocks ? `${res.textBlocks.length}個のテキストブロック` : 'テキストブロックなし');
-    console.log('  - sections:', res?.sections ? `${res.sections.length}個のセクション` : 'セクションなし');
-    console.log('  - layout:', res?.layout ? 'レイアウト情報あり' : 'レイアウト情報なし');
-    console.log('  - elements:', res?.elements ? `${res.elements.length}個の要素` : '要素なし');
+    console.log('  - colors:', actualData?.colors ? `${actualData.colors.length}個の色` : '色情報なし');
+    console.log('  - text:', actualData?.text ? `テキスト長: ${actualData.text.length}文字` : 'テキストなし');
+    console.log('  - textBlocks:', actualData?.textBlocks ? `${actualData.textBlocks.length}個のテキストブロック` : 'テキストブロックなし');
+    console.log('  - sections:', actualData?.sections ? `${actualData.sections.length}個のセクション` : 'セクションなし');
+    console.log('  - layout:', actualData?.layout ? 'レイアウト情報あり' : 'レイアウト情報なし');
+    console.log('  - elements:', actualData?.elements ? `${actualData.elements.length}個の要素` : '要素なし');
+    console.log('  - mainSections:', actualData?.mainSections ? `${actualData.mainSections.length}個のメインセクション` : 'メインセクションなし');
+    console.log('  - cards:', actualData?.cards ? 'カード情報あり' : 'カード情報なし');
 
     if (!res || res.success === false || res.error) {
       console.warn(`❌ ${imageType}画像の解析に失敗:`, res?.error || '未知のエラー');
@@ -3047,31 +3053,147 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
       };
     } else {
       console.log(`✅ ${imageType}画像の解析成功`);
+
+      // actualDataから実際のデータを取得
       analysisResult = {
-        colors: res.colors || [],
-        text: res.text || '',
-        textBlocks: res.textBlocks || [],
-        sections: res.sections || [],
-        layout: res.layout || {},
-        elements: res.elements || [],
-        compressedAnalysis: res.compressed || null
+        colors: actualData.colors || [],
+        text: actualData.text || '',
+        textBlocks: actualData.textBlocks || [],
+        sections: actualData.sections || actualData.mainSections || [], // mainSectionsもチェック
+        layout: actualData.layout || {},
+        elements: actualData.elements || [],
+        compressedAnalysis: actualData.compressed || actualData.compressedAnalysis || null
       };
 
-      // 詳細な結果ログ
+      // 🔍 詳細な解析結果ログ出力
+      console.log(`\n==================== ${imageType}画像 解析結果詳細 ====================`);
+
+      // 色情報の詳細
       console.log(`🎨 色情報: ${analysisResult.colors.length}個`);
       if (analysisResult.colors.length > 0) {
-        console.log('  主要色:', analysisResult.colors.slice(0, 3).map(c => c.hex || c).join(', '));
+        analysisResult.colors.forEach((color, index) => {
+          if (typeof color === 'string') {
+            console.log(`  [${index + 1}] ${color}`);
+          } else if (color && color.hex) {
+            console.log(`  [${index + 1}] ${color.hex}${color.ratio ? ` (占有率: ${(color.ratio * 100).toFixed(1)}%)` : ''}`);
+          } else {
+            console.log(`  [${index + 1}] ${JSON.stringify(color)}`);
+          }
+        });
       }
 
-      console.log(`📝 テキスト情報: ${analysisResult.text.length}文字`);
+      // テキスト情報の詳細
+      console.log(`\n📝 テキスト情報: ${analysisResult.text.length}文字`);
       if (analysisResult.text.length > 0) {
-        console.log('  テキスト抜粋:', analysisResult.text.substring(0, 100) + '...');
+        console.log(`テキスト内容:\n"${analysisResult.text}"`);
       }
 
-      console.log(`📦 要素情報: ${analysisResult.elements.length}個`);
+      // テキストブロックの詳細
+      if (analysisResult.textBlocks && analysisResult.textBlocks.length > 0) {
+        console.log(`\n📋 テキストブロック: ${analysisResult.textBlocks.length}個`);
+        analysisResult.textBlocks.forEach((block, index) => {
+          console.log(`  [${index + 1}] "${block.text || block}"${block.confidence ? ` (信頼度: ${(block.confidence * 100).toFixed(1)}%)` : ''}`);
+          if (block.position) {
+            console.log(`       位置: (${block.position.x}, ${block.position.y}) サイズ: ${block.position.width}×${block.position.height}`);
+          }
+        });
+      }
+
+      // UI要素の詳細
+      console.log(`\n🔲 UI要素: ${analysisResult.elements.length}個`);
       if (analysisResult.elements.length > 0) {
-        const elementTypes = analysisResult.elements.map(e => e.type || 'unknown').slice(0, 5);
-        console.log('  要素タイプ:', elementTypes.join(', '));
+        analysisResult.elements.forEach((element, index) => {
+          console.log(`  [${index + 1}] タイプ: ${element.type || 'unknown'}`);
+          if (element.confidence) {
+            console.log(`       信頼度: ${(element.confidence * 100).toFixed(1)}%`);
+          }
+          if (element.position) {
+            console.log(`       位置: (${element.position.left || element.position.x}, ${element.position.top || element.position.y})`);
+            console.log(`       サイズ: ${element.position.width}×${element.position.height}`);
+          }
+          if (element.properties) {
+            console.log(`       プロパティ: ${JSON.stringify(element.properties)}`);
+          }
+        });
+      }
+
+      // セクション情報の詳細
+      if (analysisResult.sections && analysisResult.sections.length > 0) {
+        console.log(`\n📐 セクション: ${analysisResult.sections.length}個`);
+        analysisResult.sections.forEach((section, index) => {
+          console.log(`  [${index + 1}] セクション${section.section || index + 1}`);
+          if (section.position) {
+            console.log(`       位置: top=${section.position.top}, height=${section.position.height}`);
+          }
+          if (section.dominantColor) {
+            console.log(`       主要色: ${section.dominantColor}`);
+          }
+        });
+      }
+
+      // レイアウト情報の詳細
+      if (analysisResult.layout && Object.keys(analysisResult.layout).length > 0) {
+        console.log(`\n📋 レイアウト情報:`);
+        console.log(`  タイプ: ${analysisResult.layout.layoutType || analysisResult.layout.type || 'unknown'}`);
+        if (analysisResult.layout.confidence) {
+          console.log(`  信頼度: ${(analysisResult.layout.confidence * 100).toFixed(1)}%`);
+        }
+        if (analysisResult.layout.patterns) {
+          console.log(`  パターン評価:`);
+          Object.entries(analysisResult.layout.patterns).forEach(([pattern, score]) => {
+            console.log(`    ${pattern}: ${(score * 100).toFixed(1)}%`);
+          });
+        }
+        if (analysisResult.layout.layoutDetails) {
+          console.log(`  詳細: ${JSON.stringify(analysisResult.layout.layoutDetails, null, 2)}`);
+        }
+      }
+
+      console.log(`\n========================================================\n`);
+
+      // 🔍 解析結果をファイルに保存（毎回実行）
+      try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const analysisData = {
+          timestamp: new Date().toISOString(),
+          imageType: imageType,
+          results: {
+            colors: analysisResult.colors,
+            text: analysisResult.text,
+            textBlocks: analysisResult.textBlocks,
+            sections: analysisResult.sections,
+            layout: analysisResult.layout,
+            elements: analysisResult.elements,
+            compressedAnalysis: analysisResult.compressedAnalysis
+          },
+          summary: {
+            colorsCount: analysisResult.colors.length,
+            textLength: analysisResult.text.length,
+            textBlocksCount: analysisResult.textBlocks.length,
+            sectionsCount: analysisResult.sections.length,
+            elementsCount: analysisResult.elements.length,
+            hasLayout: Object.keys(analysisResult.layout).length > 0
+          }
+        };
+
+        // ファイル保存（メインプロセス経由）
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.executeJavaScript(`
+            (async () => {
+              try {
+                if (window.api && window.api.saveAnalysisResults) {
+                  const filename = 'analysis-${imageType}-${timestamp}.json';
+                  await window.api.saveAnalysisResults(filename, ${JSON.stringify(analysisData, null, 2)});
+                  console.log('📁 解析結果をファイルに保存しました:', filename);
+                }
+              } catch (error) {
+                console.error('📁 解析結果の保存に失敗:', error);
+              }
+            })()
+          `);
+        }
+      } catch (saveError) {
+        console.error('📁 解析結果保存処理でエラー:', saveError);
       }
     }
   } catch (error) {

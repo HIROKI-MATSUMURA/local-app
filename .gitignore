@@ -20,3 +20,4 @@ secret/api-keys.json
 src/config/api-keys.js
 
 build/python_server/
+analysis-results/

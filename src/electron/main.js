@@ -3572,6 +3572,96 @@ $mediaquerys: (
     }
   });
 
+  // 解析結果をファイルに保存するハンドラー
+  ipcMain.handle('save-analysis-results', async (event, { filename, data }) => {
+    try {
+      console.log('📁 メインプロセス: 解析結果保存開始 -', filename);
+
+      const fs = require('fs').promises;
+      const path = require('path');
+
+      // 保存先ディレクトリを作成（プロジェクトルート/analysis-results）
+      const saveDir = path.join(__dirname, '../../analysis-results');
+      await fs.mkdir(saveDir, { recursive: true });
+
+      // 日付別フォルダを作成
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const dateDirPath = path.join(saveDir, today);
+      await fs.mkdir(dateDirPath, { recursive: true });
+
+      // ファイル保存
+      const filePath = path.join(dateDirPath, filename);
+      await fs.writeFile(filePath, typeof data === 'string' ? data : JSON.stringify(data, null, 2), 'utf8');
+
+      console.log('📁 解析結果保存完了:', filePath);
+      return { success: true, filePath: filePath };
+    } catch (error) {
+      console.error('📁 解析結果保存エラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // プロジェクトデータの保存
+  async function saveProjectData(projectId, section, data) {
+    try {
+      if (!projectId) {
+        console.error('プロジェクトIDが指定されていません');
+        return false;
+      }
+
+      // JSONデータの保存先ディレクトリを確保
+      const projectDir = path.join(PROJECT_DATA_DIR, projectId);
+      await fs.promises.mkdir(projectDir, { recursive: true });
+
+      // セクション別のJSONファイルパス
+      const filePath = path.join(projectDir, `${section}.json`);
+
+      // データと最終更新日時を保存
+      const jsonData = {
+        data,
+        lastModified: new Date().toISOString()
+      };
+
+      // JSONファイルに保存
+      await fs.promises.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
+      console.log(`プロジェクトデータを保存しました: ${projectId}/${section}`);
+      return true;
+    } catch (error) {
+      console.error(`プロジェクトデータの保存エラー (${projectId}/${section}):`, error);
+      return false;
+    }
+  }
+
+  // プロジェクトデータの読み込み
+  async function loadProjectData(projectId, section) {
+    try {
+      if (!projectId) {
+        console.error('プロジェクトIDが指定されていません');
+        return null;
+      }
+
+      // セクション別のJSONファイルパス
+      const filePath = path.join(PROJECT_DATA_DIR, projectId, `${section}.json`);
+
+      // ファイルが存在するか確認
+      if (!fs.existsSync(filePath)) {
+        console.log(`プロジェクトデータが見つかりません: ${projectId}/${section}`);
+        return null;
+      }
+
+      // JSONファイルから読み込み
+      const fileData = await fs.promises.readFile(filePath, 'utf8');
+      const jsonData = JSON.parse(fileData);
+      console.log(`プロジェクトデータを読み込みました: ${projectId}/${section}`);
+
+      // データ部分のみを返す
+      return jsonData.data;
+    } catch (error) {
+      console.error(`プロジェクトデータの読み込みエラー (${projectId}/${section}):`, error);
+      return null;
+    }
+  }
+
   // HTTPリクエスト用のハンドラー（axiosの代替）
   ipcMain.handle('http-request', async (event, options) => {
     try {
@@ -3616,69 +3706,4 @@ $mediaquerys: (
       throw new Error(`HTTPリクエスト失敗: ${error.message}`);
     }
   });
-
-  // WebAssembly実行環境チェックは外部モジュールから提供される関数を使用
-
-  // WebAssembly関連機能は全てwebassembly-bridge-adapter.jsモジュールから提供
-}
-
-// プロジェクトデータの保存
-async function saveProjectData(projectId, section, data) {
-  try {
-    if (!projectId) {
-      console.error('プロジェクトIDが指定されていません');
-      return false;
-    }
-
-    // JSONデータの保存先ディレクトリを確保
-    const projectDir = path.join(PROJECT_DATA_DIR, projectId);
-    await fs.promises.mkdir(projectDir, { recursive: true });
-
-    // セクション別のJSONファイルパス
-    const filePath = path.join(projectDir, `${section}.json`);
-
-    // データと最終更新日時を保存
-    const jsonData = {
-      data,
-      lastModified: new Date().toISOString()
-    };
-
-    // JSONファイルに保存
-    await fs.promises.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
-    console.log(`プロジェクトデータを保存しました: ${projectId}/${section}`);
-    return true;
-  } catch (error) {
-    console.error(`プロジェクトデータの保存エラー (${projectId}/${section}):`, error);
-    return false;
-  }
-}
-
-// プロジェクトデータの読み込み
-async function loadProjectData(projectId, section) {
-  try {
-    if (!projectId) {
-      console.error('プロジェクトIDが指定されていません');
-      return null;
-    }
-
-    // セクション別のJSONファイルパス
-    const filePath = path.join(PROJECT_DATA_DIR, projectId, `${section}.json`);
-
-    // ファイルが存在するか確認
-    if (!fs.existsSync(filePath)) {
-      console.log(`プロジェクトデータが見つかりません: ${projectId}/${section}`);
-      return null;
-    }
-
-    // JSONファイルから読み込み
-    const fileData = await fs.promises.readFile(filePath, 'utf8');
-    const jsonData = JSON.parse(fileData);
-    console.log(`プロジェクトデータを読み込みました: ${projectId}/${section}`);
-
-    // データ部分のみを返す
-    return jsonData.data;
-  } catch (error) {
-    console.error(`プロジェクトデータの読み込みエラー (${projectId}/${section}):`, error);
-    return null;
-  }
 }

@@ -164,6 +164,291 @@ const RESIZE_WIDTH = 300;
 const MIN_SECTION_HEIGHT_RATIO = 0.05;
 
 /**
+ * Canvas経由で直接色を抽出する関数
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @param {object} options - オプション設定
+ * @returns {Promise<Array>} - 抽出された色情報の配列
+ */
+const extractColorsFromCanvas = async (imageData, options = {}) => {
+  try {
+    console.log("🎨 Canvas経由で色抽出を開始");
+
+    // Canvas要素を作成
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    return new Promise((resolve) => {
+      img.onload = () => {
+        // キャンバスサイズを設定
+        const maxSize = 500; // 処理速度とのバランスを考慮
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1.0);
+        const width = Math.round(img.width * scale);
+        const height = Math.round(img.height * scale);
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // 画像を描画
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // ピクセルデータを取得
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const pixels = imageData.data;
+
+        // 色の出現回数をカウント
+        const colorMap = new Map();
+
+        for (let i = 0; i < pixels.length; i += 4) {
+          const r = pixels[i];
+          const g = pixels[i + 1];
+          const b = pixels[i + 2];
+          const a = pixels[i + 3];
+
+          // 透明ピクセルは無視
+          if (a < 128) continue;
+
+          // 色をHEX形式に変換
+          const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+
+          // 出現回数をカウント
+          colorMap.set(hex, (colorMap.get(hex) || 0) + 1);
+        }
+
+        // 色を出現頻度でソート
+        const sortedColors = Array.from(colorMap.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, options.numColors || MAX_COLORS)
+          .map(([hex, count]) => {
+            // HEX形式から RGB 値を計算
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+
+            return {
+              hex: hex,
+              rgb: `rgb(${r}, ${g}, ${b})`,
+              r: r,
+              g: g,
+              b: b,
+              ratio: count / (width * height)
+            };
+          });
+
+        console.log(`✅ Canvas経由で${sortedColors.length}色を抽出`);
+        resolve(sortedColors);
+      };
+
+      img.onerror = (error) => {
+        console.error("❌ Canvas経由の色抽出エラー:", error);
+        // エラー時は空の配列を返す
+        resolve([]);
+      };
+
+      // 画像読み込み開始
+      img.src = imageData;
+    });
+  } catch (error) {
+    console.error("❌ extractColorsFromCanvas エラー:", error);
+    return [];
+  }
+};
+
+/**
+ * 画像からテキストを抽出する関数
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @param {object} options - オプション設定
+ * @returns {Promise<object>} - 抽出されたテキスト情報
+ */
+const extractText = async (imageData, options = {}) => {
+  try {
+    console.log("📝 extractText: テキスト抽出を開始");
+
+    await initializeModules();
+
+    // Tesseract.jsが利用可能かチェック
+    if (!createWorker) {
+      console.log("⚠️ Tesseract.jsが利用できないため、空のテキスト結果を返します");
+      return { text: "", textBlocks: [] };
+    }
+
+    // ワーカーを作成または再利用
+    if (!tesseractWorker) {
+      console.log("🔧 新しいTesseractワーカーを作成");
+      tesseractWorker = createWorker();
+      await tesseractWorker.load();
+      await tesseractWorker.loadLanguage('eng+jpn');
+      await tesseractWorker.initialize('eng+jpn');
+    }
+
+    console.log("🔍 OCR処理を実行中...");
+    const result = await tesseractWorker.recognize(imageData);
+
+    // テキスト抽出結果を整形
+    const extractedResult = {
+      text: result.data.text || "",
+      textBlocks: result.data.lines?.map(line => ({
+        text: line.text,
+        confidence: line.confidence / 100,
+        bbox: line.bbox
+      })) || []
+    };
+
+    console.log(`✅ テキスト抽出完了: ${extractedResult.text.length}文字, ${extractedResult.textBlocks.length}ブロック`);
+    return extractedResult;
+  } catch (error) {
+    console.error("❌ テキスト抽出エラー:", error);
+    return { text: "", textBlocks: [] };
+  }
+};
+
+/**
+ * 画像のセクション分析を行う関数
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @returns {Promise<object>} - セクション分析結果
+ */
+const analyzeImageSections = async (imageData) => {
+  try {
+    console.log("🔍 analyzeImageSections: セクション分析を開始");
+
+    // セクション検出関数を呼び出し
+    const sectionsResult = await detectMainSections(imageData);
+
+    return sectionsResult;
+  } catch (error) {
+    console.error("❌ セクション分析エラー:", error);
+    return {
+      sectionsDetected: false,
+      confidence: 0.5,
+      error: error.message
+    };
+  }
+};
+
+/**
+ * 画像のレイアウトパターンを分析する
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @returns {Promise<object>} - レイアウト分析結果
+ */
+const analyzeLayoutPattern = async (imageData) => {
+  try {
+    console.log("🔍 analyzeLayoutPattern: レイアウト分析を開始");
+
+    // 画像をデコード
+    const img = await decodeImageToMat(imageData);
+    const height = img.rows;
+    const width = img.cols;
+
+    console.log(`📐 画像サイズ: ${width}x${height}px`);
+
+    // OpenCVが利用できない場合の早期リターン
+    if (!cv || img.isMock) {
+      console.log("⚠️ analyzeLayoutPattern: OpenCVが利用できないため、フォールバック処理を実行");
+      return {
+        layoutType: "unknown",
+        confidence: 0.5,
+        fallback: true
+      };
+    }
+
+    // グレースケールに変換
+    const gray = new cv.Mat();
+    cv.cvtColor(img, gray, cv.COLOR_BGR2GRAY);
+
+    // Cannyエッジ検出
+    const edges = new cv.Mat();
+    cv.Canny(gray, edges, 50, 150);
+
+    // 輪郭検出
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    // 水平・垂直線の検出
+    const lines = new cv.Mat();
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
+
+    // パターン判定のための特徴量
+    let horizontalLines = 0;
+    let verticalLines = 0;
+
+    // 線の方向を分析
+    for (let i = 0; i < lines.rows; i++) {
+      const line = lines.data32S.slice(i * 4, (i + 1) * 4);
+      const [x1, y1, x2, y2] = line;
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+
+      if (angle < 10 || angle > 170) {
+        horizontalLines++;
+      } else if (angle > 80 && angle < 100) {
+        verticalLines++;
+      }
+    }
+
+    // レイアウトパターンのスコア
+    const layoutPatterns = {
+      grid: 0,
+      list: 0,
+      card: 0,
+      hero: 0,
+      sidebar: 0
+    };
+
+    // グリッドパターン
+    if (horizontalLines > 3 && verticalLines > 3) {
+      layoutPatterns.grid += 0.6;
+    }
+
+    // リストパターン
+    if (horizontalLines > 3 && verticalLines < 3) {
+      layoutPatterns.list += 0.6;
+    }
+
+    // 最も確率の高いパターンを判定
+    let maxPattern = 'unknown';
+    let maxScore = 0;
+
+    for (const [pattern, score] of Object.entries(layoutPatterns)) {
+      if (score > maxScore) {
+        maxScore = score;
+        maxPattern = pattern;
+      }
+    }
+
+    // 結果をまとめる
+    const result = {
+      layoutType: maxScore > 0.3 ? maxPattern : 'unknown',
+      confidence: Math.min(maxScore, 0.9),
+      fallback: false,
+      patterns: layoutPatterns
+    };
+
+    console.log(`✅ analyzeLayoutPattern: 分析完了 - レイアウト: ${result.layoutType}（信頼度: ${result.confidence.toFixed(2)}）`);
+
+    // リソース解放
+    img.delete();
+    gray.delete();
+    edges.delete();
+    contours.delete();
+    hierarchy.delete();
+    lines.delete();
+
+    return result;
+  } catch (error) {
+    console.error('❌ レイアウト分析エラー:', error);
+    return {
+      layoutType: "unknown",
+      confidence: 0.5,
+      error: error.message,
+      fallback: true
+    };
+  }
+};
+
+/**
  * base64エンコードされた画像データをデコードしてOpenCV用のMatに変換
  * @param {string} imageBase64 - Base64エンコードされた画像データ
  * @returns {object} - OpenCV用のMat
@@ -416,19 +701,22 @@ const kmeans = (pixels, k = MAX_COLORS) => {
 };
 
 /**
- * 画像から代表的な色を抽出する
+ * 画像から代表的な色を抽出する（超高精度版 - UI色特化）
  * @param {string} imageData - Base64エンコードされた画像データ
  * @param {object} options - オプション設定
  * @returns {Array} - 抽出された色情報の配列
  */
 const extractColors = async (imageData, options = {}) => {
   try {
-    console.log("🎨 extractColors: 色抽出を開始");
+    console.log("🎨 extractColors: 超高精度UI色抽出を開始");
 
     await initializeModules();
 
+    // 5MB超過時の段階的圧縮
+    const processedImageData = await optimizeImageSize(imageData);
+
     // 画像をデコード
-    const img = await decodeImageToMat(imageData);
+    const img = await decodeImageToMat(processedImageData);
     const height = img.rows;
     const width = img.cols;
 
@@ -436,658 +724,297 @@ const extractColors = async (imageData, options = {}) => {
 
     // OpenCVが利用できない場合の早期リターン
     if (!cv || img.isMock) {
-      console.log("⚠️ extractColors: OpenCVが利用できないため、フォールバック処理を実行");
-      console.log("📊 フォールバック: 推定ベースで色情報を生成");
-
-      // 基本的な色パレットを返す
-      const defaultColors = [
-        { r: 51, g: 51, b: 51, hex: '#333333', role: 'text', weight: 0.3 },
-        { r: 255, g: 255, b: 255, hex: '#ffffff', role: 'background', weight: 0.4 },
-        { r: 0, g: 123, b: 255, hex: '#007bff', role: 'primary', weight: 0.15 },
-        { r: 108, g: 117, b: 125, hex: '#6c757d', role: 'secondary', weight: 0.1 },
-        { r: 40, g: 167, b: 69, hex: '#28a745', role: 'accent', weight: 0.05 }
-      ];
-
-      console.log(`🎯 extractColors: フォールバックで${defaultColors.length}色を推定`);
-
-      return defaultColors;
+      console.log("⚠️ extractColors: OpenCVが利用できないため、Canvas直接処理を実行");
+      return await extractColorsFromCanvas(imageData, options);
     }
 
-    console.log("✅ extractColors: OpenCV処理を開始");
+    console.log("✅ extractColors: 超高精度OpenCV処理を開始");
 
-    // 処理を高速化するためにリサイズ
-    const scale = RESIZE_WIDTH / width;
+    // 高解像度設定（色精度最優先）
+    const maxSize = 2000;
+    const minCompressionRatio = 0.9; // 90%以上のサイズを維持
+    const scale = Math.max(
+      Math.min(maxSize / width, maxSize / height, 1.0),
+      minCompressionRatio
+    );
 
-    // サイズオブジェクトの作成を安全に行う
-    let dsize;
-    if (typeof cv.Size === 'function') {
-      dsize = new cv.Size(Math.round(width * scale), Math.round(height * scale));
-    } else {
-      // cv.Sizeが利用できない場合の代替案
-      dsize = {
-        width: Math.round(width * scale),
-        height: Math.round(height * scale)
-      };
-    }
+    let processedImg = img;
+    if (scale < 1.0) {
+      const newWidth = Math.round(width * scale);
+      const newHeight = Math.round(height * scale);
 
-    let small = img;
-    if (typeof cv.resize === 'function') {
-      small = new cv.Mat();
-      cv.resize(img, small, dsize, 0, 0, cv.INTER_AREA);
-    }
-
-    // ピクセルデータを取得
-    const pixels = [];
-    for (let j = 0; j < small.rows; j++) {
-      for (let i = 0; i < small.cols; i++) {
-        const pixel = small.ptr(j, i);
-        // OpenCV はBGR形式なのでRGBに変換
-        pixels.push([pixel[2], pixel[1], pixel[0]]);
+      let dsize;
+      if (typeof cv.Size === 'function') {
+        dsize = new cv.Size(newWidth, newHeight);
+      } else {
+        dsize = { width: newWidth, height: newHeight };
       }
+
+      processedImg = new cv.Mat();
+      const resizeFlag = cv.INTER_LANCZOS4 || cv.INTER_CUBIC || cv.INTER_LINEAR;
+      cv.resize(img, processedImg, dsize, 0, 0, resizeFlag);
+      console.log(`🔍 画像リサイズ: ${width}x${height} → ${Math.round(width * scale)}x${Math.round(height * scale)} (縮小率: ${(scale * 100).toFixed(1)}%)`);
+    } else {
+      console.log("🔍 画像サイズが適切なため、リサイズをスキップ");
     }
 
-    // K-meansクラスタリングで色を抽出
-    const colors = kmeans(pixels, options.numColors || MAX_COLORS);
+    // 軽微なノイズ除去
+    const blurred = new cv.Mat();
+    cv.GaussianBlur(processedImg, blurred, new cv.Size(3, 3), 0.3, 0.3, cv.BORDER_DEFAULT);
 
-    // 色の役割を推定
-    const colorTypes = ['primary', 'secondary', 'accent', 'background', 'text'];
-    colors.forEach((color, index) => {
-      // 単純なヒューリスティック: 最も多い色は背景色、2番目は主要色など
-      color.role = colorTypes[Math.min(index, colorTypes.length - 1)];
-    });
+    // 🚀 新機能: 超高精度UI色抽出
+    const extractedColors = await extractUIColorsWithPrecision(blurred);
 
-    console.log(`✅ extractColors: OpenCV処理完了 - ${colors.length}色を抽出`);
+    console.log(`✅ extractColors: 超高精度処理完了 - ${extractedColors.length}色を抽出`);
 
     // リソース解放
     img.delete();
-    if (small !== img) {
-      small.delete();
-    }
+    if (processedImg !== img) processedImg.delete();
+    blurred.delete();
 
-    return colors;
+    return extractedColors;
   } catch (error) {
     console.error('❌ extractColors: 色抽出エラー:', error);
-    console.error('🔍 エラー詳細:', {
-      message: error.message,
-      stack: error.stack,
-      cvAvailable: typeof cv !== 'undefined',
-      cvSizeAvailable: typeof cv !== 'undefined' && typeof cv.Size === 'function'
-    });
-
-    // フォールバック用のデフォルト色パレット
-    return [
-      { r: 51, g: 51, b: 51, hex: '#333333', role: 'text', weight: 0.3 },
-      { r: 255, g: 255, b: 255, hex: '#ffffff', role: 'background', weight: 0.4 },
-      { r: 0, g: 123, b: 255, hex: '#007bff', role: 'primary', weight: 0.15 },
-      { r: 108, g: 117, b: 125, hex: '#6c757d', role: 'secondary', weight: 0.1 },
-      { r: 40, g: 167, b: 69, hex: '#28a745', role: 'accent', weight: 0.05 }
-    ];
+    console.log('🔄 Canvas直接処理にフォールバック');
+    return await extractColorsFromCanvas(imageData, options);
   }
 };
 
 /**
- * Tesseract.jsワーカーの初期化（遅延ロード・シングルトン）
- * @returns {Promise<object>} - Tesseractワーカーインスタンス
+ * 🚀 ハイブリッド超高精度UI色抽出（WebAssembly + 変数設定ページアルゴリズム）
  */
-const getTesseractWorker = async () => {
-  if (!tesseractWorker) {
-    // モジュール初期化を確実に実行
-    await initializeModules();
-
-    // createWorkerが利用できない場合はnullを返す
-    if (!createWorker) {
-      console.warn('Tesseract.js が利用できないため、OCR機能をスキップします');
-      return null;
-    }
-
-    console.log('🔧 Tesseract.js ワーカー作成を開始...');
-
-    // ブラウザ環境向けの設定
-    const options = {
-      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/worker.min.js',
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
-      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
-      workerBlobURL: true
-    };
-
-    console.log('📋 Tesseract.js 設定:', options);
-
-    // 各リソースの可用性をテスト
-    console.log('🌐 リソース可用性テスト開始...');
-
-    try {
-      console.log('⏳ workerPath テスト:', options.workerPath);
-      const workerResponse = await fetch(options.workerPath, { method: 'HEAD' });
-      console.log('✅ workerPath 応答:', workerResponse.status, workerResponse.statusText);
-    } catch (workerError) {
-      console.error('❌ workerPath エラー:', workerError);
-    }
-
-    try {
-      console.log('⏳ corePath テスト:', options.corePath);
-      const coreResponse = await fetch(options.corePath, { method: 'HEAD' });
-      console.log('✅ corePath 応答:', coreResponse.status, coreResponse.statusText);
-    } catch (coreError) {
-      console.error('❌ corePath エラー:', coreError);
-    }
-
-    try {
-      console.log('⏳ langPath テスト:', `${options.langPath}/jpn.traineddata.gz`);
-      const langResponse = await fetch(`${options.langPath}/jpn.traineddata.gz`, { method: 'HEAD' });
-      console.log('✅ langPath 応答:', langResponse.status, langResponse.statusText);
-    } catch (langError) {
-      console.error('❌ langPath エラー:', langError);
-    }
-
-    console.log('🔥 createWorker 呼び出し開始...');
-
-    try {
-      console.log('🔧 Tesseract.createWorker詳細設定:', {
-        options,
-        Tesseract_available: typeof window.Tesseract,
-        createWorker_available: typeof window.Tesseract.createWorker
-      });
-
-      // ワーカー作成を詳細に監視
-      console.log('🚀 ワーカー作成ステップ1: createWorker開始');
-      const worker = await window.Tesseract.createWorker('jpn', 1, options);
-
-      console.log('🚀 ワーカー作成ステップ2: ワーカー取得成功', typeof worker);
-      console.log('🚀 ワーカー作成ステップ3: ワーカー初期化開始');
-
-      // ワーカーが正常に作成されたかチェック
-      if (!worker) {
-        throw new Error('ワーカーオブジェクトがnullです');
-      }
-
-      console.log('✅ Tesseract.js ワーカー作成成功');
-
-      // パラメータ設定
-      console.log('🔧 Tesseractパラメータ設定開始');
-      await worker.setParameters({
-        preserve_interword_spaces: '1'
-      });
-      console.log('✅ Tesseractパラメータ設定完了');
-
-      tesseractWorker = worker;
-      return worker;
-
-    } catch (error) {
-      console.error('❌ createWorker詳細エラー:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-        cause: error.cause,
-        options: options
-      });
-      console.error('❌ ワーカー作成時のグローバル状態:', {
-        window_Tesseract: typeof window.Tesseract,
-        window_cv: typeof window.cv,
-        document_readyState: document.readyState
-      });
-      return null;
-    }
-  }
-  return tesseractWorker;
-};
-
-/**
- * 画像からテキストを抽出する (OCR)
- * @param {string} imageData - Base64エンコードされた画像データ
- * @param {object} options - OCRオプション
- * @returns {Promise<object>} - 抽出されたテキスト情報
- */
-const extractText = async (imageData, options = {}) => {
-  console.log('🔤 extractText: テキスト抽出を開始');
-  console.log('🔤 extractText: 画像データサイズ:', imageData.length);
-  console.log('🔤 extractText: オプション:', options);
-
+const extractUIColorsWithPrecision = async (img) => {
   try {
-    console.log('🔤 extractText: Tesseractワーカーを取得中...');
+    console.log("🎯 ハイブリッド超高精度UI色抽出を開始");
 
-    // Tesseractワーカーを取得
-    const worker = await getTesseractWorker();
-
-    console.log('🔤 extractText: ワーカー取得結果:', worker ? 'ワーカー利用可能' : 'ワーカー利用不可');
-
-    // Tesseract.jsが利用できない場合はフォールバック
-    if (!worker) {
-      console.warn('🔤 extractText: OCR機能が利用できません - 空の結果を返します');
-      return {
-        text: '',
-        textBlocks: [],
-        confidence: 0
-      };
-    }
-
-    console.log('🔤 extractText: Base64データを処理中...');
-
-    // Base64データを処理
-    let base64Data = imageData;
-    if (imageData.includes('data:image')) {
-      base64Data = imageData;
-      console.log('🔤 extractText: データURL形式を検出');
-    } else {
-      base64Data = `data:image/jpeg;base64,${imageData}`;
-      console.log('🔤 extractText: Base64データにプレフィックスを追加');
-    }
-
-    console.log('🔤 extractText: OCR認識を開始...');
-
-    // OCR実行
-    const result = await worker.recognize(base64Data);
-
-    console.log('🔤 extractText: OCR認識完了');
-    console.log('🔤 extractText: 認識されたテキスト長:', result.data.text.length);
-    console.log('🔤 extractText: 認識された単語数:', result.data.words.length);
-
-    // テキストブロックの整形
-    const textBlocks = result.data.words.map(word => ({
-      text: word.text,
-      confidence: word.confidence / 100, // 0-1の範囲に正規化
-      position: {
-        x: word.bbox.x0,
-        y: word.bbox.y0,
-        width: word.bbox.x1 - word.bbox.x0,
-        height: word.bbox.y1 - word.bbox.y0
-      }
-    }));
-
-    console.log('✅ extractText: テキスト抽出成功');
-
-    return {
-      text: result.data.text,
-      textBlocks: textBlocks,
-      full: result.data
-    };
-  } catch (error) {
-    console.error('❌ extractText: テキスト抽出エラー:', error);
-    console.error('❌ extractText: エラーメッセージ:', error.message);
-    console.error('❌ extractText: エラースタック:', error.stack);
-
-    return {
-      text: '',
-      textBlocks: [],
-      error: `テキスト抽出エラー: ${error.message}`
-    };
-  }
-};
-
-/**
- * 画像のセクションを分析する
- * @param {string} imageData - Base64エンコードされた画像データ
- * @returns {Promise<Array>} - 検出されたセクション情報の配列
- */
-const analyzeImageSections = async (imageData) => {
-  try {
-    // OpenCV利用可能性チェック
-    if (!cv || !cv.Mat) {
-      console.warn('analyzeImageSections: OpenCV.jsが利用できません - 空の結果を返します');
-      return [];
-    }
-
-    // 画像をデコード
-    const img = await decodeImageToMat(imageData);
     const height = img.rows;
     const width = img.cols;
 
-    // グレースケールに変換
-    const gray = new cv.Mat();
-    cv.cvtColor(img, gray, cv.COLOR_BGR2GRAY);
+    // 🔧 WebAssembly機能: 写真除外マスク生成
+    const uiMask = createUIOnlyMask(img);
+    console.log("📊 写真除外マスク生成完了");
 
-    // ガウシアンぼかしでノイズ除去
-    const blurred = new cv.Mat();
-    if (typeof cv.Size === 'function') {
-      cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-    } else {
-      // cv.Sizeが利用できない場合は、ぼかし処理をスキップ
-      gray.copyTo(blurred);
-    }
+    // 🚀 変数設定ページ高精度アルゴリズム: 全ピクセル処理
+    console.log("🔍 UI領域の全ピクセル解析を開始（変数設定ページ方式）");
+    const colorMap = new Map();
+    const totalPixels = height * width;
+    const minOccurrence = totalPixels * 0.0005; // 0.05%以上の出現で有意
 
-    // Sobelフィルタで水平方向のエッジを検出
-    const gradX = new cv.Mat();
-    const absGradX = new cv.Mat();
-    cv.Sobel(blurred, gradX, cv.CV_64F, 1, 0, 3);
-    cv.convertScaleAbs(gradX, absGradX);
+    let processedPixels = 0;
+    let skippedPhotoPixels = 0;
 
-    // 各行の勾配平均を計算
-    const gradientMeans = [];
-    for (let i = 0; i < absGradX.rows; i++) {
-      let rowSum = 0;
-      for (let j = 0; j < absGradX.cols; j++) {
-        rowSum += absGradX.ucharPtr(i, j)[0];
-      }
-      gradientMeans.push(rowSum / absGradX.cols);
-    }
-
-    // ピーク検出（セクション境界の候補）
-    const peakIndices = [];
-    const minPeakValue = gradientMeans.reduce((a, b) => a + b, 0) / gradientMeans.length * 1.5;
-    const minPeakDistance = absGradX.rows * MIN_SECTION_HEIGHT_RATIO;
-
-    for (let i = 1; i < gradientMeans.length - 1; i++) {
-      if (
-        gradientMeans[i] > minPeakValue &&
-        gradientMeans[i] > gradientMeans[i - 1] &&
-        gradientMeans[i] > gradientMeans[i + 1]
-      ) {
-        if (peakIndices.length === 0 || i - peakIndices[peakIndices.length - 1] > minPeakDistance) {
-          peakIndices.push(i);
+    // UI領域の全ピクセルを処理
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // 写真除外マスクをチェック
+        if (uiMask && uiMask.ucharPtr(y, x)[0] === 0) {
+          skippedPhotoPixels++;
+          continue; // 写真部分はスキップ
         }
+
+        const pixel = img.ptr(y, x);
+        const r = pixel[0]; // 🔧 修正: RGB正順 (was pixel[2])
+        const g = pixel[1];
+        const b = pixel[2]; // 🔧 修正: RGB正順 (was pixel[0])
+
+        // 透明度チェック（もしある場合）
+        if (pixel.length > 3 && pixel[3] === 0) continue;
+
+        // RGBを16進数に変換（変数設定ページと同じ方式）
+        const color = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+
+        // 出現回数をカウント
+        colorMap.set(color, (colorMap.get(color) || 0) + 1);
+        processedPixels++;
       }
     }
 
-    // 境界として上端と下端を追加
-    const boundaries = [0, ...peakIndices, height - 1];
+    console.log(`📊 ピクセル処理完了: 処理=${processedPixels}, 写真除外=${skippedPhotoPixels}`);
+    console.log(`📊 写真除外率: ${((skippedPhotoPixels / totalPixels) * 100).toFixed(1)}%`);
 
-    // セクション情報を作成
-    const sections = [];
-    for (let i = 0; i < boundaries.length - 1; i++) {
-      const top = boundaries[i];
-      const bottom = boundaries[i + 1];
-      const sectionHeight = bottom - top;
+    // 🔧 変数設定ページ高精度アルゴリズム: 厳密な色の類似性結合
+    console.log("🔗 厳密な色結合処理を開始（distance < 15）");
+    const mergedColors = new Map();
+    const processedColors = new Set();
 
-      // 小さすぎるセクションはスキップ
-      if (sectionHeight < height * MIN_SECTION_HEIGHT_RATIO) continue;
+    for (const [color1, count1] of colorMap.entries()) {
+      if (processedColors.has(color1)) continue;
 
-      // セクションの色情報を取得
-      let roi = new cv.Mat();
-      if (typeof cv.Rect === 'function') {
-        const rect = new cv.Rect(0, top, width, sectionHeight);
-        roi = img.roi(rect);
-      } else {
-        // cv.Rectが利用できない場合は、セクション全体をコピー
-        img.copyTo(roi);
-      }
+      let totalCount = count1;
+      let weightedR = parseInt(color1.slice(1, 3), 16) * count1;
+      let weightedG = parseInt(color1.slice(3, 5), 16) * count1;
+      let weightedB = parseInt(color1.slice(5, 7), 16) * count1;
 
-      // セクションの代表色を抽出
-      const sectionPixels = [];
-      const skip = Math.max(1, Math.floor(roi.rows * roi.cols / 1000)); // サンプリング間隔
+      // 類似色の厳密な結合（変数設定ページと同じ閾値）
+      for (const [color2, count2] of colorMap.entries()) {
+        if (color1 === color2 || processedColors.has(color2)) continue;
 
-      for (let j = 0; j < roi.rows; j += skip) {
-        for (let k = 0; k < roi.cols; k += skip) {
-          const pixel = roi.ptr(j, k);
-          sectionPixels.push([pixel[2], pixel[1], pixel[0]]); // BGR to RGB
-        }
-      }
+        const r1 = parseInt(color1.slice(1, 3), 16);
+        const g1 = parseInt(color1.slice(3, 5), 16);
+        const b1 = parseInt(color1.slice(5, 7), 16);
+        const r2 = parseInt(color2.slice(1, 3), 16);
+        const g2 = parseInt(color2.slice(3, 5), 16);
+        const b2 = parseInt(color2.slice(5, 7), 16);
 
-      let dominantColor = { rgb: 'rgb(255, 255, 255)', hex: '#FFFFFF' };
-      if (sectionPixels.length > 0) {
-        const colors = kmeans(sectionPixels, 1);
-        if (colors.length > 0) {
-          dominantColor = {
-            rgb: colors[0].rgb,
-            hex: colors[0].hex
-          };
+        // 🎯 厳密な色距離計算（変数設定ページと同じ）
+        const distance = Math.sqrt(
+          Math.pow(r1 - r2, 2) +
+          Math.pow(g1 - g2, 2) +
+          Math.pow(b1 - b2, 2)
+        );
+
+        // 厳密な色結合（distance < 15）
+        if (distance < 15) {
+          totalCount += count2;
+          weightedR += r2 * count2;
+          weightedG += g2 * count2;
+          weightedB += b2 * count2;
+          processedColors.add(color2);
         }
       }
 
-      sections.push({
-        section: i + 1,
-        position: {
-          top: top,
-          height: sectionHeight
-        },
-        dominantColor: dominantColor
-      });
+      // 加重平均で新しい色を計算
+      const avgR = Math.round(weightedR / totalCount);
+      const avgG = Math.round(weightedG / totalCount);
+      const avgB = Math.round(weightedB / totalCount);
+      const mergedColor = `#${((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1).toUpperCase()}`;
 
-      roi.delete();
+      mergedColors.set(mergedColor, totalCount);
+      processedColors.add(color1);
     }
+
+    // 🔧 変数設定ページ高精度アルゴリズム: 出現頻度フィルタリング
+    const filteredColors = Array.from(mergedColors.entries())
+      .filter(([_, count]) => count > minOccurrence)
+      .sort((a, b) => b[1] - a[1])
+      .map(([color, count]) => {
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+
+        return {
+          hex: color,
+          r: r,
+          g: g,
+          b: b,
+          ratio: count / processedPixels
+          // ✅ roleプロパティは削除
+        };
+      })
+      .slice(0, MAX_COLORS);
 
     // リソース解放
-    img.delete();
-    gray.delete();
-    blurred.delete();
-    gradX.delete();
-    absGradX.delete();
+    if (uiMask) uiMask.delete();
 
-    return sections;
+    console.log(`✅ ハイブリッド超高精度色抽出完了: ${filteredColors.length}色抽出`);
+    filteredColors.forEach((color, index) => {
+      console.log(`  ${index + 1}. ${color.hex} (${(color.ratio * 100).toFixed(2)}%)`);
+    });
+
+    return filteredColors;
+
   } catch (error) {
-    console.error('セクション分析エラー:', error);
-    return [];
+    console.error('❌ ハイブリッド超高精度UI色抽出エラー:', error);
+
+    // シンプルなフォールバック
+    const fallbackColors = [];
+    try {
+      for (let y = 0; y < img.rows; y += 10) {
+        for (let x = 0; x < img.cols; x += 10) {
+          const pixel = img.ptr(y, x);
+          const r = pixel[0]; // 🔧 修正: RGB正順 (was pixel[2])
+          const g = pixel[1];
+          const b = pixel[2]; // 🔧 修正: RGB正順 (was pixel[0])
+          const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+
+          fallbackColors.push({
+            hex: hex,
+            r: r,
+            g: g,
+            b: b,
+            ratio: 1.0 / Math.min(5, fallbackColors.length + 1)
+          });
+
+          if (fallbackColors.length >= 5) break;
+        }
+        if (fallbackColors.length >= 5) break;
+      }
+    } catch (fallbackError) {
+      console.error('フォールバックエラー:', fallbackError);
+    }
+
+    return fallbackColors;
   }
 };
 
 /**
- * 画像のレイアウトパターンを分析する
- * @param {string} imageData - Base64エンコードされた画像データ
- * @returns {Promise<object>} - レイアウト分析結果
+ * 写真要素を除外するマスクを作成
  */
-const analyzeLayoutPattern = async (imageData) => {
+const createUIOnlyMask = (img) => {
   try {
-    console.log("🔍 analyzeLayoutPattern: レイアウトパターン分析を開始");
+    console.log("🎭 UI要素マスクを作成");
 
-    // 画像をデコード
-    const img = await decodeImageToMat(imageData);
+    if (!cv || !cv.Canny) {
+      console.log("⚠️ OpenCV機能制限のため、マスク作成をスキップ");
+      return null;
+    }
+
     const height = img.rows;
     const width = img.cols;
 
-    console.log(`📐 画像サイズ: ${width}x${height}px`);
-
-    // OpenCVが利用できない場合の早期リターン
-    if (!cv || img.isMock) {
-      console.log("⚠️ analyzeLayoutPattern: OpenCVが利用できないため、フォールバック処理を実行");
-      console.log("📊 フォールバック: 推定ベースでレイアウト分析を実行");
-
-      // アスペクト比に基づく推定レイアウト
-      const aspectRatio = width / height;
-      let estimatedLayout = 'grid';
-      let confidence = 0.5;
-
-      if (aspectRatio > 2.0) {
-        estimatedLayout = 'hero';
-        confidence = 0.6;
-      } else if (aspectRatio < 0.8) {
-        estimatedLayout = 'list';
-        confidence = 0.6;
-      } else if (width > 1200) {
-        estimatedLayout = 'sidebar';
-        confidence = 0.5;
-      }
-
-      console.log(`🎯 analyzeLayoutPattern: フォールバックで${estimatedLayout}レイアウトを推定（信頼度: ${confidence}）`);
-
-      return {
-        layoutType: estimatedLayout,
-        confidence: confidence,
-        fallback: true,
-        patterns: {
-          grid: estimatedLayout === 'grid' ? 0.5 : 0.2,
-          list: estimatedLayout === 'list' ? 0.6 : 0.1,
-          card: 0.3,
-          hero: estimatedLayout === 'hero' ? 0.6 : 0.2,
-          sidebar: estimatedLayout === 'sidebar' ? 0.5 : 0.1
-        },
-        layoutDetails: {
-          dimensions: {
-            width: width,
-            height: height,
-            aspectRatio: aspectRatio
-          },
-          horizontalLines: 0,
-          verticalLines: 0,
-          significantAreas: 0,
-          estimated: true
-        }
-      };
-    }
-
-    console.log("✅ analyzeLayoutPattern: OpenCV処理を開始");
-
-    // グレースケールに変換
+    // グレースケール変換
     const gray = new cv.Mat();
     cv.cvtColor(img, gray, cv.COLOR_BGR2GRAY);
 
-    // 輪郭検出のためにエッジ検出
+    // エッジ検出
     const edges = new cv.Mat();
     cv.Canny(gray, edges, 50, 150);
 
-    // 輪郭検出
-    const contours = new cv.MatVector();
-    const hierarchy = new cv.Mat();
-    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    // 画像の質感分析（UI要素と写真の区別）
+    const mask = new cv.Mat.zeros(height, width, cv.CV_8UC1);
 
-    // 領域の数と大きさを分析
-    const areas = [];
-    const significantContours = [];
-    for (let i = 0; i < contours.size(); i++) {
-      const contour = contours.get(i);
-      const area = cv.contourArea(contour);
+    // テクスチャ分析のためのブロックサイズ
+    const blockSize = 16;
 
-      // 一定サイズ以上の領域のみ考慮
-      if (area > 100) {
-        areas.push(area);
-        significantContours.push(contour);
-      }
-    }
+    for (let y = 0; y < height; y += blockSize) {
+      for (let x = 0; x < width; x += blockSize) {
+        const blockHeight = Math.min(blockSize, height - y);
+        const blockWidth = Math.min(blockSize, width - x);
 
-    // 水平・垂直線の検出
-    const lines = new cv.Mat();
-    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
-
-    // 水平・垂直線の分類
-    let horizontalLines = 0;
-    let verticalLines = 0;
-
-    for (let i = 0; i < lines.rows; i++) {
-      const line = lines.data32S.slice(i * 4, (i + 1) * 4);
-      const [x1, y1, x2, y2] = line;
-
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
-
-      if (angle < 10 || angle > 170) {
-        horizontalLines++;
-      } else if (angle > 80 && angle < 100) {
-        verticalLines++;
-      }
-    }
-
-    // レイアウト判定
-    const layoutPatterns = {
-      grid: 0,
-      list: 0,
-      card: 0,
-      hero: 0,
-      sidebar: 0
-    };
-
-    // グリッド判定（水平・垂直線が多い）
-    if (horizontalLines > 3 && verticalLines > 3) {
-      layoutPatterns.grid += 0.6;
-    }
-
-    // リスト判定（水平線が多く、垂直線が少ない）
-    if (horizontalLines > 3 && verticalLines < 3) {
-      layoutPatterns.list += 0.6;
-    }
-
-    // カード判定（同じようなサイズの領域が複数ある）
-    if (significantContours.length > 2) {
-      // 面積の標準偏差を計算
-      const avgArea = areas.reduce((a, b) => a + b, 0) / areas.length;
-      const variance = areas.reduce((a, b) => a + Math.pow(b - avgArea, 2), 0) / areas.length;
-      const stdDev = Math.sqrt(variance);
-
-      // 標準偏差が平均の30%未満なら、類似サイズと判断
-      if (stdDev / avgArea < 0.3) {
-        layoutPatterns.card += 0.7;
-      }
-    }
-
-    // ヒーローセクション判定（上部に大きな領域）
-    if (areas.length > 0) {
-      areas.sort((a, b) => b - a);
-      const largestArea = areas[0];
-
-      // 最大領域が画像の20%以上を占める
-      if (largestArea > width * height * 0.2) {
-        for (let i = 0; i < significantContours.length; i++) {
-          const contour = significantContours[i];
-          const area = cv.contourArea(contour);
-
-          if (area === largestArea) {
-            const rect = cv.boundingRect(contour);
-            // 上部にある大きな領域
-            if (rect.y < height * 0.3) {
-              layoutPatterns.hero += 0.5;
+        // ブロック内のエッジ密度を計算
+        let edgeCount = 0;
+        for (let by = 0; by < blockHeight; by++) {
+          for (let bx = 0; bx < blockWidth; bx++) {
+            if (edges.ucharPtr(y + by, x + bx)[0] > 0) {
+              edgeCount++;
             }
-            break;
+          }
+        }
+
+        // エッジ密度による判定（高い = 写真、低い = UI）
+        const edgeDensity = edgeCount / (blockHeight * blockWidth);
+        const isUIRegion = edgeDensity < 0.1 || edgeDensity > 0.4; // UI要素は非常に少ないか、規則的な多数のエッジ
+
+        // ブロック全体をマスクに設定
+        const value = isUIRegion ? 255 : 0; // UI=255（白）、写真=0（黒）
+        for (let by = 0; by < blockHeight; by++) {
+          for (let bx = 0; bx < blockWidth; bx++) {
+            if (y + by < height && x + bx < width) {
+              mask.ucharPtr(y + by, x + bx)[0] = value;
+            }
           }
         }
       }
     }
 
-    // サイドバー判定（左右に縦長の領域）
-    for (let i = 0; i < significantContours.length; i++) {
-      const contour = significantContours[i];
-      const rect = cv.boundingRect(contour);
-
-      // 縦長の領域（高さが幅の3倍以上）
-      if (rect.height > rect.width * 3) {
-        // 左右にある
-        if (rect.x < width * 0.2 || rect.x + rect.width > width * 0.8) {
-          layoutPatterns.sidebar += 0.4;
-        }
-      }
-    }
-
-    // 最も確率の高いレイアウトタイプを選択
-    let maxPattern = 'grid';
-    let maxScore = 0;
-
-    for (const [pattern, score] of Object.entries(layoutPatterns)) {
-      if (score > maxScore) {
-        maxScore = score;
-        maxPattern = pattern;
-      }
-    }
-
-    // デフォルトのレイアウト結果
-    const result = {
-      layoutType: maxPattern,
-      confidence: Math.min(maxScore, 0.9),
-      fallback: false,
-      patterns: layoutPatterns,
-      layoutDetails: {
-        dimensions: {
-          width: width,
-          height: height,
-          aspectRatio: width / height
-        },
-        horizontalLines: horizontalLines,
-        verticalLines: verticalLines,
-        significantAreas: areas.length
-      }
-    };
-
-    console.log(`✅ analyzeLayoutPattern: OpenCV処理完了 - レイアウト: ${maxPattern}（信頼度: ${Math.min(maxScore, 0.9)}）`);
-
     // リソース解放
-    img.delete();
     gray.delete();
     edges.delete();
-    contours.delete();
-    hierarchy.delete();
-    lines.delete();
 
-    return result;
+    return mask;
   } catch (error) {
-    console.error('❌ analyzeLayoutPattern: レイアウト分析エラー:', error);
-    console.error('🔍 エラー詳細:', {
-      message: error.message,
-      stack: error.stack,
-      cvAvailable: typeof cv !== 'undefined',
-      cvMatAvailable: typeof cv !== 'undefined' && typeof cv.Mat === 'function'
-    });
-
-    return {
-      layoutType: "unknown",
-      confidence: 0.5,
-      error: error.message,
-      fallback: true
-    };
+    console.error('❌ createUIOnlyMask エラー:', error);
+    return null;
   }
 };
 
@@ -1648,42 +1575,139 @@ const detectFeatureElements = async (imageData) => {
 
     console.log(`🎯 detectFeatureElements: ${elements.length}個のUI要素を検出`);
 
-    // 結果をまとめる
-    const result = {
-      elementsDetected: elements.length > 0,
-      confidence: elements.length > 0 ? 0.75 : 0.5,
-      fallback: false,
+    return {
+      elementsDetected: true,
+      confidence: 0.8,
       elements: elements
     };
-
-    console.log("✅ detectFeatureElements: OpenCV処理完了");
-
-    // リソース解放
-    img.delete();
-    gray.delete();
-    blurred.delete();
-    edges.delete();
-    contours.delete();
-    hierarchy.delete();
-
-    return result;
   } catch (error) {
     console.error('❌ detectFeatureElements: UI要素検出エラー:', error);
-    console.error('🔍 エラー詳細:', {
-      message: error.message,
-      stack: error.stack,
-      cvAvailable: typeof cv !== 'undefined',
-      cvMatAvailable: typeof cv !== 'undefined' && typeof cv.Mat === 'function'
-    });
-
-    // フォールバック処理
     return {
       elementsDetected: false,
-      confidence: 0.3,
+      confidence: 0.5,
       elements: [],
-      error: error.message,
-      fallback: true
+      error: error.message
     };
+  }
+};
+
+/**
+ * 5MBを超える画像を段階的に圧縮して4MB以下に収める
+ * @param {string} imageData - Base64エンコードされた画像データ
+ * @returns {Promise<string>} - 最適化された画像データ
+ */
+const optimizeImageSize = async (imageData) => {
+  try {
+    // Base64データサイズを計算（バイト単位）
+    let base64Data = imageData;
+    if (imageData.includes('data:image')) {
+      base64Data = imageData.split(',')[1];
+    }
+
+    const sizeInBytes = (base64Data.length * 3) / 4; // Base64デコード後のサイズ
+    const sizeInMB = sizeInBytes / (1024 * 1024);
+
+    console.log(`📊 画像サイズチェック: ${sizeInMB.toFixed(2)}MB`);
+
+    // 5MB以下なら圧縮不要
+    if (sizeInMB <= 5.0) {
+      console.log("✅ 画像サイズが5MB以下のため、圧縮をスキップ");
+      return imageData;
+    }
+
+    console.log(`⚠️ 画像サイズが5MB超過（${sizeInMB.toFixed(2)}MB）- 段階的圧縮を開始`);
+
+    // Canvas経由で段階的圧縮
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    return new Promise((resolve) => {
+      img.onload = async () => {
+        console.log(`📐 元画像サイズ: ${img.width}x${img.height}px`);
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        // 高品質設定で初期描画
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0);
+
+        let currentImageData = imageData;
+        let currentSize = sizeInMB;
+        let compressionStep = 1;
+
+        // 段階的圧縮ループ
+        while (currentSize > 4.0 && compressionStep <= 5) {
+          console.log(`🔄 圧縮ステップ${compressionStep}: 現在${currentSize.toFixed(2)}MB`);
+
+          let newImageData;
+
+          if (compressionStep <= 2) {
+            // ステップ1-2: 画質調整（サイズは維持）
+            const quality = compressionStep === 1 ? 0.9 : 0.8;
+            newImageData = canvas.toDataURL('image/jpeg', quality);
+            console.log(`🎚️ 画質調整: quality=${quality}`);
+          } else {
+            // ステップ3-5: サイズ縮小 + 画質調整
+            const sizeReduction = compressionStep === 3 ? 0.9 : compressionStep === 4 ? 0.8 : 0.7;
+            const quality = compressionStep === 3 ? 0.85 : compressionStep === 4 ? 0.8 : 0.75;
+
+            const newWidth = Math.round(img.width * sizeReduction);
+            const newHeight = Math.round(img.height * sizeReduction);
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            // 高品質リサイズ
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, newWidth, newHeight);
+
+            newImageData = canvas.toDataURL('image/jpeg', quality);
+            console.log(`📏 サイズ縮小: ${img.width}x${img.height} → ${newWidth}x${newHeight} (${(sizeReduction * 100).toFixed(0)}%), quality=${quality}`);
+          }
+
+          // 新しいサイズを計算
+          const newBase64 = newImageData.split(',')[1];
+          const newSizeInBytes = (newBase64.length * 3) / 4;
+          const newSizeInMB = newSizeInBytes / (1024 * 1024);
+
+          console.log(`📉 圧縮結果: ${currentSize.toFixed(2)}MB → ${newSizeInMB.toFixed(2)}MB（${((1 - newSizeInMB / currentSize) * 100).toFixed(1)}%削減）`);
+
+          currentImageData = newImageData;
+          currentSize = newSizeInMB;
+          compressionStep++;
+
+          // 十分小さくなったら終了
+          if (currentSize <= 4.0) {
+            break;
+          }
+        }
+
+        if (currentSize <= 4.0) {
+          console.log(`✅ 圧縮成功: 最終サイズ ${currentSize.toFixed(2)}MB（目標4MB以下達成）`);
+        } else {
+          console.log(`⚠️ 圧縮完了: 最終サイズ ${currentSize.toFixed(2)}MB（目標未達成だが処理続行）`);
+        }
+
+        resolve(currentImageData);
+      };
+
+      img.onerror = (error) => {
+        console.error("❌ 画像最適化エラー:", error);
+        console.log("🔄 最適化失敗 - 元画像を使用");
+        resolve(imageData);
+      };
+
+      img.src = imageData;
+    });
+
+  } catch (error) {
+    console.error("❌ optimizeImageSize エラー:", error);
+    console.log("🔄 最適化失敗 - 元画像を使用");
+    return imageData;
   }
 };
 
@@ -1787,6 +1811,89 @@ const analyzeAll = async (imageData, options = {}) => {
       layoutConfidence: result.data.layout?.confidence || 0
     });
 
+    // 🔍 詳細解析結果をログ出力
+    console.log("\n==================== WebAssembly解析器 詳細結果 ====================");
+
+    // 色抽出の詳細
+    if (result.data.colors && result.data.colors.length > 0) {
+      console.log(`🎨 抽出された色 (${result.data.colors.length}個):`);
+      result.data.colors.forEach((color, index) => {
+        if (typeof color === 'string') {
+          console.log(`  [${index + 1}] ${color}`);
+        } else if (color && color.hex) {
+          console.log(`  [${index + 1}] ${color.hex}${color.ratio ? ` (${(color.ratio * 100).toFixed(1)}%)` : ''}${color.rgb ? ` RGB(${color.rgb.r}, ${color.rgb.g}, ${color.rgb.b})` : ''}`);
+        } else {
+          console.log(`  [${index + 1}] ${JSON.stringify(color)}`);
+        }
+      });
+    }
+
+    // テキスト抽出の詳細
+    if (result.data.text) {
+      console.log(`\n📝 抽出されたテキスト (${result.data.text.length}文字):`);
+      console.log(`"${result.data.text}"`);
+    }
+
+    // テキストブロックの詳細
+    if (result.data.textBlocks && result.data.textBlocks.length > 0) {
+      console.log(`\n📋 テキストブロック (${result.data.textBlocks.length}個):`);
+      result.data.textBlocks.forEach((block, index) => {
+        console.log(`  [${index + 1}] "${block.text || block}"`);
+        if (block.confidence) {
+          console.log(`       信頼度: ${(block.confidence * 100).toFixed(1)}%`);
+        }
+        if (block.bbox) {
+          console.log(`       位置: x=${block.bbox.x0}, y=${block.bbox.y0}, w=${block.bbox.x1 - block.bbox.x0}, h=${block.bbox.y1 - block.bbox.y0}`);
+        }
+      });
+    }
+
+    // UI要素の詳細
+    if (result.data.elements) {
+      const elements = result.data.elements.elements || result.data.elements;
+      if (Array.isArray(elements) && elements.length > 0) {
+        console.log(`\n🔲 検出されたUI要素 (${elements.length}個):`);
+        elements.forEach((element, index) => {
+          console.log(`  [${index + 1}] ${element.type || 'unknown'} (信頼度: ${(element.confidence * 100).toFixed(1)}%)`);
+          if (element.position) {
+            console.log(`       位置: (${element.position.left || element.position.x}, ${element.position.top || element.position.y})`);
+            console.log(`       サイズ: ${element.position.width}×${element.position.height}`);
+          }
+        });
+      }
+    }
+
+    // メインセクションの詳細
+    if (result.data.mainSections) {
+      const sections = result.data.mainSections.sections || [];
+      if (sections.length > 0) {
+        console.log(`\n📐 メインセクション (${sections.length}個):`);
+        sections.forEach((section, index) => {
+          console.log(`  [${index + 1}] ${section.name || `セクション${index + 1}`} (${section.type || 'unknown'})`);
+          if (section.confidence) {
+            console.log(`       信頼度: ${(section.confidence * 100).toFixed(1)}%`);
+          }
+          if (section.position) {
+            console.log(`       位置: (${section.position.left}, ${section.position.top}) サイズ: ${section.position.width}×${section.position.height}`);
+          }
+        });
+      }
+    }
+
+    // レイアウト分析の詳細
+    if (result.data.layout) {
+      console.log(`\n📋 レイアウト分析:`);
+      console.log(`  パターン: ${result.data.layout.pattern || 'unknown'} (信頼度: ${(result.data.layout.confidence * 100).toFixed(1)}%)`);
+      if (result.data.layout.patterns) {
+        console.log(`  各パターンスコア:`);
+        Object.entries(result.data.layout.patterns).forEach(([pattern, score]) => {
+          console.log(`    ${pattern}: ${(score * 100).toFixed(1)}%`);
+        });
+      }
+    }
+
+    console.log("========================================================\n");
+
     return result;
   } catch (error) {
     console.error('❌ analyzeAll: 総合画像分析エラー:', error);
@@ -1834,6 +1941,7 @@ const moduleExports = {
   detectCardElements,
   detectFeatureElements,
   analyzeAll,
+  optimizeImageSize, // 新機能を追加
   // 別名でもエクスポート
   extractColorsFromImage: extractColors,
   extractTextFromImage: extractText

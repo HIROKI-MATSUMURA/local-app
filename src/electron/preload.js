@@ -521,7 +521,7 @@ window.api = {
   analyzeImageInRenderer: async (imageData, options = {}) => {
     try {
       console.log('🔍 analyzeImageInRenderer: 開始 - データサイズ:', imageData ? imageData.length : 0);
-      
+
       // imageData の検証
       if (!imageData || typeof imageData !== 'string') {
         console.error('🔍 analyzeImageInRenderer: 無効な画像データ');
@@ -531,11 +531,11 @@ window.api = {
       // WebAssemblyAnalyzerの初期化を待つ（最大5秒）
       let attempts = 0;
       const maxAttempts = 50; // 5秒間（100ms x 50回）
-      
+
       while (attempts < maxAttempts) {
         if (window.webAssemblyAnalyzer && window.webAssemblyAnalyzer.analyzeAll) {
           console.log('🔍 analyzeImageInRenderer: WebAssemblyAnalyzer利用可能（試行', attempts + 1, '回目）');
-          
+
           try {
             const result = await window.webAssemblyAnalyzer.analyzeAll(imageData, options);
             console.log('🔍 analyzeImageInRenderer: 解析完了 - 成功:', result && result.success !== false);
@@ -546,7 +546,7 @@ window.api = {
             break;
           }
         }
-        
+
         // 100ms待機
         await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
@@ -556,11 +556,11 @@ window.api = {
       console.error('🔍 analyzeImageInRenderer: window.webAssemblyAnalyzerが利用できません（', attempts, '回試行）');
       console.error('🔍 window.webAssemblyAnalyzer:', typeof window.webAssemblyAnalyzer);
       console.error('🔍 window.webAssemblyAnalyzerReady:', window.webAssemblyAnalyzerReady);
-      console.error('🔍 利用可能なwindowプロパティ:', Object.keys(window).filter(key => 
+      console.error('🔍 利用可能なwindowプロパティ:', Object.keys(window).filter(key =>
         key.includes('cv') || key.includes('Tesseract') || key.includes('webAssembly')));
-      
-      return { 
-        success: false, 
+
+      return {
+        success: false,
         error: 'WebAssembly画像解析モジュールが利用できません',
         fallbackData: {
           colors: [],
@@ -572,12 +572,48 @@ window.api = {
       };
     } catch (error) {
       console.error('🔍 analyzeImageInRenderer: エラー発生:', error);
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: error.message || String(error),
         stack: error.stack
       };
     }
+  },
+
+  // 画像解析デバッガー用API
+  analyzeImageDebug: async (imageData) => {
+    try {
+      console.log('🔍 画像解析デバッガー: リクエスト開始');
+      const result = await ipcRenderer.invoke('analyze-image-debug', imageData);
+      console.log('🔍 画像解析デバッガー: 結果受信');
+      return result;
+    } catch (error) {
+      console.error('🔍 画像解析デバッガー: エラー', error);
+      throw error;
+    }
+  },
+
+  // 解析結果をファイルに保存（開発・デバッグ用）
+  saveAnalysisResults: async (filename, data) => {
+    try {
+      console.log('📁 解析結果保存: リクエスト開始 -', filename);
+      const result = await ipcRenderer.invoke('save-analysis-results', { filename, data });
+      console.log('📁 解析結果保存: 完了');
+      return result;
+    } catch (error) {
+      console.error('📁 解析結果保存: エラー', error);
+      throw error;
+    }
+  },
+
+  // UUID生成用API（uuidの代替）
+  generateUUID: () => {
+    // シンプルなUUID v4の実装
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 };
 
