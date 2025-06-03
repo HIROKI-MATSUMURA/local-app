@@ -179,34 +179,87 @@ const extractColorsFromCanvas = async (imageData, options = {}) => {
     const img = new Image();
 
     return new Promise((resolve) => {
-      img.onload = () => {
-        // キャンバスサイズを設定
-        const maxSize = 500; // 処理速度とのバランスを考慮
-        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1.0);
-        const width = Math.round(img.width * scale);
-        const height = Math.round(img.height * scale);
+      img.onload = async () => {
+        // pixelData変数をスコープ外で定義
+        let pixelData;
+        
+        try {
+          // 🔧 変数設定ページと同じ前処理を適用
+          console.log("🔄 変数設定ページと同じ前処理を実行");
 
-        canvas.width = width;
-        canvas.height = height;
+          // リサイズ関数と同じ処理を適用（92%品質圧縮）
+          const tempCanvas = document.createElement('canvas');
+          const tempCtx = tempCanvas.getContext('2d');
 
-        // 画像を描画
-        ctx.drawImage(img, 0, 0, width, height);
+          tempCanvas.width = img.width;
+          tempCanvas.height = img.height;
 
-        // ピクセルデータを取得
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const pixels = imageData.data;
+          // 高品質な描画設定
+          tempCtx.imageSmoothingEnabled = true;
+          tempCtx.imageSmoothingQuality = 'high';
+
+          // 透過背景がある場合は白背景を適用（PNG対応）
+          const mediaType = imageData.match(/^data:([^;]+);base64,/)?.[1] || 'image/jpeg';
+          if (mediaType === 'image/png' || mediaType === 'image/webp') {
+            tempCtx.fillStyle = "#FFFFFF";
+            tempCtx.fillRect(0, 0, img.width, img.height);
+          }
+
+          // 画像を描画
+          tempCtx.drawImage(img, 0, 0);
+
+          // 92%品質圧縮を適用（変数設定ページと同じ）
+          const processedDataURL = tempCanvas.toDataURL(mediaType, 0.92);
+
+          // 処理済み画像を新しいImageオブジェクトで読み込み
+          const processedImg = new Image();
+          await new Promise((resolve) => {
+            processedImg.onload = resolve;
+            processedImg.src = processedDataURL;
+          });
+
+          console.log("✅ 変数設定ページと同じ前処理完了");
+
+          // 以下、processedImgを使用して既存の処理を実行
+          canvas.width = processedImg.width;
+          canvas.height = processedImg.height;
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
+          ctx.drawImage(processedImg, 0, 0);
+
+          // ピクセルデータを取得
+          pixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        } catch (preprocessError) {
+          console.error("❗ 前処理中にエラーが発生しました:", preprocessError);
+          // 元の画像でフォールバック
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0);
+          pixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        }
+
+        // pixelDataが設定されているか確認
+        if (!pixelData) {
+          console.error("❗ ピクセルデータの取得に失敗しました");
+          resolve([]);
+          return;
+        }
 
         // 色の出現回数をカウント
         const colorMap = new Map();
 
-        for (let i = 0; i < pixels.length; i += 4) {
-          const r = pixels[i];
-          const g = pixels[i + 1];
-          const b = pixels[i + 2];
-          const a = pixels[i + 3];
+        for (let i = 0; i < pixelData.length; i += 4) {
+          const r = pixelData[i];
+          const g = pixelData[i + 1];
+          const b = pixelData[i + 2];
+          const a = pixelData[i + 3];
 
           // 透明ピクセルは無視
-          if (a < 128) continue;
+          if (a === 0) continue;
 
           // 色をHEX形式に変換
           const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
@@ -215,25 +268,87 @@ const extractColorsFromCanvas = async (imageData, options = {}) => {
           colorMap.set(hex, (colorMap.get(hex) || 0) + 1);
         }
 
-        // 色を出現頻度でソート
-        const sortedColors = Array.from(colorMap.entries())
+        console.log(`🎨 初期抽出色数: ${colorMap.size}色`);
+
+        // 🔧 変数設定ページと同じ: 色の類似性を考慮した結合
+        const mergedColors = new Map();
+        const processedColors = new Set();
+        const minOccurrence = (canvas.width * canvas.height) * 0.0005; // 0.05%以上の出現で有意
+
+        console.log(`📊 画像サイズ: ${canvas.width}x${canvas.height}px`);
+        console.log(`📊 最小出現閾値: ${minOccurrence.toFixed(0)}ピクセル`);
+
+        for (const [color1, count1] of colorMap.entries()) {
+          if (processedColors.has(color1)) continue;
+
+          let totalCount = count1;
+          let weightedR = parseInt(color1.slice(1, 3), 16) * count1;
+          let weightedG = parseInt(color1.slice(3, 5), 16) * count1;
+          let weightedB = parseInt(color1.slice(5, 7), 16) * count1;
+
+          // 類似色の結合（変数設定ページと同じ閾値 distance < 15）
+          for (const [color2, count2] of colorMap.entries()) {
+            if (color1 === color2 || processedColors.has(color2)) continue;
+
+            const r1 = parseInt(color1.slice(1, 3), 16);
+            const g1 = parseInt(color1.slice(3, 5), 16);
+            const b1 = parseInt(color1.slice(5, 7), 16);
+            const r2 = parseInt(color2.slice(1, 3), 16);
+            const g2 = parseInt(color2.slice(3, 5), 16);
+            const b2 = parseInt(color2.slice(5, 7), 16);
+
+            // 色の距離を計算（ユークリッド距離）
+            const distance = Math.sqrt(
+              Math.pow(r1 - r2, 2) +
+              Math.pow(g1 - g2, 2) +
+              Math.pow(b1 - b2, 2)
+            );
+
+            // 変数設定ページと同じ閾値で色を結合
+            if (distance < 15) {
+              totalCount += count2;
+              weightedR += r2 * count2;
+              weightedG += g2 * count2;
+              weightedB += b2 * count2;
+              processedColors.add(color2);
+            }
+          }
+
+          // 加重平均で新しい色を計算
+          const avgR = Math.round(weightedR / totalCount);
+          const avgG = Math.round(weightedG / totalCount);
+          const avgB = Math.round(weightedB / totalCount);
+          const mergedColor = `#${((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1).toUpperCase()}`;
+
+          mergedColors.set(mergedColor, totalCount);
+          processedColors.add(color1);
+        }
+
+        console.log(`🔗 色結合後: ${mergedColors.size}色`);
+
+        // 🔧 変数設定ページと同じ: 出現頻度でソートし、上位の色を抽出
+        const sortedColors = Array.from(mergedColors.entries())
+          .filter(([_, count]) => count > minOccurrence) // 🔧 最小出現閾値フィルタリング
           .sort((a, b) => b[1] - a[1])
           .slice(0, options.numColors || MAX_COLORS)
-          .map(([hex, count]) => {
-            // HEX形式から RGB 値を計算
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
+          .map(([color, count]) => {
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
 
             return {
-              hex: hex,
-              rgb: `rgb(${r}, ${g}, ${b})`,
+              hex: color,
               r: r,
               g: g,
               b: b,
-              ratio: count / (width * height)
+              ratio: count / (canvas.width * canvas.height)
             };
           });
+
+        console.log(`✅ 変数設定ページ完全同一実装: ${sortedColors.length}色抽出`);
+        sortedColors.forEach((color, index) => {
+          console.log(`  ${index + 1}. ${color.hex} (${(color.ratio * 100).toFixed(2)}%)`);
+        });
 
         console.log(`✅ Canvas経由で${sortedColors.length}色を抽出`);
         resolve(sortedColors);
@@ -551,8 +666,8 @@ const decodeImageViaCanvas = async (base64Data) => {
         ctx.drawImage(img, 0, 0);
 
         // Canvas ImageDataからOpenCV Matを作成
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const mat = cv.matFromImageData(imageData);
+        const canvasImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const mat = cv.matFromImageData(canvasImageData);
         console.log(`✅ Canvas経由でMat作成成功: ${mat.cols}x${mat.rows}px`);
         resolve(mat);
       } catch (error) {
@@ -754,6 +869,21 @@ const extractColors = async (imageData, options = {}) => {
     console.log("🎨 extractColors: 超高精度UI色抽出を開始");
 
     await initializeModules();
+
+    // 🎯 超高精度Canvas処理を最優先実行（変数設定ページと完全同一）
+    console.log("🎯 Canvas処理を最優先で実行（変数設定ページ完全同一アルゴリズム）");
+    try {
+      const canvasColors = await extractColorsFromCanvas(imageData, options);
+      if (canvasColors && canvasColors.length > 0) {
+        console.log("✅ Canvas処理成功！変数設定ページと同じ精度で色抽出完了");
+        return canvasColors;
+      }
+    } catch (canvasError) {
+      console.warn("⚠️ Canvas処理に失敗、OpenCV処理にフォールバック:", canvasError);
+    }
+
+    // フォールバック: OpenCV処理
+    console.log("🔄 OpenCV処理にフォールバック");
 
     // 5MB超過時の段階的圧縮
     const processedImageData = await optimizeImageSize(imageData);

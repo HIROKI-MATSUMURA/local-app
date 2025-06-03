@@ -24,7 +24,7 @@ const initializeModules = async () => {
       console.log('WebAssemblyモジュールを初期化中...');
 
       // 動的インポートでモジュールを読み込み
-      const wasmAnalyzerModule = await import('./webassembly-image-analyzer.js');
+      const wasmAnalyzerModule = await import('../public/webassembly-image-analyzer.js');
       const wasmBridgeModule = await import('./webassembly-bridge-adapter.js');
 
       // defaultエクスポートを使用
