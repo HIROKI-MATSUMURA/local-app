@@ -2953,6 +2953,27 @@ const generatevariableSettingsFromSettings = (settings) => {
 
 // 画像解析を実行して結果を取得する関数（WebAssembly in Renderer Process使用）
 const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = null) => {
+  console.log(`🔍 ${imageType}画像の解析を開始します...`);
+  console.log(`🔍 画像データサイズ: ${imageBase64 ? imageBase64.length : 0} bytes`);
+
+  // 🆕 画像データの事前検証
+  if (!imageBase64 || typeof imageBase64 !== 'string') {
+    console.error(`❌ ${imageType}画像: 無効な画像データ`);
+    throw new Error(`${imageType}画像データが無効です`);
+  }
+
+  if (imageBase64.length < 100) {
+    console.error(`❌ ${imageType}画像: データサイズが小さすぎます (${imageBase64.length} bytes)`);
+    throw new Error(`${imageType}画像データが不完全です`);
+  }
+
+  // Base64形式の検証
+  const isValidBase64 = imageBase64.includes('data:image/') || /^[A-Za-z0-9+/]+=*$/.test(imageBase64);
+  if (!isValidBase64) {
+    console.error(`❌ ${imageType}画像: Base64形式が無効です`);
+    throw new Error(`${imageType}画像のBase64形式が無効です`);
+  }
+
   const {
     setColorData = () => { },
     setTextData = () => { },
@@ -2961,28 +2982,21 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
     setElements = () => { }
   } = setState;
 
-  if (!imageBase64) {
-    console.warn(`${imageType}画像データが存在しません。空の結果を返します。`);
-    return {
-      colors: [],
-      text: '',
-      textBlocks: [],
-      sections: [],
-      elements: { elements: [] },
-      compressedAnalysis: null
-    };
-  }
+  let analysisResult = {
+    colors: [],
+    text: '',
+    textBlocks: [],
+    sections: [],
+    layout: {},
+    elements: [],
+    compressedAnalysis: null
+  };
 
-  console.log(`🔍 ${imageType}画像の解析を開始します...`);
-  console.log(`🔍 画像データサイズ: ${imageBase64.length} bytes`);
-
-  // ❶ メイン解析（Renderer Processで実行）
-  let analysisResult;
   let rawResult;
   try {
     if (!mainWindow || !mainWindow.webContents) {
       console.error('🔍 mainWindow が利用できません。従来の方法にフォールバック...');
-      // フォールバック: 従来の方法
+      // フォールバック: 従来の方法（ただしimageTypeは渡さない）
       rawResult = await analyzeAll(imageBase64, {
         detectCards: true,
         detectFeatures: true,
@@ -2993,15 +3007,18 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
       console.log('🔍 Renderer Processで画像解析を実行中...');
       const startTime = Date.now();
 
-      // Renderer processで解析実行
-      rawResult = await mainWindow.webContents.executeJavaScript(`
+      // 🆕 タイムアウト付きの解析実行
+      const analysisPromise = mainWindow.webContents.executeJavaScript(`
         (async () => {
           try {
             console.log('🔍 Renderer: analyzeImageInRenderer開始');
             const result = await window.api.analyzeImageInRenderer('${imageBase64}', {
+              imageType: '${imageType}',  // 🆕 imageTypeを追加
               detectCards: true,
               detectFeatures: true,
-              detectMainSections: true
+              detectMainSections: true,
+              // 🆕 タイムアウト設定
+              timeout: 30000  // 30秒
             });
             console.log('🔍 Renderer: analyzeImageInRenderer完了');
             return result;
@@ -3011,6 +3028,22 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
           }
         })()
       `);
+
+      // 🆕 タイムアウト処理
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`${imageType}画像解析がタイムアウトしました (30秒)`)), 30000);
+      });
+
+      rawResult = await Promise.race([analysisPromise, timeoutPromise]);
+
+      // 🆕 結果の詳細検証
+      if (!rawResult) {
+        throw new Error(`${imageType}画像解析結果がnullです`);
+      }
+
+      if (rawResult.success === false) {
+        throw new Error(`${imageType}画像解析が失敗しました: ${rawResult.error || '不明なエラー'}`);
+      }
 
       const endTime = Date.now();
       const processingTime = (endTime - startTime) / 1000;
@@ -3198,10 +3231,22 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
     }
   } catch (error) {
     console.error(`❌ ${imageType}画像の解析でエラーが発生しました:`, error);
+    
+    // 🆕 エラーの種類に応じた処理
+    if (error.message.includes('タイムアウト')) {
+      console.error(`⏰ ${imageType}画像解析タイムアウト - 画像サイズを確認してください`);
+    } else if (error.message.includes('Base64')) {
+      console.error(`📷 ${imageType}画像データ形式エラー - 画像ファイルを確認してください`);
+    } else {
+      console.error(`🔧 ${imageType}画像解析システムエラー - システム状態を確認してください`);
+    }
+    
     console.error('エラー詳細:', {
       message: error.message,
       stack: error.stack?.substring(0, 500)
     });
+
+    // エラー時は空のデータ構造を返す（処理を継続）
     analysisResult = {
       colors: [],
       text: '',
@@ -3209,10 +3254,12 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
       sections: [],
       layout: {},
       elements: [],
-      compressedAnalysis: null
+      compressedAnalysis: null,
+      error: error.message
     };
   }
 
+  // 既存の後処理を継続...
   const {
     colors,
     text,
@@ -3729,8 +3776,58 @@ setupEnhancedLayoutAnalysis();
  * @returns {string} 分析セクションの文字列
  */
 // buildAnalysisSection関数の修正
-function buildAnalysisSection(pcData, spData) {
-  let section = `\n### Analysis Results\n`;
+function buildAnalysisSection(pcData, spData, imagePattern = 'both') {
+  let section = `## Image Analysis Results\n\n`;
+
+  // 🆕 パターン別の説明追加
+  switch (imagePattern) {
+    case 'both':
+      section += `### Available Images: PC and SP versions\n`;
+      section += `- PC Image: Desktop layout analysis available\n`;
+      section += `- SP Image: Mobile layout analysis available\n`;
+      section += `- Cross-device comparison: Enabled\n\n`;
+      break;
+      
+    case 'pc_only':
+      section += `### Available Images: PC version only\n`;
+      section += `- PC Image: Desktop layout analysis available\n`;
+      section += `- SP Image: Not provided - responsive design will be inferred\n`;
+      section += `- Mobile layout: Create responsive version based on PC design\n\n`;
+      break;
+      
+    case 'sp_only':
+      section += `### Available Images: SP version only\n`;
+      section += `- SP Image: Mobile layout analysis available\n`;
+      section += `- PC Image: Not provided - desktop design will be inferred\n`;
+      section += `- Desktop layout: Create expanded version based on mobile design\n\n`;
+      break;
+  }
+
+  // 🆕 パターン別のデータ処理
+  if (imagePattern === 'pc_only') {
+    // PCのみの場合
+    section += buildSingleImageAnalysis(pcData, 'PC');
+    section += `\n### Mobile Design Strategy\n`;
+    section += `Since only PC design is provided, create mobile version by:\n`;
+    section += `- Stacking horizontal elements vertically\n`;
+    section += `- Reducing font sizes proportionally\n`;
+    section += `- Adjusting spacing for mobile screens\n`;
+    section += `- Converting complex layouts to simpler mobile-friendly versions\n\n`;
+    
+  } else if (imagePattern === 'sp_only') {
+    // SPのみの場合
+    section += buildSingleImageAnalysis(spData, 'SP');
+    section += `\n### Desktop Design Strategy\n`;
+    section += `Since only mobile design is provided, create desktop version by:\n`;
+    section += `- Expanding single-column layouts to multi-column\n`;
+    section += `- Increasing font sizes and spacing\n`;
+    section += `- Adding horizontal navigation elements\n`;
+    section += `- Utilizing wider screen space effectively\n\n`;
+    
+  } else {
+    // 両方ある場合（既存の処理）
+    section += buildDualImageAnalysis(pcData, spData);
+  }
 
   // カラー分析セクション（既存のコード）
   if (pcData.enhancedColors || spData.enhancedColors) {
@@ -3821,6 +3918,89 @@ function buildAnalysisSection(pcData, spData) {
       }) : '\n#### Typography Analysis\nText analysis data is available but could not be formatted.';
     }
   }
+
+  return section;
+}
+
+// 🆕 単一画像解析用のヘルパー関数
+function buildSingleImageAnalysis(data, type) {
+  let section = `### ${type} Image Analysis\n`;
+  
+  // 色情報
+  if (data.colors && data.colors.length > 0) {
+    section += `**Colors (${data.colors.length} detected):**\n`;
+    data.colors.slice(0, 5).forEach((color, index) => {
+      const colorStr = typeof color === 'string' ? color : color.hex || JSON.stringify(color);
+      section += `- ${colorStr}\n`;
+    });
+    section += `\n`;
+  }
+
+  // テキスト情報
+  if (data.text && data.text.length > 0) {
+    section += `**Text Content:** ${data.text.length} characters detected\n`;
+    if (data.text.length < 200) {
+      section += `Text: "${data.text}"\n`;
+    }
+    section += `\n`;
+  }
+
+  // UI要素情報
+  const elements = data.elements?.elements || data.elements || [];
+  if (elements.length > 0) {
+    section += `**UI Elements (${elements.length} detected):**\n`;
+    elements.slice(0, 8).forEach((element, index) => {
+      section += `- ${element.type || 'unknown'} (confidence: ${(element.confidence * 100).toFixed(1)}%)\n`;
+    });
+    section += `\n`;
+  }
+
+  return section;
+}
+
+// 🆕 両方画像解析用のヘルパー関数（既存処理を関数化）
+function buildDualImageAnalysis(pcData, spData) {
+  // 既存のbuildAnalysisSection内のPC・SP比較処理をここに移動
+  let section = `### Cross-Device Analysis\n\n`;
+
+  // PC画像の解析結果
+  section += `#### Desktop (PC) Analysis\n`;
+  
+  if (pcData && pcData.colors && pcData.colors.length > 0) {
+    section += `- **Colors:** ${pcData.colors.length} colors detected\n`;
+    section += `  Main colors: ${pcData.colors.slice(0, 3).map(c => typeof c === 'string' ? c : c.hex || JSON.stringify(c)).join(', ')}\n`;
+  }
+  
+  if (pcData && pcData.text) {
+    section += `- **Text:** ${pcData.text.length} characters detected\n`;
+  }
+  
+  if (pcData && pcData.layout && pcData.layout.layoutType) {
+    section += `- **Layout Type:** ${pcData.layout.layoutType}\n`;
+  }
+
+  // SP画像の解析結果
+  section += `\n#### Mobile (SP) Analysis\n`;
+  
+  if (spData && spData.colors && spData.colors.length > 0) {
+    section += `- **Colors:** ${spData.colors.length} colors detected\n`;
+    section += `  Main colors: ${spData.colors.slice(0, 3).map(c => typeof c === 'string' ? c : c.hex || JSON.stringify(c)).join(', ')}\n`;
+  }
+  
+  if (spData && spData.text) {
+    section += `- **Text:** ${spData.text.length} characters detected\n`;
+  }
+  
+  if (spData && spData.layout && spData.layout.layoutType) {
+    section += `- **Layout Type:** ${spData.layout.layoutType}\n`;
+  }
+
+  // レスポンシブ変更点の分析
+  section += `\n#### Responsive Design Changes\n`;
+  section += `- Compare layout structure between PC and SP versions\n`;
+  section += `- Identify components that change position or size\n`;
+  section += `- Note elements that appear/disappear between versions\n`;
+  section += `- Pay attention to spacing and alignment differences\n`;
 
   return section;
 }
@@ -4347,25 +4527,163 @@ const generatePrompt = async (options, mainWindow = null) => {
     responsiveMode = "pc",
     aiBreakpoints = []
   } = options;
-  console.log("🔥 generatePrompt 開始");
 
+  // 🆕 画像パターンの詳細検証
+  const imagePattern = {
+    hasPc: !!pcImage && pcImage.length > 0,
+    hasSp: !!spImage && spImage.length > 0,
+    pattern: 'unknown'
+  };
+
+  // パターン判定とログ出力
+  if (imagePattern.hasPc && imagePattern.hasSp) {
+    imagePattern.pattern = 'both';
+    console.log('');
+    console.log('🎯 ====== 画像パターン検出: PC・SP両方あり ======');
+    console.log('📱 PC画像: ✅ 利用可能 (' + pcImage.length + ' bytes)');
+    console.log('📱 SP画像: ✅ 利用可能 (' + spImage.length + ' bytes)');
+    console.log('🔄 処理方式: 並列解析 → クロスデバイス比較');
+    console.log('=======================================');
+    console.log('');
+  } else if (imagePattern.hasPc && !imagePattern.hasSp) {
+    imagePattern.pattern = 'pc_only';
+    console.log('');
+    console.log('🎯 ====== 画像パターン検出: PCのみ ======');
+    console.log('💻 PC画像: ✅ 利用可能 (' + pcImage.length + ' bytes)');
+    console.log('📱 SP画像: ❌ なし - レスポンシブ版を推論生成');
+    console.log('🔄 処理方式: PC解析 → モバイル版推論');
+    console.log('============================');
+    console.log('');
+  } else if (!imagePattern.hasPc && imagePattern.hasSp) {
+    imagePattern.pattern = 'sp_only';
+    console.log('');
+    console.log('🎯 ====== 画像パターン検出: SPのみ ======');
+    console.log('💻 PC画像: ❌ なし - デスクトップ版を推論生成');
+    console.log('📱 SP画像: ✅ 利用可能 (' + spImage.length + ' bytes)');
+    console.log('🔄 処理方式: SP解析 → デスクトップ版推論');
+    console.log('============================');
+    console.log('');
+  } else {
+    imagePattern.pattern = 'none';
+    console.log('❌ 画像パターン: 画像なし');
+    throw new Error('PC画像またはSP画像のいずれかが必要です');
+  }
+
+  console.log("🔥 generatePrompt 開始");
   console.log("🔥 pcImage:", pcImage ? `データあり(${pcImage.length}文字) - ${pcImage.slice(0, 100)}...` : 'なし');
   console.log("🔥 spImage:", spImage ? `データあり(${spImage.length}文字) - ${spImage.slice(0, 100)}...` : 'なし');
 
   try {
     console.log('🔍 画像解析を開始します...');
 
-    // 画像解析を実行
-    const [pcAnalysis, spAnalysis] = await Promise.all([
-      pcImage ? (console.log('🔍 PC画像解析を実行中...'), analyzeImage(pcImage, 'pc', {}, mainWindow)) : (console.log('🔍 PC画像なし - スキップ'), Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null })),
-      spImage ? (console.log('🔍 SP画像解析を実行中...'), analyzeImage(spImage, 'sp', {}, mainWindow)) : (console.log('🔍 SP画像なし - スキップ'), Promise.resolve({ colors: [], text: '', textBlocks: [], sections: [], layout: {}, elements: { elements: [] }, compressedAnalysis: null }))
-    ]);
+    // 🆕 パターン別解析処理
+    let pcAnalysis = null;
+    let spAnalysis = null;
+
+    switch (imagePattern.pattern) {
+      case 'both':
+        console.log('🔍 PC・SP両方の画像を解析中...');
+        [pcAnalysis, spAnalysis] = await Promise.all([
+          analyzeImage(pcImage, 'pc', {}, mainWindow),
+          analyzeImage(spImage, 'sp', {}, mainWindow)
+        ]);
+        break;
+
+      case 'pc_only':
+        console.log('🔍 PC画像のみを解析中...');
+        pcAnalysis = await analyzeImage(pcImage, 'pc', {}, mainWindow);
+        // SPデータは空のデータ構造で初期化
+        spAnalysis = {
+          colors: [],
+          text: '',
+          textBlocks: [],
+          sections: [],
+          layout: {},
+          elements: { elements: [] },
+          compressedAnalysis: null
+        };
+        console.log('📱 SP画像データを空構造で初期化しました');
+        break;
+
+      case 'sp_only':
+        console.log('🔍 SP画像のみを解析中...');
+        spAnalysis = await analyzeImage(spImage, 'sp', {}, mainWindow);
+        // PCデータは空のデータ構造で初期化
+        pcAnalysis = {
+          colors: [],
+          text: '',
+          textBlocks: [],
+          sections: [],
+          layout: {},
+          elements: { elements: [] },
+          compressedAnalysis: null
+        };
+        console.log('💻 PC画像データを空構造で初期化しました');
+        break;
+
+      default:
+        throw new Error('有効な画像データが見つかりません');
+    }
 
     console.log('🔍 画像解析完了 - 結果確認:');
     console.log('  PC解析結果:', pcAnalysis ? Object.keys(pcAnalysis) : 'null');
     console.log('  SP解析結果:', spAnalysis ? Object.keys(spAnalysis) : 'null');
 
-    // 解析結果の検証
+    // 🆕 解析結果の検証強化
+    const validateAnalysisResult = (analysis, type) => {
+      if (!analysis) {
+        console.warn(`${type}画像の解析結果がnullです`);
+        return false;
+      }
+      
+      const hasValidData = (
+        analysis.colors && analysis.colors.length > 0 || 
+        analysis.text && analysis.text.length > 0 || 
+        (analysis.elements && analysis.elements.elements && analysis.elements.elements.length > 0)
+      );
+      
+      if (!hasValidData) {
+        console.warn(`${type}画像の解析結果に有効なデータがありません`);
+        return false;
+      }
+      
+      return true;
+    };
+
+    const pcValid = imagePattern.pattern === 'sp_only' ? true : validateAnalysisResult(pcAnalysis, 'PC');
+    const spValid = imagePattern.pattern === 'pc_only' ? true : validateAnalysisResult(spAnalysis, 'SP');
+
+    console.log('🔍 画像解析完了 - 結果検証:');
+    console.log(`  PC解析: ${pcValid ? '✅ 有効' : '❌ 無効'}`);
+    console.log(`  SP解析: ${spValid ? '✅ 有効' : '❌ 無効'}`);
+
+    // 🆕 パターン別レスポンシブモード調整
+    let adjustedResponsiveMode = responsiveMode;
+    
+    switch (imagePattern.pattern) {
+      case 'pc_only':
+        // PCのみの場合、レスポンシブモードをPCに強制
+        if (responsiveMode === 'sp') {
+          console.log('⚠️ PCのみの画像でSPモードが指定されています。PCモードに調整します。');
+          adjustedResponsiveMode = 'pc';
+        }
+        break;
+        
+      case 'sp_only':
+        // SPのみの場合、レスポンシブモードをSPに強制
+        if (responsiveMode === 'pc') {
+          console.log('⚠️ SPのみの画像でPCモードが指定されています。SPモードに調整します。');
+          adjustedResponsiveMode = 'sp';
+        }
+        break;
+        
+      case 'both':
+        // 両方ある場合は指定されたモードを維持
+        console.log(`✅ PC・SP両方の画像があります。指定されたモード(${responsiveMode})を維持します。`);
+        break;
+    }
+
+    // 既存の解析結果の検証処理は継続...
     if (!pcImage && !spImage) {
       console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
     } else {
@@ -4458,11 +4776,10 @@ const generatePrompt = async (options, mainWindow = null) => {
     const settings = await getSettingsFromActiveProject();
     console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
 
-    // プロジェクト設定からresponsiveModeを取得（UIの設定を優先）
-    let activeResponsiveMode = responsiveMode;
+    // 🆕 プロジェクト設定でのレスポンシブモード調整（パターン制約考慮）
+    let activeResponsiveMode = adjustedResponsiveMode;
 
     try {
-      // responsiveSettingsをパース
       if (settings && settings.responsiveSettings) {
         let parsedSettings;
         if (typeof settings.responsiveSettings === 'string') {
@@ -4477,10 +4794,20 @@ const generatePrompt = async (options, mainWindow = null) => {
           console.log('responsiveSettings(オブジェクト):', parsedSettings);
         }
 
-        // パース成功後、responsiveModeを取得
         if (parsedSettings && parsedSettings.responsiveMode) {
-          console.log(`レスポンシブモードを変更: ${responsiveMode} → ${parsedSettings.responsiveMode}`);
-          activeResponsiveMode = parsedSettings.responsiveMode;
+          console.log(`レスポンシブモードを変更: ${activeResponsiveMode} → ${parsedSettings.responsiveMode}`);
+          // 🆕 パターン別の制約を適用
+          let newMode = parsedSettings.responsiveMode;
+          
+          if (imagePattern.pattern === 'pc_only' && newMode === 'sp') {
+            console.log('⚠️ PCのみの画像でSPモードが指定されています。PCモードを維持します。');
+            newMode = 'pc';
+          } else if (imagePattern.pattern === 'sp_only' && newMode === 'pc') {
+            console.log('⚠️ SPのみの画像でPCモードが指定されています。SPモードを維持します。');
+            newMode = 'sp';
+          }
+          
+          activeResponsiveMode = newMode;
           console.log(`プロジェクト設定からresponsiveModeを取得: ${activeResponsiveMode}`);
 
           // ブレークポイント情報も取得
@@ -4509,7 +4836,8 @@ const generatePrompt = async (options, mainWindow = null) => {
     let prompt = buildCorePrompt(activeResponsiveMode, aiBreakpoints);
 
     // 2. 解析結果
-    prompt += buildAnalysisSection(pcData, spData);
+    // 🆕 解析結果にパターン情報を追加
+    prompt += buildAnalysisSection(pcData, spData, imagePattern.pattern);
 
     // 3. 設定情報
     prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
@@ -4549,7 +4877,8 @@ const generatePrompt = async (options, mainWindow = null) => {
         // 重要：レスポンシブモードは常に設定から取得した値を使用
         analysisData = {
           ...pcData,
-          responsiveMode: activeResponsiveMode // 画像データの値を上書き
+          responsiveMode: activeResponsiveMode, // 画像データの値を上書き
+          imagePattern: imagePattern.pattern // 🆕 パターン情報を追加
         };
 
         // SPデータがあれば統合
@@ -4574,7 +4903,8 @@ const generatePrompt = async (options, mainWindow = null) => {
         // SPデータのみの場合も同様に設定を優先
         analysisData = {
           ...spData,
-          responsiveMode: activeResponsiveMode // 必ず設定値を使用
+          responsiveMode: activeResponsiveMode, // 必ず設定値を使用
+          imagePattern: imagePattern.pattern // 🆕 パターン情報を追加
         };
         console.log(`SPデータのみですが、設定に従いレスポンシブモード: ${activeResponsiveMode} を使用します`);
       }

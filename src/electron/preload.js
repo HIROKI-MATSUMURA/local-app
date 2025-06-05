@@ -566,7 +566,11 @@ window.api = {
           console.log('🔍 analyzeImageInRenderer: WebAssemblyAnalyzer利用可能（試行', attempts + 1, '回目）');
 
           try {
-            const result = await window.webAssemblyAnalyzer.analyzeAll(imageData, options);
+            const result = await window.webAssemblyAnalyzer.analyzeAll(
+              imageData, 
+              options.imageType || 'pc',  // 🆕 imageTypeを追加
+              options
+            );
             console.log('🔍 analyzeImageInRenderer: 解析完了 - 成功:', result && result.success !== false);
             return result;
           } catch (analysisError) {
