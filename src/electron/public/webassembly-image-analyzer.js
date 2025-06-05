@@ -2150,18 +2150,18 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
     // 🔧 【緊急修正】AIコーディング用の実用的面積フィルター
     const calculateAdaptiveMinArea = (width, height, textBlocks, imageType = 'pc') => {
       const totalPixels = width * height;
-      
+
       // 🆕 imageType別の基本面積係数
       const typeMultipliers = {
         pc: 1.0,      // PC画像：標準
         sp: 0.2       // SP画像：80%削減（より細かく検出）
       };
-      
+
       const typeMultiplier = typeMultipliers[imageType] || 1.0;
-      
+
       // 基本面積計算
       let baseMinArea;
-      
+
       if (totalPixels > 1000000) {
         // 大画像(1M+): 2-3ピクセル
         baseMinArea = Math.max(2, totalPixels / 500000);
@@ -2175,16 +2175,16 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
         // 小画像(200K未満): 0.1-0.5ピクセル
         baseMinArea = Math.max(0.1, totalPixels / 2000000);
       }
-      
+
       // imageType別調整
       baseMinArea *= typeMultiplier;
-      
+
       // テキストが多い場合はさらに緩和
       const textRatio = textBlocks ? textBlocks.length / Math.sqrt(totalPixels) : 0;
       if (textRatio > 0.01) {
         baseMinArea *= (imageType === 'sp' ? 0.3 : 0.5); // SPはより積極的に緩和
       }
-      
+
       // 絶対最小値の設定
       const minValue = imageType === 'sp' ? 0.05 : 0.1;
       return Math.max(minValue, baseMinArea);
@@ -2195,18 +2195,18 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
     if (typeof result !== 'undefined' && result && result.data && result.data.textBlocks) {
       textBlocks = result.data.textBlocks;
     }
-    
+
     const minElementArea = calculateAdaptiveMinArea(width, height, textBlocks, imageType);
-    
+
     // imageType別の最大要素数設定
     const maxElements = imageType === 'sp' ? 40 : 30;
-    
+
     console.log(`🎯 [${imageType.toUpperCase()}] 最適化パラメータ:`, {
       minElementArea: minElementArea.toFixed(3),
       maxElements: maxElements,
       imageSize: `${width}x${height}px`
     });
-    
+
     // 🔄 タスク2: minElementArea計算の透明化
     console.log(`📊 [DEBUG] 最小要素面積計算:`, {
       imageSize: `${width}x${height}`,
@@ -2215,7 +2215,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       finalMinElementArea: minElementArea,
       percentageOfImage: ((minElementArea / (width * height)) * 100).toFixed(2) + '%'
     });
-    
+
     // 実用化向けログ追加
     console.log(`🎯 [PRACTICAL] AIコーディング用面積フィルター:`, {
       previousValue: ((width * height) / 10000).toFixed(2),
@@ -2231,7 +2231,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
     let typeClassifiedCount = 0;
     let confidenceFilterPassedCount = 0;
     const numContours = contours.size();
-    
+
     for (let i = 0; i < Math.min(numContours, maxElements); i++) {
       const contour = contours.get(i);
       const area = cv.contourArea(contour);
@@ -2239,7 +2239,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       // 基本的な矩形情報（従来の方法）
       const rect = cv.boundingRect(contour);
       const aspectRatio = rect.width / rect.height;
-      
+
       // 🔄 タスク1: 輪郭処理ループ内の詳細デバッグログ
       console.log(`🔍 [DEBUG] 輪郭 ${i}/${numContours}:`, {
         area: area,
@@ -2250,14 +2250,14 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
         heightRatio: (rect.height / height).toFixed(3),
         widthRatio: (rect.width / width).toFixed(3)
       });
-      
+
       // 小さすぎる要素は無視
       if (area < minElementArea) {
         // 🔄 タスク3: 除外理由の詳細追跡
         console.log(`❌ [DEBUG] 面積不足で除外: 輪郭${i} - 面積${area} < 最小面積${minElementArea}`);
         continue;
       }
-      
+
       // 面積フィルターを通過した数をカウント
       areaFilterPassedCount++;
 
@@ -2267,13 +2267,13 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       // 🔧 【実用化】より寛容な要素分類
       let type = "unknown";
       let confidence = 0.3; // 基本信頼度を下げる
-      
+
       // タイプ分類カウントを増やす
       typeClassifiedCount++;
 
       // より寛容なボタン検出
       if (
-        aspectRatio > 1.2 && aspectRatio < 8.0 && 
+        aspectRatio > 1.2 && aspectRatio < 8.0 &&
         rect.height < height * 0.15
       ) {
         type = "button";
@@ -2281,7 +2281,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       }
       // より寛容な入力フィールド検出
       else if (
-        aspectRatio > 2.0 && aspectRatio < 15.0 && 
+        aspectRatio > 2.0 && aspectRatio < 15.0 &&
         rect.height < height * 0.12
       ) {
         type = "input";
@@ -2289,7 +2289,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       }
       // ナビゲーション検出の緩和
       else if (
-        rect.y < height * 0.3 && 
+        rect.y < height * 0.3 &&
         rect.width > width * 0.3
       ) {
         type = "navigation";
@@ -2313,7 +2313,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       }
       // コンテンツエリア検出（新規）
       else if (
-        area > minElementArea * 3 && 
+        area > minElementArea * 3 &&
         aspectRatio > 0.3 && aspectRatio < 4.0
       ) {
         type = "content_area";
@@ -2335,7 +2335,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
         finalType: type,
         finalConfidence: confidence
       });
-      
+
       // 🔧 【重要】信頼度しきい値を大幅に下げる
       if (confidence > 0.35) { // 0.5 → 0.35 に変更
         // 信頼度フィルターを通過した数をカウント
@@ -2376,13 +2376,13 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
           }
         });
       } else {
-        // 🔄 タスク3: 信頼度チェック失敗時のログ  
+        // 🔄 タスク3: 信頼度チェック失敗時のログ
         console.log(`❌ [DEBUG] 信頼度不足で除外: 輪郭${i} - タイプ:${type}, 信頼度:${confidence}`);
-        
+
         // 🔄 タスク5: 条件緩和のテスト実装
         let experimentalType = "unknown";
         let experimentalConfidence = 0.3;
-        
+
         // より寛容な条件
         if (area > minElementArea * 0.5) { // 面積条件を50%緩和
           if (aspectRatio > 0.3 && aspectRatio < 8.0) { // アスペクト比を大幅緩和
@@ -2390,7 +2390,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
             experimentalConfidence = 0.4;
           }
         }
-        
+
         console.log(`🧪 [EXPERIMENTAL] 緩和条件判定: タイプ:${experimentalType}, 信頼度:${experimentalConfidence}`);
       }
 
@@ -2424,30 +2424,30 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
       finalElements: enhancedElements.length,
       overallSuccessRate: ((enhancedElements.length / numContours) * 100).toFixed(2) + '%'
     });
-    
+
     // 🔧 【実用化】統合処理の更新
     // テキストブロックとの統合 - analyzeAllからの参照のため明示的なresultは存在しない
     // analyzeAll実行時には後で統合処理が実行される
-    
+
     // フォールバック要素の追加（要素が少ない場合）
     // 🔧 【緊急修正】より積極的なフォールバック要素生成
     if (enhancedElements.length < 5) {
       console.log(`🛡️ [PRACTICAL] 要素不足対応: ${enhancedElements.length}個 → 最低5個まで補完`);
-      
+
       // テキストブロックから強制的に要素を生成
       if (typeof result !== 'undefined' && result && result.data && result.data.textBlocks) {
         const textElements = integrateTextAsUIElements(result.data.textBlocks, enhancedElements);
         enhancedElements.push(...textElements);
         console.log(`📝 テキスト統合で${textElements.length}個追加`);
       }
-      
+
       // それでも不足する場合は空白領域から生成
       if (enhancedElements.length < 3) {
         const contentElements = generateContentBasedElements(width, height, enhancedElements);
         enhancedElements.push(...contentElements);
         console.log(`🎯 コンテンツ領域から${contentElements.length}個追加`);
       }
-      
+
       // 最終手段: 単純分割
       if (enhancedElements.length === 0) {
         enhancedElements.push({
@@ -2461,7 +2461,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
             borderConfidence: 0.3,
             borderStyle: "none"
           },
-          properties: { 
+          properties: {
             isEmergencyFallback: true,
             area: width * height,
             aspectRatio: width / height
@@ -2471,7 +2471,7 @@ const detectFeatureElements = async (imageData, imageType = 'pc') => {
         console.log(`🚨 緊急フォールバック: 最低限の要素を生成`);
       }
     }
-    
+
     console.log(`🎯 [PRACTICAL] AIコーディング用最終要素数: ${enhancedElements.length}個`);
     console.log(`🎯 Stage 1 高精度検出完了: ${enhancedElements.length}個のUI要素を検出`);
 
@@ -2681,7 +2681,7 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
       detectCards: options.detectCards !== false,
       detectFeatures: options.detectFeatures !== false,
       detectMainSections: options.detectMainSections !== false,
-      
+
       // 🆕 セクション解析モード設定
       sectionMode: options.sectionMode !== false, // デフォルトでセクションモード
       pageMode: options.pageMode === true, // 明示的指定時のみページモード
@@ -2689,7 +2689,7 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
     };
 
     console.log("⚙️ 処理オプション:", processingOptions);
-    
+
     // セクション解析モードの場合のログ出力
     if (processingOptions.sectionMode) {
       console.log("🎯 [SECTION MODE] セクション単位解析モードで実行");
@@ -2782,25 +2782,25 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
 
       // UI要素結果の統合処理を修正
       const uiElementsResult = findUIElementsResult(otherResults);
-      
+
       // UI要素の基本情報を取得（前の実装との互換性のため）
       const elementsData = otherResults[resultIndex++];
-      
-      console.log(`🔍 [DEBUG] タスクインデックス確認: resultIndex=${resultIndex-1}`);
-      
+
+      console.log(`🔍 [DEBUG] タスクインデックス確認: resultIndex=${resultIndex - 1}`);
+
       // 🔧 【緊急再修正】統合処理の更新とデバッグログ追加
       if (uiElementsResult) {
         const elementsArray = uiElementsResult.elements || [];
-        
+
         console.log(`🔍 [DEBUG] UI要素基本データ:`, {
           正しい結果: !!uiElementsResult,
           hasElementsObject: !!elementsArray,
           elementsCount: elementsArray.length,
           elementsDetected: uiElementsResult.elementsDetected !== undefined ? uiElementsResult.elementsDetected : 'undefined'
         });
-        
+
         console.log(`🔍 統合前UI要素数: ${elementsArray.length}個`);
-        
+
         // 🚨 要素消失防止: 元の配列を保護
         result.data.elements = {
           elementsDetected: elementsArray.length > 0,
@@ -2808,21 +2808,21 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
           elements: [...elementsArray], // 配列のコピーを作成
           stage1Features: uiElementsResult.stage1Features || {}
         };
-        
+
         console.log(`✅ UI要素統合完了: 最終${result.data.elements.elements.length}個の要素を保持`);
       } else if (elementsData) {
         // 以前の実装をフォールバックとして使用
         console.log(`⚠️ 動的検索失敗、旧方式でフォールバック`);
-        
+
         // elements配列の安全な取得
         let elementsArray = [];
-        
+
         if (Array.isArray(elementsData.elements)) {
           elementsArray = elementsData.elements;
         } else if (elementsData.elements && Array.isArray(elementsData.elements.elements)) {
           elementsArray = elementsData.elements.elements;
         }
-        
+
         // 要素保護
         result.data.elements = {
           elementsDetected: elementsArray.length > 0,
@@ -2834,61 +2834,61 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
         console.log(`⚠️ [EMERGENCY] UI要素データが見つからないため初期化`);
         result.data.elements = { elements: [], elementsDetected: false };
       }
-      
+
       // 念のためelements配列が存在することを確認
       if (!result.data.elements.elements || !Array.isArray(result.data.elements.elements)) {
         result.data.elements.elements = [];
-        console.log(`⚠️ [FIXED] elements配列が存在しないため初期化`);          
+        console.log(`⚠️ [FIXED] elements配列が存在しないため初期化`);
       }
-      
+
       // 🔧 【緊急再修正】テキスト統合を強制実行
       if (result.data.textBlocks && result.data.textBlocks.length > 0) {
         console.log(`📝 テキスト統合を強制実行: ${result.data.textBlocks.length}個のテキスト`);
         // 統合前の要素数を保存
         const beforeCount = result.data.elements.elements.length;
         result.data.elements.elements = integrateTextAsUIElements(
-          result.data.textBlocks, 
+          result.data.textBlocks,
           result.data.elements.elements
         );
         // 統合後の要素数を表示
         console.log(`📝 テキスト統合完了: ${beforeCount}個 → ${result.data.elements.elements.length}個`);
       }
-      
+
       // 🔧 【緊急修正】常に最低5個の要素を確保（消失問題対策）
       if (!result.data.elements.elements || result.data.elements.elements.length < 5) {
         // 画像サイズ情報を取得
         const imageWidth = result.data.elements.metadata?.imageWidth || width;
         const imageHeight = result.data.elements.metadata?.imageHeight || height;
-        
-        console.log(`⚙️ [EMERGENCY] 要素数が不足: ${result.data.elements.elements ? result.data.elements.elements.length : 0}個 < 5個`);  
-        
+
+        console.log(`⚙️ [EMERGENCY] 要素数が不足: ${result.data.elements.elements ? result.data.elements.elements.length : 0}個 < 5個`);
+
         // フォールバック要素生成
         const fallbackElements = generateFallbackUIElements(
-          imageWidth, 
-          imageHeight, 
-          result.data.textBlocks, 
+          imageWidth,
+          imageHeight,
+          result.data.textBlocks,
           processingOptions.pageMode ? result.data.mainSections : null,
           5 // 最低生成数を増やして保護
         );
-        
+
         // 配列の初期化と要素の追加を確実に行う
         if (!result.data.elements.elements) {
           result.data.elements.elements = [];
         }
-        
+
         // フォールバック要素を追加
         result.data.elements.elements.push(...fallbackElements);
         console.log(`🛡️ [EMERGENCY] フォールバック適用: 合計${result.data.elements.elements.length}個の要素`);
       }
-      
+
       // 要素数メタデータを更新
       if (result.data.elements.metadata) {
         result.data.elements.metadata.totalElements = result.data.elements.elements.length;
       }
-      
+
       // 必ず要素が存在するように保護
       result.data.elements.elementsDetected = result.data.elements.elements.length > 0;
-      
+
       // デバッグ用の要素数追跡
       console.log(`📊 [EMERGENCY] UI要素数追跡:`, {
         検索方法: uiElementsResult ? "動的検索成功" : "フォールバック使用",
@@ -2896,7 +2896,7 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
         テキスト統合後: result.data.elements.elements.length,
         elementsDetectedFlag: result.data.elements.elementsDetected
       });
-      
+
       console.log(`🔍 UI要素結果を統合: 最終${result.data.elements.elements.length || 0}個の要素`);
     }
 
@@ -2936,14 +2936,14 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
       layoutConfidence: result.data.layout?.confidence || 0,
       processingTime: processingTime.toFixed(2)
     });
-    
+
     // 🆕 セクション解析専用ログの追加
     if (processingOptions.sectionMode && result.data.elements && result.data.elements.elements) {
       const enhancedElements = result.data.elements.elements;
       console.log(`🎯 [SECTION] セクション解析結果:`, {
         contentElements: enhancedElements.filter(e => e.source !== "text_integration").length,
         textIntegratedElements: enhancedElements.filter(e => e.source === "text_integration").length,
-        sectionCoverage: ((enhancedElements.reduce((sum, e) => 
+        sectionCoverage: ((enhancedElements.reduce((sum, e) =>
           sum + (e.position.width * e.position.height), 0) / (width * height)) * 100).toFixed(1) + '%',
         diversityScore: new Set(enhancedElements.map(e => e.type)).size
       });
@@ -2951,9 +2951,9 @@ const analyzeAll = async (imageData, imageType = 'pc', options = {}) => {
 
     // 結果をログに保存（UI要素がある場合のみ）
     if (result.data.elements &&
-        result.data.elements.elements &&
-        result.data.elements.elements.length > 0 &&
-        result.data.elements.stage1Features) {
+      result.data.elements.elements &&
+      result.data.elements.elements.length > 0 &&
+      result.data.elements.stage1Features) {
 
       // 保存用オプションを準備
       const saveOptions = {
@@ -3245,18 +3245,18 @@ const saveStage1AnalysisResults = async (analysisResult, options = {}) => {
  */
 const generateFallbackUIElements = (width, height, textBlocks, mainSections) => {
   const fallbackElements = [];
-  
+
   // 🔧 修正: mainSections依存を除去
   // テキストブロック密度分析に変更
   if (textBlocks && textBlocks.length > 0) {
     const textAreas = analyzeTextDistribution(textBlocks, width, height);
     fallbackElements.push(...textAreas);
   }
-  
+
   // 🔧 修正: グリッド分割から動的コンテンツ分析へ
   const contentElements = generateContentBasedElements(width, height, fallbackElements);
   fallbackElements.push(...contentElements);
-  
+
   console.log(`🛡️ [SECTION] セクション特化フォールバック: ${fallbackElements.length}個`);
   return fallbackElements;
 };
@@ -3270,10 +3270,10 @@ const generateFallbackUIElements = (width, height, textBlocks, mainSections) => 
  */
 const analyzeTextDistribution = (textBlocks, width, height) => {
   const areas = [];
-  
+
   // テキストブロックの密度に基づくエリア検出
   const textGroups = groupTextBlocks(textBlocks);
-  
+
   textGroups.forEach((group, index) => {
     const bounds = calculateGroupBounds(group);
     areas.push({
@@ -3288,7 +3288,7 @@ const analyzeTextDistribution = (textBlocks, width, height) => {
       source: "text_distribution_analysis"
     });
   });
-  
+
   return areas;
 };
 
@@ -3301,37 +3301,37 @@ const groupTextBlocks = (textBlocks) => {
   // 信頼度フィルタリング
   const filteredBlocks = textBlocks.filter(block => block.confidence > 0.3);
   if (filteredBlocks.length === 0) return [];
-  
+
   // 距離に基づく単純なグルーピング
   const groups = [];
   const visited = new Set();
-  
+
   filteredBlocks.forEach((block, index) => {
     if (visited.has(index)) return;
-    
+
     const group = [block];
     visited.add(index);
-    
+
     // クラスタリングの距離閾値
     const maxDistance = Math.max(block.bbox.w, block.bbox.h) * 3;
-    
+
     filteredBlocks.forEach((other, otherIndex) => {
       if (visited.has(otherIndex) || index === otherIndex) return;
-      
+
       // ブロック間の距離を計算
       const dist = calculateDistance(block, other);
-      
+
       if (dist < maxDistance) {
         group.push(other);
         visited.add(otherIndex);
       }
     });
-    
+
     if (group.length > 0) {
       groups.push(group);
     }
   });
-  
+
   return groups;
 };
 
@@ -3346,14 +3346,14 @@ const calculateDistance = (block1, block2) => {
     x: block1.bbox.x + block1.bbox.w / 2,
     y: block1.bbox.y + block1.bbox.h / 2
   };
-  
+
   const center2 = {
     x: block2.bbox.x + block2.bbox.w / 2,
     y: block2.bbox.y + block2.bbox.h / 2
   };
-  
+
   return Math.sqrt(
-    Math.pow(center2.x - center1.x, 2) + 
+    Math.pow(center2.x - center1.x, 2) +
     Math.pow(center2.y - center1.y, 2)
   );
 };
@@ -3368,10 +3368,10 @@ const calculateGroupBounds = (group) => {
   const minY = Math.min(...group.map(block => block.bbox.y));
   const maxX = Math.max(...group.map(block => block.bbox.x + block.bbox.w));
   const maxY = Math.max(...group.map(block => block.bbox.y + block.bbox.h));
-  
+
   // 境界に余白を追加
   const padding = 10;
-  
+
   return {
     x: Math.max(0, minX - padding),
     y: Math.max(0, minY - padding),
@@ -3392,11 +3392,11 @@ const generateGridBasedElements = (width, height) => {
   const gridRows = 3;
   const cellWidth = width / gridCols;
   const cellHeight = height / gridRows;
-  
+
   for (let row = 0; row < gridRows; row++) {
     for (let col = 0; col < gridCols; col++) {
       elements.push({
-        type: row === 0 ? "header_area" : row === gridRows-1 ? "footer_area" : "content_area",
+        type: row === 0 ? "header_area" : row === gridRows - 1 ? "footer_area" : "content_area",
         position: {
           x: col * cellWidth,
           y: row * cellHeight,
@@ -3421,7 +3421,7 @@ const generateGridBasedElements = (width, height) => {
       });
     }
   }
-  
+
   return elements;
 };
 
@@ -3434,10 +3434,10 @@ const generateGridBasedElements = (width, height) => {
  */
 const generateContentBasedElements = (width, height, existingElements = []) => {
   const elements = [];
-  
+
   // セクション内の空白領域を動的に検出
   const emptyAreas = detectEmptyAreas(width, height, existingElements);
-  
+
   // コンテンツ密度に基づく領域分割
   emptyAreas.forEach((area, index) => {
     if (area.width * area.height > (width * height) * 0.1) { // 10%以上の領域のみ
@@ -3460,7 +3460,7 @@ const generateContentBasedElements = (width, height, existingElements = []) => {
       });
     }
   });
-  
+
   console.log(`🎯 [SECTION] コンテンツベース要素生成: ${elements.length}個`);
   return elements;
 };
@@ -3477,9 +3477,9 @@ const detectEmptyAreas = (width, height, existingElements = []) => {
   const gridSize = 5; // 5x5の細かい格子で分析
   const cellWidth = width / gridSize;
   const cellHeight = height / gridSize;
-  
+
   const occupancyGrid = Array(gridSize).fill().map(() => Array(gridSize).fill(0));
-  
+
   // 既存要素による占有状況をグリッドに記録
   existingElements.forEach(element => {
     const pos = element.position;
@@ -3487,14 +3487,14 @@ const detectEmptyAreas = (width, height, existingElements = []) => {
     const endCol = Math.min(gridSize - 1, Math.floor((pos.x + pos.width) / cellWidth));
     const startRow = Math.max(0, Math.floor(pos.y / cellHeight));
     const endRow = Math.min(gridSize - 1, Math.floor((pos.y + pos.height) / cellHeight));
-    
+
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         occupancyGrid[r][c] += 1;
       }
     }
   });
-  
+
   // 空白領域を検出
   const emptyAreas = [];
   for (let row = 0; row < gridSize; row++) {
@@ -3509,10 +3509,10 @@ const detectEmptyAreas = (width, height, existingElements = []) => {
       }
     }
   }
-  
+
   // 隣接する空白領域をマージ
   const mergedAreas = mergeAdjacentAreas(emptyAreas, cellWidth, cellHeight);
-  
+
   return mergedAreas;
 };
 
@@ -3525,23 +3525,23 @@ const detectEmptyAreas = (width, height, existingElements = []) => {
  */
 const mergeAdjacentAreas = (areas, cellWidth, cellHeight) => {
   if (areas.length === 0) return [];
-  
+
   // 初期マージ済み領域として最初の領域を設定
   const mergedAreas = [{ ...areas[0] }];
-  
+
   // 各領域について、マージ可能な領域をチェック
   for (let i = 1; i < areas.length; i++) {
     const current = areas[i];
     let merged = false;
-    
+
     // 各マージ済み領域との結合を試みる
     for (let j = 0; j < mergedAreas.length; j++) {
       const target = mergedAreas[j];
-      
+
       // 水平方向の隣接チェック（同じY座標で横方向に隣接）
-      if (Math.abs(target.y - current.y) < 1 && 
-          (Math.abs(target.x + target.width - current.x) < 1 || 
-           Math.abs(current.x + current.width - target.x) < 1)) {
+      if (Math.abs(target.y - current.y) < 1 &&
+        (Math.abs(target.x + target.width - current.x) < 1 ||
+          Math.abs(current.x + current.width - target.x) < 1)) {
         // 水平方向にマージ
         const left = Math.min(target.x, current.x);
         const right = Math.max(target.x + target.width, current.x + current.width);
@@ -3550,11 +3550,11 @@ const mergeAdjacentAreas = (areas, cellWidth, cellHeight) => {
         merged = true;
         break;
       }
-      
+
       // 垂直方向の隣接チェック（同じX座標で縦方向に隣接）
-      if (Math.abs(target.x - current.x) < 1 && 
-          (Math.abs(target.y + target.height - current.y) < 1 || 
-           Math.abs(current.y + current.height - target.y) < 1)) {
+      if (Math.abs(target.x - current.x) < 1 &&
+        (Math.abs(target.y + target.height - current.y) < 1 ||
+          Math.abs(current.y + current.height - target.y) < 1)) {
         // 垂直方向にマージ
         const top = Math.min(target.y, current.y);
         const bottom = Math.max(target.y + target.height, current.y + current.height);
@@ -3564,13 +3564,13 @@ const mergeAdjacentAreas = (areas, cellWidth, cellHeight) => {
         break;
       }
     }
-    
+
     // マージされなかった場合は新しい領域として追加
     if (!merged) {
       mergedAreas.push({ ...current });
     }
   }
-  
+
   return mergedAreas;
 };
 
@@ -3582,20 +3582,20 @@ const mergeAdjacentAreas = (areas, cellWidth, cellHeight) => {
  */
 const integrateTextAsUIElements = (textBlocks, enhancedElements) => {
   if (!textBlocks || textBlocks.length === 0) return enhancedElements;
-  
+
   console.log(`🔤 [PRACTICAL] テキストブロックのUI要素化を開始: ${textBlocks.length}個のテキスト`);
-  
+
   const textElements = textBlocks
     .filter(block => block.confidence > 0.5 && block.bbox) // 信頼度のあるテキストのみ
     .map((block, index) => {
       const width = block.bbox.x1 - block.bbox.x0;
       const height = block.bbox.y1 - block.bbox.y0;
       const area = width * height;
-      
+
       // テキストの内容から要素タイプを推定
       let type = "text";
       let confidence = 0.6;
-      
+
       if (block.text.match(/ボタン|クリック|送信|登録|ログイン|button/i)) {
         type = "button";
         confidence = 0.8;
@@ -3609,7 +3609,7 @@ const integrateTextAsUIElements = (textBlocks, enhancedElements) => {
         type = "content_section";
         confidence = 0.65;
       }
-      
+
       return {
         type: type,
         position: {
@@ -3635,7 +3635,7 @@ const integrateTextAsUIElements = (textBlocks, enhancedElements) => {
         source: "text_integration" // 識別用
       };
     });
-  
+
   console.log(`🔤 [PRACTICAL] テキスト統合: ${textElements.length}個のテキスト要素を追加`);
   return [...enhancedElements, ...textElements];
 };
@@ -3654,6 +3654,7 @@ const moduleExports = {
   saveStage1AnalysisResults, // Stage 1分析結果保存関数を追加
   integrateTextAsUIElements, // テキストブロック統合関数を追加
   generateFallbackUIElements, // フォールバック要素生成関数を追加
+  // Stage 2機能
   // 別名でもエクスポート
   extractColorsFromImage: extractColors,
   extractTextFromImage: extractText
@@ -3725,6 +3726,623 @@ if (typeof window !== 'undefined') {
 // CommonJS互換性
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = moduleExports;
+}
+
+
+// === Stage 2: AI向けデータ変換機能 ===
+
+/**
+ * 🎯 Stage 2メイン関数: Stage 1結果をAI向けに変換
+ * @param {Object} stage1Results - Stage 1の解析結果
+ * @param {string} imageType - 'pc' | 'sp'
+ * @returns {Object} AI向け構造化データ
+ */
+const transformForAICoding = async (stage1Elements, imageType = 'pc') => {
+  console.log('🎯 Stage 2: AI向けデータ変換を開始');
+
+  const startTime = Date.now();
+
+  try {
+    // 🔧 修正: 配列を直接受け取るか、オブジェクトの場合はelementsプロパティを取得
+    let elements = [];
+    if (Array.isArray(stage1Elements)) {
+      // promptGeneratorから配列で渡された場合
+      elements = stage1Elements;
+      console.log(`📊 受け取った要素データ形式: 配列 (${elements.length}個)`);
+    } else if (stage1Elements && stage1Elements.elements) {
+      // オブジェクト形式で渡された場合
+      elements = stage1Elements.elements;
+      console.log(`📊 受け取った要素データ形式: オブジェクト.elements (${elements.length}個)`);
+    } else if (stage1Elements && typeof stage1Elements === 'object') {
+      // その他のオブジェクト形式の場合
+      console.log('📊 受け取ったデータ:', typeof stage1Elements, Object.keys(stage1Elements));
+      elements = [];
+    }
+
+    console.log(`📊 処理対象要素数: ${elements.length}個`);
+
+    // 1. 要素グループ化
+    const groups = groupRelatedElements(elements);
+    console.log(`📊 要素グループ化: ${elements.length}個 → ${groups.length}個のグループ`);
+
+    // 2. 構造分析
+    const structure = analyzeContentStructure(groups, imageType);
+    console.log(`🏗️ 構造分析: ${structure.pattern} パターンを検出`);
+
+    // 3. AI向けデータ構築 - stage1Resultsオブジェクトを正しく構成
+    const stage1Results = {
+      elements: elements,
+      imageInfo: {
+        width: imageType === 'sp' ? 375 : 1200,
+        height: imageType === 'sp' ? 800 : 800
+      },
+      colors: [],
+      text: '',
+      stage1Features: {}
+    };
+
+    const aiData = buildAIFriendlyData(groups, structure, stage1Results, imageType);
+
+    const processingTime = (Date.now() - startTime) / 1000;
+    console.log(`✅ Stage 2: AI向け変換完了 (${processingTime.toFixed(2)}秒)`);
+
+    // 4. 結果をJSON保存
+    if (typeof saveStage2ResultsToJson === 'function') {
+      saveStage2ResultsToJson({
+        success: true,
+        data: aiData,
+        processingTime,
+        metadata: {
+          inputElements: elements.length,
+          outputGroups: groups.length,
+          imageType,
+          timestamp: new Date().toISOString()
+        }
+      }, imageType);
+    }
+
+    return {
+      success: true,
+      data: aiData,
+      processingTime,
+      metadata: {
+        inputElements: elements.length,
+        outputGroups: groups.length,
+        imageType,
+        timestamp: new Date().toISOString()
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Stage 2エラー:', error);
+    return {
+      success: false,
+      error: error.message,
+      fallback: buildFallbackAIData({ elements: elements || [] })
+    };
+  }
+};
+
+
+/**
+ * 📊 関連要素をグループ化
+ * @param {Array} elements - Stage 1で検出された要素配列
+ * @returns {Array} グループ化された要素配列
+ */
+const groupRelatedElements = (elements) => {
+  if (!elements || elements.length === 0) return [];
+
+  const groups = [];
+  const visited = new Set();
+
+  elements.forEach((element, index) => {
+    if (visited.has(index)) return;
+
+    const group = {
+      id: groups.length + 1,
+      type: determineGroupType(element),
+      elements: [element],
+      bounds: { ...element.position },
+      confidence: element.confidence || 0.5
+    };
+
+    visited.add(index);
+
+    // 近接要素を同じグループに追加
+    elements.forEach((other, otherIndex) => {
+      if (visited.has(otherIndex)) return;
+
+      if (areElementsRelated(element, other)) {
+        group.elements.push(other);
+        visited.add(otherIndex);
+        // 境界ボックスを更新
+        expandBounds(group.bounds, other.position);
+      }
+    });
+
+    groups.push(group);
+  });
+
+  return groups;
+};
+
+/**
+ * 🏗️ コンテンツ構造を分析
+ * @param {Array} groups - グループ化された要素
+ * @param {string} imageType - 'pc' | 'sp'
+ * @returns {Object} 構造分析結果
+ */
+const analyzeContentStructure = (groups, imageType) => {
+  const structure = {
+    pattern: 'unknown',
+    layout: imageType === 'sp' ? 'vertical' : 'horizontal',
+    hierarchy: [],
+    mainContent: null,
+    supportingElements: []
+  };
+
+  if (groups.length === 0) {
+    structure.pattern = 'empty';
+    return structure;
+  }
+
+  // Y座標でソート（上から下の順序）
+  const sortedGroups = [...groups].sort((a, b) => a.bounds.y - b.bounds.y);
+
+  // パターン判定
+  if (sortedGroups.length === 1) {
+    structure.pattern = 'single_content';
+    structure.mainContent = sortedGroups[0];
+  } else if (sortedGroups.length <= 3) {
+    structure.pattern = 'simple_layout';
+    structure.mainContent = findLargestGroup(sortedGroups);
+    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
+  } else {
+    structure.pattern = 'complex_layout';
+    structure.mainContent = findLargestGroup(sortedGroups);
+    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
+  }
+
+  // 階層構造の推定
+  structure.hierarchy = sortedGroups.map((group, index) => ({
+    level: index === 0 ? 'primary' : index === 1 ? 'secondary' : 'tertiary',
+    group: group,
+    role: determineElementRole(group, index, sortedGroups.length)
+  }));
+
+  return structure;
+};
+
+
+/**
+ * 🤖 AI向けの構造化データを構築
+ * @param {Array} groups - グループ化された要素
+ * @param {Object} structure - 構造分析結果
+ * @param {Object} stage1Results - Stage 1の全結果
+ * @param {string} imageType - 'pc' | 'sp'
+ * @returns {Object} AI向け構造化データ
+ */
+const buildAIFriendlyData = (groups, structure, stage1Results, imageType) => {
+  return {
+    section_summary: {
+      type: `${structure.pattern}_section`,
+      layout_flow: structure.layout,
+      complexity: groups.length <= 3 ? 'simple' : groups.length <= 6 ? 'moderate' : 'complex',
+      element_count: groups.length,
+      description: generateSectionDescription(structure)
+    },
+
+    logical_groups: groups.map((group, index) => ({
+      id: group.id,
+      role: structure.hierarchy[index]?.role || 'content',
+      semantic_type: group.type,
+      elements_count: group.elements.length,
+      area_coverage: calculateAreaCoverage(group.bounds, stage1Results.imageInfo),
+      position_info: {
+        relative_position: calculateRelativePosition(group.bounds, stage1Results.imageInfo),
+        visual_weight: group.elements.length * (group.confidence || 0.5)
+      }
+    })),
+
+    structure_hints: {
+      recommended_html_pattern: suggestHTMLPattern(structure),
+      content_hierarchy: structure.hierarchy.map(h => h.level),
+      responsive_behavior: imageType === 'sp' ? 'stack_vertical' : 'flexible_horizontal'
+    },
+
+    original_analysis: {
+      colors: stage1Results.colors || [],
+      text_content: stage1Results.text || '',
+      stage1_features: stage1Results.stage1Features || {}
+    }
+  };
+};
+
+/**
+ * 🔍 2つの要素が関連しているか判定
+ * @param {Object} element1 - 1つ目の要素
+ * @param {Object} element2 - 2つ目の要素
+ * @returns {boolean} 関連している場合true
+ */
+const areElementsRelated = (element1, element2) => {
+  if (!element1?.position || !element2?.position) return false;
+
+  const { x: x1, y: y1, width: w1, height: h1 } = element1.position;
+  const { x: x2, y: y2, width: w2, height: h2 } = element2.position;
+
+  // 1. 同じタイプの要素 (高確率で関連)
+  const sameType = element1.type === element2.type;
+
+  // 2. 空間的近接性の計算
+  const centerX1 = x1 + w1 / 2;
+  const centerY1 = y1 + h1 / 2;
+  const centerX2 = x2 + w2 / 2;
+  const centerY2 = y2 + h2 / 2;
+
+  const distance = Math.sqrt(
+    Math.pow(centerX1 - centerX2, 2) +
+    Math.pow(centerY1 - centerY2, 2)
+  );
+
+  // 3. 要素サイズの平均
+  const avgSize = (Math.max(w1, h1) + Math.max(w2, h2)) / 2;
+
+  // 4. サイズを考慮した距離閾値 (大きな要素ほど関連距離が長い)
+  const threshold = avgSize * 1.5;
+
+  // 5. 判定
+  return (
+    // 同じタイプかつ近接
+    (sameType && distance < threshold * 2) ||
+    // または非常に近接
+    distance < threshold * 0.8 ||
+    // または重なっている
+    !(x1 > x2 + w2 || x2 > x1 + w1 || y1 > y2 + h2 || y2 > y1 + h1)
+  );
+};
+
+/**
+ * 🔄 境界ボックスを拡張して他の要素を含める
+ * @param {Object} bounds - 拡張する境界ボックス
+ * @param {Object} position - 含める要素の位置情報
+ */
+const expandBounds = (bounds, position) => {
+  if (!bounds || !position) return;
+
+  const x2 = Math.max(bounds.x + bounds.width, position.x + position.width);
+  const y2 = Math.max(bounds.y + bounds.height, position.y + position.height);
+
+  bounds.x = Math.min(bounds.x, position.x);
+  bounds.y = Math.min(bounds.y, position.y);
+  bounds.width = x2 - bounds.x;
+  bounds.height = y2 - bounds.y;
+};
+
+/**
+ * 🔎 最も大きなグループを見つける
+ * @param {Array} groups - グループ配列
+ * @returns {Object} 最大のグループ
+ */
+const findLargestGroup = (groups) => {
+  if (!groups || groups.length === 0) return null;
+
+  return groups.reduce((largest, group) => {
+    const currentArea = group.bounds.width * group.bounds.height;
+    const largestArea = largest.bounds.width * largest.bounds.height;
+
+    return currentArea > largestArea ? group : largest;
+  }, groups[0]);
+};
+
+
+/**
+ * 🏷️ 要素の役割を判定
+ * @param {Object} group - 要素グループ
+ * @param {number} index - グループのインデックス
+ * @param {number} totalGroups - 全グループ数
+ * @returns {string} 要素の役割
+ */
+const determineElementRole = (group, index, totalGroups) => {
+  if (!group) return 'unknown';
+
+  // タイプベースの判定
+  if (group.type === 'text_content' && index === 0) return 'heading';
+  if (group.type === 'text_content') return 'paragraph';
+  if (group.type === 'image_content') return 'visual';
+  if (group.type === 'interactive') return 'action';
+  if (group.type === 'form_element') return 'input';
+
+  // 位置ベースの判定
+  if (index === 0) return 'header';
+  if (index === totalGroups - 1) return 'footer';
+  if (index === 1 && totalGroups > 2) return 'main_content';
+
+  return 'supporting_content';
+};
+
+/**
+ * 📝 セクション説明文を生成
+ * @param {Object} structure - 構造分析結果
+ * @returns {string} セクション説明
+ */
+const generateSectionDescription = (structure) => {
+  if (!structure) return 'Unknown section';
+
+  const { pattern, mainContent, supportingElements } = structure;
+
+  // パターンベースの説明
+  if (pattern === 'empty') return 'Empty section with no content';
+  if (pattern === 'single_content') return `Single ${mainContent?.type || 'content'} block`;
+
+  if (pattern === 'simple_layout') {
+    const mainType = mainContent?.type || 'content';
+    const supCount = supportingElements?.length || 0;
+    return `Simple layout with main ${mainType} and ${supCount} supporting elements`;
+  }
+
+  if (pattern === 'complex_layout') {
+    const sections = structure.hierarchy.map(h => h.level).join(', ');
+    return `Complex layout with multiple sections (${sections})`;
+  }
+
+  return `${pattern} layout with ${supportingElements?.length || 0} groups`;
+};
+
+/**
+ * 📏 要素が画像全体に占める面積割合を計算
+ * @param {Object} bounds - 要素の境界ボックス
+ * @param {Object} imageInfo - 画像情報
+ * @returns {number} 面積割合 (0-1)
+ */
+const calculateAreaCoverage = (bounds, imageInfo) => {
+  if (!bounds || !imageInfo) return 0;
+
+  const { width: imgWidth, height: imgHeight } = imageInfo;
+  const elementArea = bounds.width * bounds.height;
+  const imageArea = imgWidth * imgHeight;
+
+  return imageArea > 0 ? elementArea / imageArea : 0;
+};
+
+/**
+ * 📍 要素の相対位置情報を計算
+ * @param {Object} bounds - 要素の境界ボックス
+ * @param {Object} imageInfo - 画像情報
+ * @returns {Object} 相対位置情報
+ */
+const calculateRelativePosition = (bounds, imageInfo) => {
+  if (!bounds || !imageInfo) {
+    return { horizontal: 'unknown', vertical: 'unknown', area_ratio: 0 };
+  }
+
+  const { x, y, width, height } = bounds;
+  const { width: imgWidth, height: imgHeight } = imageInfo;
+
+  // 中心点の計算
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+
+  // 水平位置
+  let horizontal;
+  if (centerX < imgWidth * 0.33) horizontal = 'left';
+  else if (centerX > imgWidth * 0.66) horizontal = 'right';
+  else horizontal = 'center';
+
+  // 垂直位置
+  let vertical;
+  if (centerY < imgHeight * 0.33) vertical = 'top';
+  else if (centerY > imgHeight * 0.66) vertical = 'bottom';
+  else vertical = 'middle';
+
+  // 面積比
+  const areaRatio = calculateAreaCoverage(bounds, imageInfo);
+
+  return {
+    horizontal,
+    vertical,
+    area_ratio: areaRatio
+  };
+};
+
+/**
+ * 💡 HTML構造パターンを提案
+ * @param {Object} structure - 構造分析結果
+ * @returns {string} 推奨HTMLパターン
+ */
+const suggestHTMLPattern = (structure) => {
+  if (!structure) return 'div';
+
+  const { pattern, layout } = structure;
+
+  if (pattern === 'empty') return 'empty_container';
+  if (pattern === 'single_content') return 'single_section';
+
+  if (layout === 'vertical') {
+    if (pattern === 'simple_layout') return 'stacked_sections';
+    return 'multi_section_vertical';
+  } else {
+    if (pattern === 'simple_layout') return 'two_column_layout';
+    return 'multi_column_layout';
+  }
+};
+
+/**
+ * 🔄 フォールバック用の簡易AIデータを構築
+ * @param {Object} stage1Results - Stage 1の結果
+ * @returns {Object} 簡易化されたAIデータ
+ */
+const buildFallbackAIData = (stage1Results) => {
+  return {
+    section_summary: {
+      type: 'fallback_section',
+      layout_flow: 'vertical',
+      complexity: 'simple',
+      element_count: stage1Results.elements?.length || 0,
+      description: 'Fallback simple section with minimal structure'
+    },
+
+    logical_groups: [{
+      id: 1,
+      role: 'main_content',
+      semantic_type: 'container',
+      elements_count: stage1Results.elements?.length || 0,
+      area_coverage: 1.0,
+      position_info: {
+        relative_position: {
+          horizontal: 'center',
+          vertical: 'middle',
+          area_ratio: 1.0
+        },
+        visual_weight: 1.0
+      }
+    }],
+
+    structure_hints: {
+      recommended_html_pattern: 'simple_container',
+      content_hierarchy: ['primary'],
+      responsive_behavior: 'stack_vertical'
+    },
+
+    original_analysis: {
+      colors: stage1Results.colors || [],
+      text_content: stage1Results.text || '',
+      stage1_features: stage1Results.stage1Features || {}
+    }
+  };
+};
+
+/**
+ * 💾 Stage 2の解析結果をJSONファイルに保存
+ * @param {Object} stage2Data - Stage 2の解析結果
+ * @param {string} imageType - 'pc' | 'sp'
+ * @returns {string} 保存したファイルパス
+ */
+const saveStage2ResultsToJson = (stage2Data, imageType = 'pc') => {
+  try {
+    console.log(`💾 Stage 2結果保存を開始: ${imageType}`);
+
+    // 🔍 環境詳細デバッグ
+    console.log('🔍 環境デバッグ情報:');
+    console.log('  - typeof window:', typeof window);
+    console.log('  - window存在:', typeof window !== 'undefined');
+    console.log('  - window.webAssemblyBridge存在:', typeof window !== 'undefined' && !!window.webAssemblyBridge);
+
+    if (typeof window !== 'undefined') {
+      console.log('  - window.webAssemblyBridge:', window.webAssemblyBridge);
+      if (window.webAssemblyBridge) {
+        console.log('  - saveAnalysisResults関数存在:', typeof window.webAssemblyBridge.saveAnalysisResults === 'function');
+      }
+    }
+
+    // 現在の日時を取得
+    const now = new Date();
+    const timestamp = now.toISOString();
+    const timeStr = timestamp.replace(/:/g, '-').replace(/\..+/, ''); // YYYY-MM-DDThh-mm-ss
+
+    // 日付フォルダ名を生成 (YYYY-MM-DD)
+    const dateFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // ファイル名を生成 (stage2-pc-YYYY-MM-DDThh-mm-ssZ.json)
+    const fileName = `stage2-${imageType}-${timeStr}Z.json`;
+
+    // Electron環境: ブリッジ経由で保存
+    if (typeof window !== 'undefined' && window.webAssemblyBridge) {
+      console.log('🎯 Electron環境でブリッジ経由保存を実行');
+      try {
+        const savePath = window.webAssemblyBridge.saveAnalysisResults(
+          dateFolder,
+          fileName,
+          JSON.stringify(stage2Data, null, 2)
+        );
+        console.log(`✅ Stage 2結果を保存しました: ${fileName}`);
+        console.log(`📁 保存パス: ${savePath}`);
+        return savePath;
+      } catch (saveError) {
+        console.error("❌ Stage 2結果の保存に失敗:", saveError);
+        console.error("❌ 保存エラー詳細:", saveError.message, saveError.stack);
+        // フォールバック: LocalStorage
+        localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(stage2Data));
+        console.log("⚠️ フォールバック: 結果をLocalStorageに保存しました");
+        return null;
+      }
+    }
+    // Node.js環境: fsモジュールで保存
+    else if (typeof require !== 'undefined') {
+      console.log('🎯 Node.js環境でfs保存を実行');
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const baseDir = path.join(process.cwd(), 'analysis-results', dateFolder);
+
+        // ディレクトリが存在しない場合は作成
+        if (!fs.existsSync(baseDir)) {
+          fs.mkdirSync(baseDir, { recursive: true });
+        }
+
+        const filePath = path.join(baseDir, fileName);
+        fs.writeFileSync(filePath, JSON.stringify(stage2Data, null, 2));
+        console.log(`✅ Stage 2結果を保存しました: ${filePath}`);
+        return filePath;
+      } catch (fsError) {
+        console.error("❌ ファイル保存エラー:", fsError);
+        return null;
+      }
+    }
+    // ブラウザ環境: LocalStorageに保存
+    else {
+      console.log('🎯 ブラウザ環境でLocalStorage保存を実行');
+      try {
+        localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(stage2Data));
+        console.log(`✅ Stage 2結果をLocalStorageに保存しました: stage2_${imageType}_results`);
+      } catch (storageError) {
+        console.error("❌ LocalStorage保存エラー:", storageError);
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Stage 2結果保存エラー:', error);
+    return null;
+  }
+};
+
+
+/**
+ * 📑 要素グループのタイプを判定
+ * @param {Object} element - 要素オブジェクト
+ * @returns {string} グループタイプ
+ */
+const determineGroupType = (element) => {
+  if (!element) return 'unknown';
+
+  if (element.type === 'text') return 'text_content';
+  if (element.type === 'image') return 'image_content';
+  if (element.type === 'button') return 'interactive';
+  if (element.type === 'input') return 'form_element';
+
+  // position情報から判断
+  if (element.position) {
+    const { width, height } = element.position;
+    const ratio = width / Math.max(height, 1); // 0除算防止
+
+    if (ratio > 5) return 'horizontal_separator';
+    if (ratio < 0.2) return 'vertical_separator';
+    if (width > 300 && height > 200) return 'container';
+  }
+
+  return 'ui_element';
+};
+
+// Stage 2関数をmoduleExportsに動的追加
+if (typeof moduleExports !== 'undefined') {
+  moduleExports.transformForAICoding = transformForAICoding;
+  moduleExports.saveStage2ResultsToJson = saveStage2ResultsToJson;
+}
+
+// ブラウザ環境でも動的追加
+if (typeof window !== 'undefined' && window.webAssemblyAnalyzer) {
+  window.webAssemblyAnalyzer.transformForAICoding = transformForAICoding;
+  window.webAssemblyAnalyzer.saveStage2ResultsToJson = saveStage2ResultsToJson;
+  console.log('🔧 Stage 2関数をwindow.webAssemblyAnalyzerに動的追加完了');
 }
 
 console.log('🔧 webassembly-image-analyzer.js スクリプト完了');
