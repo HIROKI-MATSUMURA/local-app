@@ -3732,106 +3732,158 @@ if (typeof module !== 'undefined' && module.exports) {
 // === Stage 2: AI向けデータ変換機能 ===
 
 /**
- * 🎯 Stage 2メイン関数: Stage 1結果をAI向けに変換
- * @param {Object} stage1Results - Stage 1の解析結果
+ * 🤖 Stage 2: Stage 1の要素をAIコーディング用の構造化データに変換
+ * @param {Array} stage1Elements - Stage 1で検出された要素
  * @param {string} imageType - 'pc' | 'sp'
- * @returns {Object} AI向け構造化データ
+ * @returns {Object} Stage 2の変換結果
  */
 const transformForAICoding = async (stage1Elements, imageType = 'pc') => {
-  console.log('🎯 Stage 2: AI向けデータ変換を開始');
-
-  const startTime = Date.now();
-
   try {
-    // 🔧 修正: 配列を直接受け取るか、オブジェクトの場合はelementsプロパティを取得
-    let elements = [];
-    if (Array.isArray(stage1Elements)) {
-      // promptGeneratorから配列で渡された場合
-      elements = stage1Elements;
-      console.log(`📊 受け取った要素データ形式: 配列 (${elements.length}個)`);
-    } else if (stage1Elements && stage1Elements.elements) {
-      // オブジェクト形式で渡された場合
-      elements = stage1Elements.elements;
-      console.log(`📊 受け取った要素データ形式: オブジェクト.elements (${elements.length}個)`);
-    } else if (stage1Elements && typeof stage1Elements === 'object') {
-      // その他のオブジェクト形式の場合
-      console.log('📊 受け取ったデータ:', typeof stage1Elements, Object.keys(stage1Elements));
-      elements = [];
-    }
+    console.log(`🤖 Stage 2: AIコーディング用データ変換開始 (${imageType})`);
+    console.log(`📊 入力要素数: ${stage1Elements.length}個`);
 
-    console.log(`📊 処理対象要素数: ${elements.length}個`);
+    // 1. 要素のグループ化（Phase 1機能統合済み）
+    const groups = groupRelatedElements(stage1Elements);
+    console.log(`📦 グループ化完了: ${groups.length}個のグループを生成`);
 
-    // 1. 要素グループ化
-    const groups = groupRelatedElements(elements);
-    console.log(`📊 要素グループ化: ${elements.length}個 → ${groups.length}個のグループ`);
-
-    // 2. 構造分析
+    // 2. コンテンツ構造の分析
     const structure = analyzeContentStructure(groups, imageType);
-    console.log(`🏗️ 構造分析: ${structure.pattern} パターンを検出`);
+    console.log(`🏗️ 構造分析完了: ${structure.pattern}パターンを検出`);
 
-    // 3. AI向けデータ構築 - stage1Resultsオブジェクトを正しく構成
-    const stage1Results = {
-      elements: elements,
-      imageInfo: {
-        width: imageType === 'sp' ? 375 : 1200,
-        height: imageType === 'sp' ? 800 : 800
-      },
-      colors: [],
-      text: '',
-      stage1Features: {}
-    };
+    // 3. 🆕 Phase 1: 精密レイアウト計測を実行
+    let spacingData = null;
+    const cardGroups = groups.filter(g => g.type === 'card_group');
+    if (cardGroups.length >= 2) {
+      console.log(`📏 精密計測開始: ${cardGroups.length}個のカードを分析`);
 
-    const aiData = buildAIFriendlyData(groups, structure, stage1Results, imageType);
+      // 簡易版精密計測
+      const horizontalSpacings = [];
+      const verticalSpacings = [];
 
-    const processingTime = (Date.now() - startTime) / 1000;
-    console.log(`✅ Stage 2: AI向け変換完了 (${processingTime.toFixed(2)}秒)`);
+      for (let i = 0; i < cardGroups.length - 1; i++) {
+        const current = cardGroups[i];
+        const next = cardGroups[i + 1];
 
-    // 4. 結果をJSON保存
-    // 🆕 Stage 2結果を自動的にファイル保存（Stage 1と同じ環境）
-    try {
-      const stage2Data = {
-        success: true,
-        data: aiData,
-        processingTime,
-        metadata: {
-          inputElements: elements.length,
-          outputGroups: groups.length,
-          imageType,
-          timestamp: new Date().toISOString(),
-          stage: 2,
-          version: '1.0.0'
+        // 横並び判定での間隔計算
+        if (imageType === 'pc') {
+          const spacing = next.bounds.x - (current.bounds.x + current.bounds.width);
+          if (spacing > 0) horizontalSpacings.push(spacing);
+        } else {
+          const spacing = next.bounds.y - (current.bounds.y + current.bounds.height);
+          if (spacing > 0) verticalSpacings.push(spacing);
+        }
+      }
+
+      const calculateMedian = (values) => {
+        if (values.length === 0) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      };
+
+      spacingData = {
+        grid_structure: {
+          columns: imageType === 'pc' ? cardGroups.length : 1,
+          rows: imageType === 'sp' ? cardGroups.length : 1,
+          pattern: `${imageType}_${cardGroups.length}_cards`
+        },
+        inter_card_spacing: {
+          horizontal: calculateMedian(horizontalSpacings),
+          vertical: calculateMedian(verticalSpacings)
         }
       };
 
-      // 🔧 修正: await で非同期保存を待機
-      const saveResult = await saveStage2ResultsToJson(stage2Data, imageType);
-      if (saveResult) {
-        console.log(`💾 Stage 2結果の自動保存が完了しました: ${saveResult}`);
-      } else {
-        console.log(`💾 Stage 2結果はLocalStorageに保存されました（ファイル保存は失敗）`);
-      }
-    } catch (saveError) {
-      console.warn('⚠️ Stage 2結果の自動保存でエラーが発生しましたが、変換処理は正常に完了しました:', saveError);
+      console.log(`📊 精密計測完了: 横間隔${spacingData.inter_card_spacing.horizontal}px, 縦間隔${spacingData.inter_card_spacing.vertical}px`);
     }
 
-    return {
-      success: true,
-      data: aiData,
-      processingTime,
-      metadata: {
-        inputElements: elements.length,
-        outputGroups: groups.length,
-        imageType,
-        timestamp: new Date().toISOString()
+    // 4. Stage 1結果の再構築（画像情報含む）
+    const stage1Results = {
+      elements: stage1Elements,
+      colors: [],
+      text: '',
+      stage1Features: {},
+      imageInfo: {
+        width: Math.max(...stage1Elements.map(e => e.position ? e.position.x + e.position.width : 0)),
+        height: Math.max(...stage1Elements.map(e => e.position ? e.position.y + e.position.height : 0)),
+        deviceType: imageType
       }
     };
 
+    // 5. 🆕 Phase 2: 拡張されたAI向けデータ構築
+    const aiData = buildAIFriendlyData(groups, structure, stage1Results, imageType);
+
+    // 6. 🆕 精密計測データをAI向けデータに統合
+    if (spacingData) {
+      aiData.css_implementation_hints.precise_measurements = spacingData;
+      aiData.css_implementation_hints.gap_suggestions = {
+        horizontal: `${spacingData.inter_card_spacing.horizontal || 24}px`,
+        vertical: `${spacingData.inter_card_spacing.vertical || 32}px`
+      };
+    }
+
+    // 7. 🆕 カード内ゾーン情報の統計
+    const zoneAnalysis = groups.filter(g => g.internal_zones).map(g => ({
+      card_id: g.id,
+      detected_zones: Object.keys(g.internal_zones),
+      zone_confidence: g.zone_confidence
+    }));
+
+    if (zoneAnalysis.length > 0) {
+      const validZoneAnalysis = zoneAnalysis.filter(z => z.zone_confidence !== undefined);
+      aiData.ai_guidance.zone_analysis_summary = {
+        total_analyzed_cards: zoneAnalysis.length,
+        average_zone_confidence: validZoneAnalysis.length > 0 ?
+          validZoneAnalysis.reduce((sum, z) => sum + z.zone_confidence, 0) / validZoneAnalysis.length : 0,
+        common_zones: [...new Set(zoneAnalysis.flatMap(z => z.detected_zones))]
+      };
+      console.log(`🎯 ゾーン分析サマリー: ${zoneAnalysis.length}個のカードで${aiData.ai_guidance.zone_analysis_summary.common_zones.length}種類のゾーンを検出`);
+    }
+
+    // 8. メタデータの準備
+    const metadata = {
+      inputElements: stage1Elements.length,
+      outputGroups: groups.length,
+      complexity: aiData.section_summary.complexity,
+      hasCardStructure: cardGroups.length > 0,
+      hasZoneAnalysis: zoneAnalysis.length > 0,
+      hasPreciseMeasurements: spacingData !== null
+    };
+
+    console.log(`✅ Stage 2変換完了:`);
+    console.log(`   - 入力要素: ${metadata.inputElements}個`);
+    console.log(`   - 出力グループ: ${metadata.outputGroups}個`);
+    console.log(`   - カード構造: ${metadata.hasCardStructure ? 'あり' : 'なし'}`);
+    console.log(`   - ゾーン分析: ${metadata.hasZoneAnalysis ? 'あり' : 'なし'}`);
+    console.log(`   - 精密計測: ${metadata.hasPreciseMeasurements ? 'あり' : 'なし'}`);
+
+    const stage2Result = {
+      data: aiData,
+      metadata: metadata
+    };
+
+    // 🆕 Stage 2結果をファイルに保存
+    try {
+      await saveStage2ResultsToJson(stage2Result, imageType);
+      console.log(`💾 Stage 2結果をファイルに保存完了: stage2-${imageType}-JST日本時間.json`);
+    } catch (saveError) {
+      console.error('⚠️ Stage 2ファイル保存エラー:', saveError);
+    }
+
+    return stage2Result;
+
   } catch (error) {
-    console.error('❌ Stage 2エラー:', error);
+    console.error('❌ Stage 2変換エラー:', error);
+
+    // フォールバック処理
+    const fallbackData = buildFallbackAIData({ elements: stage1Elements });
     return {
-      success: false,
-      error: error.message,
-      fallback: buildFallbackAIData({ elements: elements || [] })
+      data: fallbackData,
+      metadata: {
+        inputElements: stage1Elements.length,
+        outputGroups: 1,
+        complexity: 'fallback',
+        error: error.message
+      }
     };
   }
 };
@@ -3988,6 +4040,75 @@ const recognizeCardPatterns = (clusters, imageInfo) => {
     cardGroups.push(cardGroup);
   });
 
+  // 🆕 Phase 1: カード内ゾーン分析を統合実行
+  cardGroups.forEach(cardGroup => {
+    if (cardGroup.type === 'card_group' && cardGroup.elements.length > 2) {
+      console.log(`🎯 カード${cardGroup.id}のゾーン分析開始 (要素数: ${cardGroup.elements.length})`);
+
+      // カード内要素をY座標でソート
+      const sortedElements = cardGroup.elements
+        .filter(el => el.position)
+        .sort((a, b) => a.position.y - b.position.y);
+
+      // ゾーン分析実行
+      const zones = {};
+      const cardHeight = cardGroup.bounds.height;
+
+      sortedElements.forEach(element => {
+        const relativeY = (element.position.y - cardGroup.bounds.y) / cardHeight;
+        const elementArea = element.position.width * element.position.height;
+
+        let zoneType = 'unknown';
+        let confidence = 0.5;
+
+        if (relativeY < 0.4) {
+          // 上部40% - 画像・タイトルエリア
+          if (elementArea > 3000 || element.type === 'image') {
+            zoneType = 'visual_zone';
+            confidence = 0.85;
+          } else if (element.properties?.textContent) {
+            zoneType = 'title_zone';
+            confidence = 0.75;
+          }
+        } else if (relativeY < 0.7) {
+          // 中部30% - メタデータエリア
+          if (element.properties?.textContent) {
+            zoneType = element.properties.textContent.length < 30 ? 'title_zone' : 'metadata_zone';
+            confidence = 0.7;
+          }
+        } else {
+          // 下部30% - 説明・アクションエリア
+          if (element.properties?.textContent) {
+            zoneType = 'description_zone';
+            confidence = 0.75;
+          } else if (element.type === 'button') {
+            zoneType = 'action_zone';
+            confidence = 0.8;
+          }
+        }
+
+        // ゾーン統合
+        if (zones[zoneType]) {
+          zones[zoneType].elements.push(element);
+          zones[zoneType].confidence = Math.max(zones[zoneType].confidence, confidence);
+        } else {
+          zones[zoneType] = {
+            type: zoneType,
+            elements: [element],
+            confidence: confidence
+          };
+        }
+      });
+
+      // カードにゾーン情報を追加
+      cardGroup.internal_zones = zones;
+      cardGroup.zone_confidence = Object.keys(zones).length > 0 ?
+        Object.values(zones).reduce((sum, z) => sum + z.confidence, 0) / Object.keys(zones).length : 0;
+
+      console.log(`📊 カード${cardGroup.id}ゾーン分析完了: ${Object.keys(zones).length}個のゾーン検出`);
+    }
+  });
+
   // 残りの中・小クラスターを統合または個別グループ化
   const remainingElements = [
     ...mediumClusters.flatMap(c => c.elements),
@@ -4061,6 +4182,166 @@ const identifyHeaderFooterGroups = (elements, imageInfo) => {
 };
 
 /**
+ * 🎯 🆕 Phase 1: カード内構造ゾーン分析
+ * @param {Array} cardGroups - 認識されたカードグループ
+ * @param {Object} imageInfo - 画像情報
+ * @returns {Array} ゾーン分析されたカードグループ
+ */
+const analyzeCardInternalZones = (cardGroups, imageInfo) => {
+  console.log(`🔍 カード内ゾーン分析開始: ${cardGroups.length}個のカードを処理`);
+
+  return cardGroups.map(cardGroup => {
+    if (cardGroup.type !== 'card_group') {
+      return cardGroup; // カード以外はそのまま返す
+    }
+
+    console.log(`🎯 カード${cardGroup.id}のゾーン分析開始 (要素数: ${cardGroup.elements.length})`);
+
+    // カード内要素をY座標でソート（上から下の順序）
+    const sortedElements = cardGroup.elements
+      .filter(el => el.position)
+      .sort((a, b) => a.position.y - b.position.y);
+
+    // ゾーン分割実行
+    const zones = performZoneAnalysis(sortedElements, cardGroup.bounds, imageInfo);
+
+    console.log(`📊 カード${cardGroup.id}ゾーン分析結果: ${Object.keys(zones).length}個のゾーン検出`);
+
+    // カードグループにゾーン情報を追加
+    return {
+      ...cardGroup,
+      internal_zones: zones,
+      zone_confidence: calculateZoneConfidence(zones),
+      content_structure: determineContentStructure(zones)
+    };
+  });
+};
+
+/**
+ * 🔍 ゾーン分析の実行
+ */
+const performZoneAnalysis = (elements, cardBounds, imageInfo) => {
+  const zones = {};
+  const cardHeight = cardBounds.height;
+
+  elements.forEach((element, index) => {
+    const relativeY = (element.position.y - cardBounds.y) / cardHeight;
+    const elementArea = element.position.width * element.position.height;
+
+    // ゾーンタイプの判定
+    let zoneType = 'unknown';
+    let confidence = 0.5;
+
+    if (relativeY < 0.4) {
+      // 上部40% - 画像エリアの可能性が高い
+      if (elementArea > 3000 || element.type === 'image' || element.type === 'card') {
+        zoneType = 'visual_zone';
+        confidence = 0.85;
+      } else if (element.properties?.textContent || element.type === 'content_section') {
+        zoneType = 'title_zone';
+        confidence = 0.75;
+      }
+    } else if (relativeY < 0.7) {
+      // 中部30% - タイトル・メタデータエリア
+      if (element.properties?.textContent) {
+        const textLength = element.properties.textContent.length;
+        if (textLength < 30) {
+          zoneType = 'title_zone';
+          confidence = 0.8;
+        } else {
+          zoneType = 'metadata_zone';
+          confidence = 0.7;
+        }
+      }
+    } else {
+      // 下部30% - 説明文・アクションエリア
+      if (element.properties?.textContent) {
+        zoneType = 'description_zone';
+        confidence = 0.75;
+      } else if (element.type === 'button') {
+        zoneType = 'action_zone';
+        confidence = 0.8;
+      }
+    }
+
+    // 既存ゾーンとの統合判定
+    const existingZone = zones[zoneType];
+    if (existingZone) {
+      existingZone.elements.push(element);
+      existingZone.bounds = expandZoneBounds(existingZone.bounds, element.position);
+      existingZone.confidence = Math.max(existingZone.confidence, confidence);
+    } else {
+      zones[zoneType] = {
+        type: zoneType,
+        bounds: { ...element.position },
+        elements: [element],
+        confidence: confidence,
+        content_hint: determineContentHint(zoneType)
+      };
+    }
+  });
+
+  return zones;
+};
+
+/**
+ * 🔄 ゾーン境界の拡張
+ */
+const expandZoneBounds = (zoneBounds, elementPosition) => {
+  const x2 = Math.max(zoneBounds.x + zoneBounds.width, elementPosition.x + elementPosition.width);
+  const y2 = Math.max(zoneBounds.y + zoneBounds.height, elementPosition.y + elementPosition.height);
+
+  return {
+    x: Math.min(zoneBounds.x, elementPosition.x),
+    y: Math.min(zoneBounds.y, elementPosition.y),
+    width: x2 - Math.min(zoneBounds.x, elementPosition.x),
+    height: y2 - Math.min(zoneBounds.y, elementPosition.y)
+  };
+};
+
+/**
+ * 💡 コンテンツヒントの判定
+ */
+const determineContentHint = (zoneType) => {
+  switch (zoneType) {
+    case 'visual_zone': return 'primary_visual';
+    case 'title_zone': return 'primary_title';
+    case 'metadata_zone': return 'date_or_category';
+    case 'description_zone': return 'summary_content';
+    case 'action_zone': return 'interactive_element';
+    default: return 'unknown_content';
+  }
+};
+
+/**
+ * 📊 ゾーン信頼度の計算
+ */
+const calculateZoneConfidence = (zones) => {
+  const zoneCount = Object.keys(zones).length;
+  if (zoneCount === 0) return 0;
+  const totalConfidence = Object.values(zones).reduce((sum, zone) => sum + zone.confidence, 0);
+  return totalConfidence / zoneCount;
+};
+
+/**
+ * 🏗️ コンテンツ構造の判定
+ */
+const determineContentStructure = (zones) => {
+  const structure = [];
+  const sortedZones = Object.entries(zones).sort(([, a], [, b]) => a.bounds.y - b.bounds.y);
+
+  sortedZones.forEach(([zoneType, zone]) => {
+    structure.push({
+      type: zoneType,
+      order: structure.length + 1,
+      content_hint: zone.content_hint
+    });
+  });
+
+  return structure;
+};
+
+/**
  * 🏗️ 最適化されたグループ構築
  */
 const buildOptimizedGroups = (cardGroups, imageInfo) => {
@@ -4070,6 +4351,9 @@ const buildOptimizedGroups = (cardGroups, imageInfo) => {
     elements: group.elements,
     bounds: group.bounds,
     confidence: group.confidence,
+    // 🆕 Phase 1データの継承を追加
+    internal_zones: group.internal_zones,
+    zone_confidence: group.zone_confidence,
     metadata: {
       pattern: group.pattern,
       elementCount: group.elements.length,
@@ -4128,13 +4412,97 @@ const buildAIFriendlyData = (groups, structure, stage1Results, imageType) => {
       position_info: {
         relative_position: calculateRelativePosition(group.bounds, stage1Results.imageInfo),
         visual_weight: group.elements.length * (group.confidence || 0.5)
-      }
+      },
+      // 🆕 Phase 2: カード内ゾーン情報を含める
+      internal_structure: group.internal_zones ? {
+        zones: Object.keys(group.internal_zones),
+        zone_confidence: group.zone_confidence || 0,
+        content_flow: Object.values(group.internal_zones)
+          .filter(zone => zone.elements && zone.elements.length > 0 && zone.elements[0]?.position?.y !== undefined)
+          .sort((a, b) => (a.elements[0]?.position?.y || 0) - (b.elements[0]?.position?.y || 0))
+          .map(zone => zone.type)
+      } : null
     })),
 
     structure_hints: {
       recommended_html_pattern: suggestHTMLPattern(structure),
       content_hierarchy: structure.hierarchy.map(h => h.level),
       responsive_behavior: imageType === 'sp' ? 'stack_vertical' : 'flexible_horizontal'
+    },
+
+    // 🆕 Phase 2: CSS生成支援データを追加
+    css_implementation_hints: {
+      layout_system: groups.some(g => g.type === 'card_group') ? 'css_grid' : 'flexbox',
+      grid_template: imageType === 'pc' ?
+        `repeat(${groups.filter(g => g.type === 'card_group').length || 1}, 1fr)` :
+        '1fr',
+      gap_suggestions: {
+        horizontal: '24px',
+        vertical: '32px'
+      },
+      responsive_breakpoints: {
+        mobile: '768px',
+        tablet: '1024px'
+      },
+      card_styling: groups.filter(g => g.type === 'card_group').length > 0 ? {
+        border_radius: '8px',
+        box_shadow: '0 2px 8px rgba(0,0,0,0.1)',
+        padding: '24px',
+        background: '#ffffff'
+      } : null
+    },
+
+    // 🆕 Phase 2: AI協調プロンプト設計
+    ai_guidance: {
+      content_recognition_tips: [
+        'テキスト認識は95%以上の精度で実行してください',
+        '画像内のコンテンツを意味的に理解して構造化してください',
+        'カード内の情報を「タイトル・日付・説明文」の順序で整理してください'
+      ],
+      structural_analysis: {
+        detected_pattern: structure.pattern,
+        confidence_level: groups.reduce((sum, g) => sum + (g.confidence || 0.5), 0) / groups.length,
+        layout_recommendations: imageType === 'pc' ?
+          '横並びレイアウトでカード間に適切な間隔を設定' :
+          '縦並びスタックレイアウトで読みやすい順序を維持',
+        implementation_priority: [
+          '基本的なグリッドレイアウトの実装',
+          'レスポンシブ対応（モバイルファースト）',
+          'アクセシビリティ対応（セマンティックHTML）'
+        ]
+      },
+      flexible_guidance: {
+        structure_confidence: groups.reduce((sum, g) => sum + (g.confidence || 0.5), 0) / groups.length,
+        alternative_approaches: groups.length > 4 ?
+          ['complex_grid', 'masonry_layout', 'flexible_cards'] :
+          ['simple_grid', 'flexbox_cards', 'basic_stack'],
+        content_extraction_hints: groups.filter(g => g.internal_zones)
+          .map(g => `カード${g.id}: ${Object.keys(g.internal_zones).join(', ')}エリアを検出`)
+      }
+    },
+
+    // 🆕 Phase 2: レスポンシブ関係マッピング
+    responsive_mapping: {
+      layout_transformation: {
+        pc_to_mobile: imageType === 'pc' ?
+          `${groups.filter(g => g.type === 'card_group').length}列グリッド → 1列スタック` :
+          '既にモバイル最適化済み',
+        breakpoint_behavior: {
+          '1024px_and_above': imageType === 'pc' ? 'horizontal_grid' : 'enhanced_vertical',
+          '768px_to_1023px': 'tablet_optimized',
+          '767px_and_below': 'mobile_stack'
+        }
+      },
+      cross_device_consistency: {
+        content_order_maintained: true,
+        visual_hierarchy_preserved: true,
+        interaction_patterns: groups.some(g => g.type === 'card_group') ? 'card_based' : 'section_based'
+      },
+      implementation_notes: [
+        'PC版の横並びレイアウトをモバイルで縦スタックに変換',
+        'カード内のゾーン構造（画像・タイトル・説明）は全デバイスで統一',
+        'タッチデバイスでの操作性を考慮したボタンサイズ設定'
+      ]
     },
 
     original_analysis: {
@@ -4518,12 +4886,17 @@ const saveStage2ResultsToJson = async (stage2Data, imageType = 'pc') => {
       complexity: stage2Data.data?.section_summary?.complexity || 'unknown'
     };
 
+    // 🕐 日本時間（JST、UTC+9）のタイムスタンプを生成
+    const now = new Date();
+    const jstTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+    const jstISOString = jstTime.toISOString().replace('Z', '+09:00');
+
     // Stage 2結果のメタデータを追加
     const enrichedData = {
       stage: 2,
       version: '1.0.0',
       imageType: imageType,
-      timestamp: new Date().toISOString(),
+      timestamp: jstISOString, // 🕐 日本時間で統一
       metadata: metadata,
       results: stage2Data
     };
@@ -4532,8 +4905,9 @@ const saveStage2ResultsToJson = async (stage2Data, imageType = 'pc') => {
     if (typeof window !== 'undefined' && window.api && window.api.saveAnalysisResults) {
       console.log('🎯 正しいファイル保存APIを使用');
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `stage2-${imageType}-${timestamp}.json`;
+      // 🕐 ファイル名も日本時間で統一
+      const fileTimestamp = jstTime.toISOString().replace(/[:.]/g, '-').replace('Z', '+09-00');
+      const fileName = `stage2-${imageType}-${fileTimestamp}.json`;
 
       try {
         // 同期的に保存実行
