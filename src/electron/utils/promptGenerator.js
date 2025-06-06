@@ -3094,7 +3094,7 @@ const analyzeImage = async (imageBase64, imageType, setState = {}, mainWindow = 
         textBlocks: actualData.textBlocks || [],
         sections: actualData.sections || actualData.mainSections || [], // mainSectionsもチェック
         layout: actualData.layout || {},
-        elements: actualData.elements || [],
+        elements: actualData.elements?.elements || actualData.elements || [],
         compressedAnalysis: actualData.compressed || actualData.compressedAnalysis || null
       };
 
@@ -4763,19 +4763,24 @@ const generatePrompt = async (options, mainWindow = null) => {
         if (pcHasElements) {
           console.log('📱 Step 1: PC画像のStage 2処理を開始...');
           try {
+            // 🔧 修正: 要素配列を正しく抽出
+            let pcElements = [];
+            if (pcAnalysis.elements?.elements && Array.isArray(pcAnalysis.elements.elements)) {
+              pcElements = pcAnalysis.elements.elements;
+            } else if (pcAnalysis.elements && Array.isArray(pcAnalysis.elements)) {
+              pcElements = pcAnalysis.elements;
+            }
+
+            console.log(`🔍 PC Stage 2に渡す要素数: ${pcElements.length}個`);
+
             const pcStage2Results = await mainWindow.webContents.executeJavaScript(`
-              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(pcAnalysis)}, 'pc')
+              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(pcElements)}, 'pc')
             `);
 
             if (pcStage2Results && pcStage2Results.success) {
               console.log('📱 Step 1: PC画像のStage 2変換完了 ✅');
               console.log(`  - グループ化: ${pcStage2Results.metadata?.inputElements || 0}個 → ${pcStage2Results.metadata?.outputGroups || 0}個`);
-
-              // PC結果の保存
-              await mainWindow.webContents.executeJavaScript(`
-                window.webAssemblyAnalyzer.saveStage2ResultsToJson(${JSON.stringify(pcStage2Results)}, 'pc')
-              `);
-              console.log('💾 PC画像のStage 2結果保存完了 ✅');
+              console.log('💾 PC画像のStage 2結果は自動保存されました ✅');
             } else {
               console.warn('⚠️ PC画像のStage 2処理で警告が発生しました');
             }
@@ -4791,19 +4796,24 @@ const generatePrompt = async (options, mainWindow = null) => {
         if (spHasElements) {
           console.log('📱 Step 2: SP画像のStage 2処理を開始...');
           try {
+            // 🔧 修正: 要素配列を正しく抽出
+            let spElements = [];
+            if (spAnalysis.elements?.elements && Array.isArray(spAnalysis.elements.elements)) {
+              spElements = spAnalysis.elements.elements;
+            } else if (spAnalysis.elements && Array.isArray(spAnalysis.elements)) {
+              spElements = spAnalysis.elements;
+            }
+
+            console.log(`🔍 SP Stage 2に渡す要素数: ${spElements.length}個`);
+
             const spStage2Results = await mainWindow.webContents.executeJavaScript(`
-              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(spAnalysis)}, 'sp')
+              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(spElements)}, 'sp')
             `);
 
             if (spStage2Results && spStage2Results.success) {
               console.log('📱 Step 2: SP画像のStage 2変換完了 ✅');
               console.log(`  - グループ化: ${spStage2Results.metadata?.inputElements || 0}個 → ${spStage2Results.metadata?.outputGroups || 0}個`);
-
-              // SP結果の保存
-              await mainWindow.webContents.executeJavaScript(`
-                window.webAssemblyAnalyzer.saveStage2ResultsToJson(${JSON.stringify(spStage2Results)}, 'sp')
-              `);
-              console.log('💾 SP画像のStage 2結果保存完了 ✅');
+              console.log('💾 SP画像のStage 2結果は自動保存されました ✅');
             } else {
               console.warn('⚠️ SP画像のStage 2処理で警告が発生しました');
             }

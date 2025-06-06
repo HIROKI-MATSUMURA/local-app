@@ -3787,8 +3787,9 @@ const transformForAICoding = async (stage1Elements, imageType = 'pc') => {
     console.log(`✅ Stage 2: AI向け変換完了 (${processingTime.toFixed(2)}秒)`);
 
     // 4. 結果をJSON保存
-    if (typeof saveStage2ResultsToJson === 'function') {
-      saveStage2ResultsToJson({
+    // 🆕 Stage 2結果を自動的にファイル保存（Stage 1と同じ環境）
+    try {
+      const stage2Data = {
         success: true,
         data: aiData,
         processingTime,
@@ -3796,9 +3797,21 @@ const transformForAICoding = async (stage1Elements, imageType = 'pc') => {
           inputElements: elements.length,
           outputGroups: groups.length,
           imageType,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          stage: 2,
+          version: '1.0.0'
         }
-      }, imageType);
+      };
+
+      // 🔧 修正: await で非同期保存を待機
+      const saveResult = await saveStage2ResultsToJson(stage2Data, imageType);
+      if (saveResult) {
+        console.log(`💾 Stage 2結果の自動保存が完了しました: ${saveResult}`);
+      } else {
+        console.log(`💾 Stage 2結果はLocalStorageに保存されました（ファイル保存は失敗）`);
+      }
+    } catch (saveError) {
+      console.warn('⚠️ Stage 2結果の自動保存でエラーが発生しましたが、変換処理は正常に完了しました:', saveError);
     }
 
     return {
@@ -4215,90 +4228,62 @@ const buildFallbackAIData = (stage1Results) => {
  * 💾 Stage 2の解析結果をJSONファイルに保存
  * @param {Object} stage2Data - Stage 2の解析結果
  * @param {string} imageType - 'pc' | 'sp'
- * @returns {string} 保存したファイルパス
+ * @returns {Promise<string|null>} 保存したファイル名（成功時）またはnull（失敗時）
  */
-const saveStage2ResultsToJson = (stage2Data, imageType = 'pc') => {
+const saveStage2ResultsToJson = async (stage2Data, imageType = 'pc') => {
   try {
     console.log(`💾 Stage 2結果保存を開始: ${imageType}`);
 
-    // 🔍 環境詳細デバッグ
-    console.log('🔍 環境デバッグ情報:');
-    console.log('  - typeof window:', typeof window);
-    console.log('  - window存在:', typeof window !== 'undefined');
-    console.log('  - window.webAssemblyBridge存在:', typeof window !== 'undefined' && !!window.webAssemblyBridge);
+    // 🔧 修正: transformForAICoding関数から渡されたメタデータを優先使用
+    const metadata = stage2Data.metadata ? {
+      // transformForAICoding関数で設定された正しいメタデータを使用
+      inputElements: stage2Data.metadata.inputElements,
+      outputGroups: stage2Data.metadata.outputGroups,
+      complexity: stage2Data.data?.section_summary?.complexity || stage2Data.metadata.complexity || 'unknown'
+    } : {
+      // フォールバック: stage2Data.dataから推測
+      inputElements: stage2Data.data?.logical_groups?.reduce((sum, group) => sum + (group.elements_count || 0), 0) || 0,
+      outputGroups: stage2Data.data?.logical_groups?.length || 0,
+      complexity: stage2Data.data?.section_summary?.complexity || 'unknown'
+    };
 
-    if (typeof window !== 'undefined') {
-      console.log('  - window.webAssemblyBridge:', window.webAssemblyBridge);
-      if (window.webAssemblyBridge) {
-        console.log('  - saveAnalysisResults関数存在:', typeof window.webAssemblyBridge.saveAnalysisResults === 'function');
-      }
-    }
+    // Stage 2結果のメタデータを追加
+    const enrichedData = {
+      stage: 2,
+      version: '1.0.0',
+      imageType: imageType,
+      timestamp: new Date().toISOString(),
+      metadata: metadata,
+      results: stage2Data
+    };
 
-    // 現在の日時を取得
-    const now = new Date();
-    const timestamp = now.toISOString();
-    const timeStr = timestamp.replace(/:/g, '-').replace(/\..+/, ''); // YYYY-MM-DDThh-mm-ss
+    // 🔧 修正: Stage 1と同じAPI（window.api.saveAnalysisResults）を使用
+    if (typeof window !== 'undefined' && window.api && window.api.saveAnalysisResults) {
+      console.log('🎯 正しいファイル保存APIを使用');
 
-    // 日付フォルダ名を生成 (YYYY-MM-DD)
-    const dateFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `stage2-${imageType}-${timestamp}.json`;
 
-    // ファイル名を生成 (stage2-pc-YYYY-MM-DDThh-mm-ssZ.json)
-    const fileName = `stage2-${imageType}-${timeStr}Z.json`;
-
-    // Electron環境: ブリッジ経由で保存
-    if (typeof window !== 'undefined' && window.webAssemblyBridge) {
-      console.log('🎯 Electron環境でブリッジ経由保存を実行');
       try {
-        const savePath = window.webAssemblyBridge.saveAnalysisResults(
-          dateFolder,
-          fileName,
-          JSON.stringify(stage2Data, null, 2)
-        );
-        console.log(`✅ Stage 2結果を保存しました: ${fileName}`);
-        console.log(`📁 保存パス: ${savePath}`);
-        return savePath;
+        // 同期的に保存実行
+        await window.api.saveAnalysisResults(fileName, JSON.stringify(enrichedData, null, 2));
+        console.log(`✅ Stage 2結果をファイルに保存完了: ${fileName}`);
+        return fileName;
       } catch (saveError) {
-        console.error("❌ Stage 2結果の保存に失敗:", saveError);
-        console.error("❌ 保存エラー詳細:", saveError.message, saveError.stack);
-        // フォールバック: LocalStorage
-        localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(stage2Data));
-        console.log("⚠️ フォールバック: 結果をLocalStorageに保存しました");
+        console.error(`❌ Stage 2ファイル保存エラー:`, saveError);
+        // フォールバック: LocalStorage保存
+        localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(enrichedData));
+        console.log(`⚠️ フォールバック: LocalStorageに保存しました`);
         return null;
       }
     }
-    // Node.js環境: fsモジュールで保存
-    else if (typeof require !== 'undefined') {
-      console.log('🎯 Node.js環境でfs保存を実行');
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const baseDir = path.join(process.cwd(), 'analysis-results', dateFolder);
 
-        // ディレクトリが存在しない場合は作成
-        if (!fs.existsSync(baseDir)) {
-          fs.mkdirSync(baseDir, { recursive: true });
-        }
+    // フォールバック: LocalStorage保存
+    console.log('🎯 フォールバック: LocalStorage保存を実行');
+    localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(enrichedData));
+    console.log(`✅ Stage 2結果をLocalStorageに保存しました: stage2_${imageType}_results`);
 
-        const filePath = path.join(baseDir, fileName);
-        fs.writeFileSync(filePath, JSON.stringify(stage2Data, null, 2));
-        console.log(`✅ Stage 2結果を保存しました: ${filePath}`);
-        return filePath;
-      } catch (fsError) {
-        console.error("❌ ファイル保存エラー:", fsError);
-        return null;
-      }
-    }
-    // ブラウザ環境: LocalStorageに保存
-    else {
-      console.log('🎯 ブラウザ環境でLocalStorage保存を実行');
-      try {
-        localStorage.setItem(`stage2_${imageType}_results`, JSON.stringify(stage2Data));
-        console.log(`✅ Stage 2結果をLocalStorageに保存しました: stage2_${imageType}_results`);
-      } catch (storageError) {
-        console.error("❌ LocalStorage保存エラー:", storageError);
-      }
-      return null;
-    }
+    return null;
   } catch (error) {
     console.error('❌ Stage 2結果保存エラー:', error);
     return null;
