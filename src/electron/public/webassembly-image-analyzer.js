@@ -3845,87 +3845,261 @@ const transformForAICoding = async (stage1Elements, imageType = 'pc') => {
 const groupRelatedElements = (elements) => {
   if (!elements || elements.length === 0) return [];
 
-  const groups = [];
+  console.log(`🔍 改善版グループ化開始: ${elements.length}個の要素を処理`);
+
+  // 1. デバイス別レイアウト特性の検出
+  const imageInfo = detectLayoutCharacteristics(elements);
+  console.log(`📱 検出されたレイアウト: ${imageInfo.layoutType} (${imageInfo.deviceType})`);
+
+  // 2. 空間クラスタリング実行
+  const spatialClusters = performSpatialClustering(elements, imageInfo);
+  console.log(`🗂️ 空間クラスタリング結果: ${spatialClusters.length}個のクラスター`);
+
+  // 3. カードパターン認識とグループ統合
+  const cardGroups = recognizeCardPatterns(spatialClusters, imageInfo);
+  console.log(`🎴 カードパターン認識結果: ${cardGroups.length}個のカードグループ`);
+
+  // 4. 最終的なグループ構造の構築
+  const finalGroups = buildOptimizedGroups(cardGroups, imageInfo);
+  console.log(`✅ 最終グループ化完了: ${finalGroups.length}個のグループ`);
+
+  return finalGroups;
+};
+
+/**
+ * 📐 レイアウト特性を検出
+ */
+const detectLayoutCharacteristics = (elements) => {
+  // 要素の分布を分析
+  const positions = elements.map(el => el.position).filter(pos => pos);
+  if (positions.length === 0) return { layoutType: 'unknown', deviceType: 'unknown' };
+
+  const xs = positions.map(p => p.x);
+  const ys = positions.map(p => p.y);
+  const widths = positions.map(p => p.width);
+  const heights = positions.map(p => p.height);
+
+  const imageWidth = Math.max(...xs.map((x, i) => x + widths[i]));
+  const imageHeight = Math.max(...ys.map((y, i) => y + heights[i]));
+
+  // デバイスタイプ判定
+  const aspectRatio = imageWidth / imageHeight;
+  const deviceType = aspectRatio > 1.2 ? 'pc' : 'sp';
+
+  // X座標の分散を計算（横並び vs 縦並び判定）
+  const xVariance = calculateVariance(xs);
+  const yVariance = calculateVariance(ys);
+
+  // レイアウトタイプ判定
+  let layoutType;
+  if (deviceType === 'pc' && xVariance > yVariance * 2) {
+    layoutType = 'horizontal_cards'; // PC: 横並びカード
+  } else if (deviceType === 'sp' && yVariance > xVariance * 2) {
+    layoutType = 'vertical_cards'; // SP: 縦並びカード
+  } else {
+    layoutType = 'mixed_layout';
+  }
+
+  return {
+    layoutType,
+    deviceType,
+    imageWidth,
+    imageHeight,
+    aspectRatio,
+    elementDensity: elements.length / (imageWidth * imageHeight / 1000000) // 要素密度
+  };
+};
+
+/**
+ * 🧮 分散計算
+ */
+const calculateVariance = (values) => {
+  if (values.length === 0) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
+  return squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
+};
+
+/**
+ * 🌐 空間クラスタリング実行
+ */
+const performSpatialClustering = (elements, imageInfo) => {
+  const clusters = [];
   const visited = new Set();
 
-  elements.forEach((element, index) => {
-    if (visited.has(index)) return;
+  // デバイス別の距離閾値
+  const baseThreshold = imageInfo.deviceType === 'pc' ?
+    imageInfo.imageWidth * 0.15 :  // PC: 15%
+    imageInfo.imageHeight * 0.12;  // SP: 12%
 
-    const group = {
-      id: groups.length + 1,
-      type: determineGroupType(element),
+  elements.forEach((element, index) => {
+    if (visited.has(index) || !element.position) return;
+
+    const cluster = {
+      id: clusters.length + 1,
       elements: [element],
       bounds: { ...element.position },
-      confidence: element.confidence || 0.5
+      centerX: element.position.x + element.position.width / 2,
+      centerY: element.position.y + element.position.height / 2
     };
 
     visited.add(index);
 
-    // 近接要素を同じグループに追加
+    // 近接要素を同じクラスターに追加
     elements.forEach((other, otherIndex) => {
-      if (visited.has(otherIndex)) return;
+      if (visited.has(otherIndex) || !other.position) return;
 
-      if (areElementsRelated(element, other)) {
-        group.elements.push(other);
+      if (areElementsSpatiallyRelated(element, other, baseThreshold, imageInfo)) {
+        cluster.elements.push(other);
         visited.add(otherIndex);
-        // 境界ボックスを更新
-        expandBounds(group.bounds, other.position);
+        expandClusterBounds(cluster, other.position);
       }
     });
 
-    groups.push(group);
+    clusters.push(cluster);
   });
+
+  return clusters;
+};
+
+/**
+ * 🎴 カードパターン認識
+ */
+const recognizeCardPatterns = (clusters, imageInfo) => {
+  // サイズ別にクラスターを分類
+  const largeClusters = clusters.filter(c => c.elements.length >= 3);
+  const mediumClusters = clusters.filter(c => c.elements.length === 2);
+  const smallClusters = clusters.filter(c => c.elements.length === 1);
+
+  console.log(`📊 クラスター分析: 大(${largeClusters.length}) 中(${mediumClusters.length}) 小(${smallClusters.length})`);
+
+  const cardGroups = [];
+
+  // 大きなクラスターをカードグループとして認識
+  largeClusters.forEach((cluster, index) => {
+    const cardGroup = {
+      id: cardGroups.length + 1,
+      type: 'card_group',
+      elements: cluster.elements,
+      bounds: cluster.bounds,
+      confidence: 0.8,
+      pattern: detectCardPattern(cluster, imageInfo)
+    };
+    cardGroups.push(cardGroup);
+  });
+
+  // 残りの中・小クラスターを統合または個別グループ化
+  const remainingElements = [
+    ...mediumClusters.flatMap(c => c.elements),
+    ...smallClusters.flatMap(c => c.elements)
+  ];
+
+  if (remainingElements.length > 0) {
+    // ヘッダー・フッター判定
+    const headerFooterGroups = identifyHeaderFooterGroups(remainingElements, imageInfo);
+    cardGroups.push(...headerFooterGroups);
+  }
+
+  return cardGroups;
+};
+
+/**
+ * 🎯 カードパターン検出
+ */
+const detectCardPattern = (cluster, imageInfo) => {
+  const positions = cluster.elements.map(e => e.position).filter(p => p);
+
+  if (imageInfo.layoutType === 'horizontal_cards') {
+    return 'horizontal_card_set'; // PC: 横並びカードセット
+  } else if (imageInfo.layoutType === 'vertical_cards') {
+    return 'vertical_card_set'; // SP: 縦並びカードセット
+  } else {
+    return 'mixed_content';
+  }
+};
+
+/**
+ * 🎯 ヘッダー・フッター識別
+ */
+const identifyHeaderFooterGroups = (elements, imageInfo) => {
+  const groups = [];
+  const sortedByY = elements.sort((a, b) => a.position.y - b.position.y);
+
+  // 上位20%をヘッダー候補
+  const headerCandidates = sortedByY.filter(e =>
+    e.position.y < imageInfo.imageHeight * 0.2
+  );
+
+  // 下位20%をフッター候補
+  const footerCandidates = sortedByY.filter(e =>
+    e.position.y > imageInfo.imageHeight * 0.8
+  );
+
+  if (headerCandidates.length > 0) {
+    groups.push({
+      id: 999,
+      type: 'header_group',
+      elements: headerCandidates,
+      bounds: calculateOptimizedGroupBounds(headerCandidates),
+      confidence: 0.7,
+      pattern: 'header_section'
+    });
+  }
+
+  if (footerCandidates.length > 0) {
+    groups.push({
+      id: 998,
+      type: 'footer_group',
+      elements: footerCandidates,
+      bounds: calculateOptimizedGroupBounds(footerCandidates),
+      confidence: 0.7,
+      pattern: 'footer_section'
+    });
+  }
 
   return groups;
 };
 
 /**
- * 🏗️ コンテンツ構造を分析
- * @param {Array} groups - グループ化された要素
- * @param {string} imageType - 'pc' | 'sp'
- * @returns {Object} 構造分析結果
+ * 🏗️ 最適化されたグループ構築
  */
-const analyzeContentStructure = (groups, imageType) => {
-  const structure = {
-    pattern: 'unknown',
-    layout: imageType === 'sp' ? 'vertical' : 'horizontal',
-    hierarchy: [],
-    mainContent: null,
-    supportingElements: []
-  };
-
-  if (groups.length === 0) {
-    structure.pattern = 'empty';
-    return structure;
-  }
-
-  // Y座標でソート（上から下の順序）
-  const sortedGroups = [...groups].sort((a, b) => a.bounds.y - b.bounds.y);
-
-  // パターン判定
-  if (sortedGroups.length === 1) {
-    structure.pattern = 'single_content';
-    structure.mainContent = sortedGroups[0];
-  } else if (sortedGroups.length <= 3) {
-    structure.pattern = 'simple_layout';
-    structure.mainContent = findLargestGroup(sortedGroups);
-    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
-  } else {
-    structure.pattern = 'complex_layout';
-    structure.mainContent = findLargestGroup(sortedGroups);
-    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
-  }
-
-  // 階層構造の推定
-  structure.hierarchy = sortedGroups.map((group, index) => ({
-    level: index === 0 ? 'primary' : index === 1 ? 'secondary' : 'tertiary',
-    group: group,
-    role: determineElementRole(group, index, sortedGroups.length)
+const buildOptimizedGroups = (cardGroups, imageInfo) => {
+  return cardGroups.map((group, index) => ({
+    id: group.id,
+    type: group.type,
+    elements: group.elements,
+    bounds: group.bounds,
+    confidence: group.confidence,
+    metadata: {
+      pattern: group.pattern,
+      elementCount: group.elements.length,
+      layoutType: imageInfo.layoutType,
+      deviceType: imageInfo.deviceType
+    }
   }));
-
-  return structure;
 };
 
+/**
+ * 📏 最適化されたグループ境界計算
+ */
+const calculateOptimizedGroupBounds = (elements) => {
+  if (!elements || elements.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+
+  const positions = elements.map(e => e.position).filter(p => p);
+  if (positions.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+
+  const minX = Math.min(...positions.map(p => p.x));
+  const minY = Math.min(...positions.map(p => p.y));
+  const maxX = Math.max(...positions.map(p => p.x + p.width));
+  const maxY = Math.max(...positions.map(p => p.y + p.height));
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+};
 
 /**
  * 🤖 AI向けの構造化データを構築
@@ -3972,7 +4146,121 @@ const buildAIFriendlyData = (groups, structure, stage1Results, imageType) => {
 };
 
 /**
- * 🔍 2つの要素が関連しているか判定
+ * 🔍 改善された要素関連性判定 - 空間的近接性特化
+ * @param {Object} element1 - 1つ目の要素
+ * @param {Object} element2 - 2つ目の要素
+ * @param {number} threshold - 距離閾値
+ * @param {Object} imageInfo - 画像情報
+ * @returns {boolean} 関連している場合true
+ */
+const areElementsSpatiallyRelated = (element1, element2, threshold, imageInfo) => {
+  if (!element1?.position || !element2?.position) return false;
+
+  const pos1 = element1.position;
+  const pos2 = element2.position;
+
+  // 中心点の計算
+  const center1 = {
+    x: pos1.x + pos1.width / 2,
+    y: pos1.y + pos1.height / 2
+  };
+  const center2 = {
+    x: pos2.x + pos2.width / 2,
+    y: pos2.y + pos2.height / 2
+  };
+
+  // ユークリッド距離
+  const distance = Math.sqrt(
+    Math.pow(center1.x - center2.x, 2) +
+    Math.pow(center1.y - center2.y, 2)
+  );
+
+  // レイアウト特化の判定
+  if (imageInfo.layoutType === 'horizontal_cards') {
+    // PC: 横並び優先 - Y座標の近さを重視
+    const yDiff = Math.abs(center1.y - center2.y);
+    const xDiff = Math.abs(center1.x - center2.x);
+    return yDiff < threshold * 0.5 && distance < threshold;
+  } else if (imageInfo.layoutType === 'vertical_cards') {
+    // SP: 縦並び優先 - X座標の近さを重視
+    const xDiff = Math.abs(center1.x - center2.x);
+    const yDiff = Math.abs(center1.y - center2.y);
+    return xDiff < threshold * 0.5 && distance < threshold;
+  }
+
+  // 一般的な近接性判定
+  return distance < threshold;
+};
+
+/**
+ * 🔄 クラスター境界の拡張
+ * @param {Object} cluster - 拡張するクラスター
+ * @param {Object} position - 含める要素の位置情報
+ */
+const expandClusterBounds = (cluster, position) => {
+  const bounds = cluster.bounds;
+  const x2 = Math.max(bounds.x + bounds.width, position.x + position.width);
+  const y2 = Math.max(bounds.y + bounds.height, position.y + position.height);
+
+  bounds.x = Math.min(bounds.x, position.x);
+  bounds.y = Math.min(bounds.y, position.y);
+  bounds.width = x2 - bounds.x;
+  bounds.height = y2 - bounds.y;
+
+  // クラスター中心の更新
+  cluster.centerX = bounds.x + bounds.width / 2;
+  cluster.centerY = bounds.y + bounds.height / 2;
+};
+
+/**
+ * 🏗️ コンテンツ構造を分析 (改善版)
+ * @param {Array} groups - グループ化された要素
+ * @param {string} imageType - 'pc' | 'sp'
+ * @returns {Object} 構造分析結果
+ */
+const analyzeContentStructure = (groups, imageType) => {
+  const structure = {
+    pattern: 'unknown',
+    layout: imageType === 'sp' ? 'vertical' : 'horizontal',
+    hierarchy: [],
+    mainContent: null,
+    supportingElements: []
+  };
+
+  if (groups.length === 0) {
+    structure.pattern = 'empty';
+    return structure;
+  }
+
+  // Y座標でソート（上から下の順序）
+  const sortedGroups = [...groups].sort((a, b) => a.bounds.y - b.bounds.y);
+
+  // パターン判定（改善版）
+  if (sortedGroups.length === 1) {
+    structure.pattern = 'single_content';
+    structure.mainContent = sortedGroups[0];
+  } else if (sortedGroups.length <= 4) { // カード向けに緩和
+    structure.pattern = 'simple_layout';
+    structure.mainContent = findLargestGroup(sortedGroups);
+    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
+  } else {
+    structure.pattern = 'complex_layout';
+    structure.mainContent = findLargestGroup(sortedGroups);
+    structure.supportingElements = sortedGroups.filter(g => g !== structure.mainContent);
+  }
+
+  // 階層構造の推定（改善版）
+  structure.hierarchy = sortedGroups.map((group, index) => ({
+    level: index === 0 ? 'primary' : index === 1 ? 'secondary' : 'tertiary',
+    group: group,
+    role: determineElementRole(group, index, sortedGroups.length)
+  }));
+
+  return structure;
+};
+
+/**
+ * 🔍 2つの要素が関連しているか判定 (互換性維持版)
  * @param {Object} element1 - 1つ目の要素
  * @param {Object} element2 - 2つ目の要素
  * @returns {boolean} 関連している場合true
@@ -4015,24 +4303,7 @@ const areElementsRelated = (element1, element2) => {
 };
 
 /**
- * 🔄 境界ボックスを拡張して他の要素を含める
- * @param {Object} bounds - 拡張する境界ボックス
- * @param {Object} position - 含める要素の位置情報
- */
-const expandBounds = (bounds, position) => {
-  if (!bounds || !position) return;
-
-  const x2 = Math.max(bounds.x + bounds.width, position.x + position.width);
-  const y2 = Math.max(bounds.y + bounds.height, position.y + position.height);
-
-  bounds.x = Math.min(bounds.x, position.x);
-  bounds.y = Math.min(bounds.y, position.y);
-  bounds.width = x2 - bounds.x;
-  bounds.height = y2 - bounds.y;
-};
-
-/**
- * 🔎 最も大きなグループを見つける
+ * 🔍 最も大きなグループを見つける
  * @param {Array} groups - グループ配列
  * @returns {Object} 最大のグループ
  */
