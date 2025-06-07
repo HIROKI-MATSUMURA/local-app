@@ -4105,7 +4105,55 @@ const recognizeCardPatterns = (clusters, imageInfo) => {
       cardGroup.zone_confidence = Object.keys(zones).length > 0 ?
         Object.values(zones).reduce((sum, z) => sum + z.confidence, 0) / Object.keys(zones).length : 0;
 
-      console.log(`📊 カード${cardGroup.id}ゾーン分析完了: ${Object.keys(zones).length}個のゾーン検出`);
+      const uniqueZones = Object.keys(zones).filter(z => z !== 'unknown');
+      console.log(`📊 カード${cardGroup.id}ゾーン分析完了: ${uniqueZones.length}個の有効ゾーン検出 (信頼度:${cardGroup.zone_confidence.toFixed(2)})`);
+      if (uniqueZones.length > 0) {
+        console.log(`   🎯 検出ゾーン: ${uniqueZones.join(', ')}`);
+      }
+    }
+  });
+
+  // 🆕 Phase 1.5: 改善型カード内ゾーン分析を統合実行
+  cardGroups.forEach(cardGroup => {
+    if (cardGroup.type === 'card_group' && cardGroup.elements.length > 2) {
+      console.log(`🎯 カード${cardGroup.id}のゾーン分析開始 (要素数: ${cardGroup.elements.length})`);
+
+      // カード内要素をY座標でソート
+      const sortedElements = cardGroup.elements
+        .filter(el => el.position)
+        .sort((a, b) => a.position.y - b.position.y);
+
+      let zones = {};
+
+      // 🚀 Phase 1.5: 改善版ゾーン分析エンジンを使用（利用可能な場合）
+      if (typeof window !== 'undefined' && window.EnhancedZoneAnalyzer && window.EnhancedZoneAnalyzer.performEnhancedZoneAnalysis) {
+        console.log(`🚀 カード${cardGroup.id}: 改善版ゾーン分析エンジンを使用`);
+        try {
+          zones = window.EnhancedZoneAnalyzer.performEnhancedZoneAnalysis(
+            sortedElements,
+            cardGroup.bounds,
+            imageInfo
+          );
+          console.log(`🎉 カード${cardGroup.id}: 改善版ゾーン分析完了`);
+        } catch (enhancedError) {
+          console.warn(`⚠️ カード${cardGroup.id}: 改善版ゾーン分析エラー、フォールバックを使用:`, enhancedError);
+          zones = performLegacyZoneAnalysis(sortedElements, cardGroup.bounds, imageInfo);
+        }
+      } else {
+        console.log(`📋 カード${cardGroup.id}: 従来版ゾーン分析を使用`);
+        zones = performLegacyZoneAnalysis(sortedElements, cardGroup.bounds, imageInfo);
+      }
+
+      // カードにゾーン情報を追加
+      cardGroup.internal_zones = zones;
+      cardGroup.zone_confidence = Object.keys(zones).length > 0 ?
+        Object.values(zones).reduce((sum, z) => sum + z.confidence, 0) / Object.keys(zones).length : 0;
+
+      const uniqueZones = Object.keys(zones).filter(z => z !== 'unknown');
+      console.log(`📊 カード${cardGroup.id}ゾーン分析完了: ${uniqueZones.length}個の有効ゾーン検出 (信頼度:${cardGroup.zone_confidence.toFixed(2)})`);
+      if (uniqueZones.length > 0) {
+        console.log(`   🎯 検出ゾーン: ${uniqueZones.join(', ')}`);
+      }
     }
   });
 

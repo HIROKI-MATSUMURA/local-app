@@ -1,0 +1,123 @@
+{
+  "version": "1.0.0",
+  "stage1_config": {
+    "device_thresholds": {
+      "pc": {
+        "min_area_multiplier": 1.0,
+        "max_elements": 30,
+        "processing_quality": "high",
+        "text_size_threshold": 0.1,
+        "scaling_factor": 1.0
+      },
+      "sp": {
+        "min_area_multiplier": 0.1,
+        "max_elements": 40,
+        "processing_quality": "medium",
+        "text_size_threshold": 0.05,
+        "scaling_factor": 1.5
+      }
+    },
+    "color_extraction": {
+      "max_colors": 5,
+      "resize_width": 300,
+      "similarity_threshold": 15,
+      "min_occurrence_ratio": 0.0005
+    }
+  },
+  "stage2_config": {
+    "grouping": {
+      "distance_threshold_ratio": {
+        "pc": 0.15,
+        "sp": 0.12
+      },
+      "min_group_size": 3,
+      "max_groups": 10
+    },
+    "zone_analysis": {
+      "sp": {
+        "visual_zone": {
+          "min_area": 500,
+          "aspect_ratio": [
+            0.5,
+            3.0
+          ]
+        },
+        "title_zone": {
+          "text_length": [
+            3,
+            50
+          ],
+          "font_size": [
+            12,
+            32
+          ]
+        },
+        "metadata_zone": {
+          "text_length": [
+            5,
+            30
+          ]
+        },
+        "description_zone": {
+          "text_length": [
+            20,
+            200
+          ]
+        },
+        "action_zone": {
+          "min_area": 100,
+          "aspect_ratio": [
+            1.5,
+            8.0
+          ]
+        }
+      },
+      "pc": {
+        "visual_zone": {
+          "min_area": 3000,
+          "aspect_ratio": [
+            0.5,
+            3.0
+          ]
+        },
+        "title_zone": {
+          "text_length": [
+            5,
+            100
+          ],
+          "font_size": [
+            14,
+            48
+          ]
+        },
+        "metadata_zone": {
+          "text_length": [
+            10,
+            50
+          ]
+        },
+        "description_zone": {
+          "text_length": [
+            50,
+            500
+          ]
+        },
+        "action_zone": {
+          "min_area": 500,
+          "aspect_ratio": [
+            1.5,
+            8.0
+          ]
+        }
+      }
+    }
+  },
+  "file_output": {
+    "timezone": "Asia/Tokyo",
+    "formats": [
+      "json"
+    ],
+    "compression": false,
+    "backup_enabled": true
+  }
+}

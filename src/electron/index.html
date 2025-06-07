@@ -4,13 +4,10 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://payments.codeups.jp https://docs.opencv.org https://tessdata.projectnaptha.com https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm/* https://cdn.jsdelivr.net/npm/@tesseract.js-data/* https://unpkg.com https://unpkg.com/* data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://unpkg.com https://cdn.jsdelivr.net https://docs.opencv.org; worker-src 'self' blob: data: https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; media-src 'self'; object-src 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <!-- sass.js CDN - 最初に読み込む -->
   <script src="https://cdn.jsdelivr.net/npm/sass.js@0.11.1/dist/sass.sync.min.js" defer></script>
   <!-- Tesseract.js CDN -->
-  <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+  <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js" defer></script>
   <script>
     // 言語ファイルの読み込みを事前に行う
     document.addEventListener('DOMContentLoaded', () => {
@@ -96,7 +93,9 @@
     };
   </script>
   <!-- OpenCV.js ローカルから読み込み -->
-  <script src="opencv.js"></script>
+  <script src="opencv.js" defer></script>
+  <!-- 🔧 設定ローダーを追加（WebAssembly解析前に読み込み） -->
+  <script src="config/config-loader.js" defer></script>
   <!-- WebAssembly Image Analyzer をHTMLスクリプトとして読み込み（OpenCV.js後） -->
   <script>
     // ブラウザ環境用のWebAssemblyAnalyzer設定（パス問題を回避）
@@ -117,11 +116,28 @@
           console.log('✅ webassembly-image-analyzer.js を直接読み込みました');
           console.log('✅ 利用可能な関数:', Object.keys(window.webAssemblyAnalyzer || {}));
 
-          // 初期化完了イベントを発火
-          if (window.webAssemblyAnalyzer) {
-            window.webAssemblyAnalyzerReady = true;
-            window.dispatchEvent(new CustomEvent('webassemblyanalyzerready'));
-          }
+          // 🆕 Phase 1.5: Enhanced Zone Analyzer の読み込み
+          const enhancedScript = document.createElement('script');
+          enhancedScript.src = 'enhanced-zone-analyzer.js';
+          enhancedScript.onload = () => {
+            console.log('🚀 enhanced-zone-analyzer.js を読み込みました');
+            console.log('🚀 Enhanced Zone Analyzer 利用可能:', !!window.EnhancedZoneAnalyzer);
+
+            // 初期化完了イベントを発火
+            if (window.webAssemblyAnalyzer) {
+              window.webAssemblyAnalyzerReady = true;
+              window.dispatchEvent(new CustomEvent('webassemblyanalyzerready'));
+            }
+          };
+          enhancedScript.onerror = (e) => {
+            console.warn('⚠️ enhanced-zone-analyzer.js の読み込みに失敗しました:', e);
+            // 基本機能は動作するように初期化完了イベントを発火
+            if (window.webAssemblyAnalyzer) {
+              window.webAssemblyAnalyzerReady = true;
+              window.dispatchEvent(new CustomEvent('webassemblyanalyzerready'));
+            }
+          };
+          document.head.appendChild(enhancedScript);
         };
         script.onerror = async (e) => {
           console.error('❌ webassembly-image-analyzer.js の読み込みに失敗しました:', e);
@@ -275,7 +291,7 @@
   <h1 style="display: none;">CreAIteCode</h1>
   <div id="root"></div>
   <div id="ocr-test" style="margin: 20px; padding: 20px; border: 1px solid #ccc;">
-    <h3>テスト機能: OCR</h3>
+    <h2>テスト機能: OCR</h2>
     <p>ここではTesseract.jsの動作を直接テストできます。</p>
     <button id="test-ocr" style="padding: 10px; margin: 10px 0;">テスト実行</button>
     <div id="ocr-result" style="white-space: pre-wrap; font-family: monospace; margin-top: 10px; padding: 10px; background: #f0f0f0; max-height: 300px; overflow: auto;"></div>
