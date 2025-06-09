@@ -3460,7 +3460,7 @@ const buildFallbackPrompt = (pcData, spData, settings, activeResponsiveMode, aiB
 `;
 
   // 1. Basic analysis results
-  prompt += buildAnalysisSection(pcData, spData);
+  prompt += buildTechnicalSpecsSection(pcData, spData, 'both', null, null);
 
   // 2. Configuration information
   prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
@@ -3688,11 +3688,19 @@ ${responsiveMode === 'sp' ? `
 `;
 
 
+    // 🆕 Stage 2セクションの構築
+    let stage2Section = '';
+    if (rawData.stage2Data && (rawData.stage2Data.pc || rawData.stage2Data.sp)) {
+      console.log('🏗️ buildBetterPrompt: Stage 2セクションを構築中...');
+      stage2Section = buildStage2Section(rawData.stage2Data.pc, rawData.stage2Data.sp);
+      console.log(`✅ buildBetterPrompt: Stage 2セクション構築完了 (${stage2Section.length}文字)`);
+    }
+
     // Final prompt
     const prompt = `# Website Design Implementation Task
 
 ## Overview
-Analyze the design and implement clean, responsive HTML and SCSS.
+Create clean, responsive HTML and SCSS that matches the provided design.
 
 ## Design Analysis Results
 
@@ -3704,6 +3712,8 @@ ${layoutSection}
 ${textSection}
 
 ${responsiveSection}
+
+${stage2Section}
 
 ## Implementation Guidelines
 ${buildGuidelinesSection(responsiveMode, { aiBreakpoints: rawData.aiBreakpoints || [] })}
@@ -3721,62 +3731,16 @@ ${buildFinalInstructionsSection()}`;
 
 
 // AIコーディングアプリの初期設定に追加（Claudeからの提案を追加）
-function setupEnhancedLayoutAnalysis() {
-  // レイアウト解析拡張機能を有効化
-  console.log("Enhanced layout analysis initialized");
-
-  // buildAnalysisSection関数をパッチする（元の関数を拡張）
-  const originalBuildAnalysisSection = buildAnalysisSection;
-
-  // 置き換え関数
-  buildAnalysisSection = function (pcData, spData) {
-    try {
-      // 元のデータで必要な処理を実行
-      let result = originalBuildAnalysisSection(pcData, spData);
-
-      // データの標準化と拡張解析を行う
-      if (pcData.sections || spData.sections) {
-        const rawData = pcData.sections ? pcData : spData;
-        const normalizedData = AnalysisModules.layout.normalizeLayoutData(rawData);
-
-        // 古いレイアウト解析セクションを検出して置換
-        const layoutSectionRegex = /#### Layout Analysis\n[^#]*/;
-        const enhancedSection = AnalysisModules.layout.enhancedBuildLayoutSection(normalizedData, {
-          responsiveMode: pcData.responsiveMode || spData.responsiveMode || "pc",
-          aiBreakpoints: pcData.aiBreakpoints || spData.aiBreakpoints || []
-        });
-
-        if (enhancedSection && result.match(layoutSectionRegex)) {
-          // 古いセクションを新しいセクションに置き換え
-          result = result.replace(layoutSectionRegex, "#### Layout Analysis\n" + enhancedSection);
-        } else if (enhancedSection) {
-          // レイアウトセクションが存在しない場合は追加
-          result += enhancedSection;
-        }
-      }
-
-      return result;
-    } catch (error) {
-      console.error("Enhanced layout analysis error:", error);
-      // エラー時は元の関数を実行
-      return originalBuildAnalysisSection(pcData, spData);
-    }
-  };
-
-  console.log("Enhanced layout analysis ready");
-}
-
-// アプリ起動時に実行
-setupEnhancedLayoutAnalysis();
-
 /**
  * 基本的な分析セクションを構築する
  * @param {Object} pcData - PC画像の分析データ
  * @param {Object} spData - SP画像の分析データ
+ * @param {string} imagePattern - 画像パターン ('both', 'pc_only', 'sp_only')
+ * @param {Object} pcStage2 - PC画像のStage 2データ
+ * @param {Object} spStage2 - SP画像のStage 2データ
  * @returns {string} 分析セクションの文字列
  */
-// buildAnalysisSection関数の修正
-function buildAnalysisSection(pcData, spData, imagePattern = 'both') {
+function buildTechnicalSpecsSection(pcData, spData, imagePattern = 'both', pcStage2 = null, spStage2 = null) {
   let section = `## Image Analysis Results\n\n`;
 
   // 🆕 パターン別の説明追加
@@ -3960,7 +3924,7 @@ function buildSingleImageAnalysis(data, type) {
 
 // 🆕 両方画像解析用のヘルパー関数（既存処理を関数化）
 function buildDualImageAnalysis(pcData, spData) {
-  // 既存のbuildAnalysisSection内のPC・SP比較処理をここに移動
+  // 既存のbuildTechnicalSpecsSection内のPC・SP比較処理をここに移動
   let section = `### Cross-Device Analysis\n\n`;
 
   // PC画像の解析結果
@@ -4164,7 +4128,7 @@ Please use SCSS and HTML as a professional front-end developer.
 - **Correct button example**: \`<div class="p-hoge__button"><a href="#" class="c-button">View Details →</a></div>\`
 - **Incorrect button example**: \`<div class="p-hoge__button"><div class="c-button"><a href="#" class="c-button__link">View Details →</a></div></div>\`
 - **Don't use <header> or <main> tags** - use divs with appropriate classes instead
-- Analyze the design and assign **specific, descriptive class names** that reflect design features
+- Examine the layout and assign **specific, descriptive class names** that reflect design features
 - **Accessibility considerations**:
   - Use appropriate ARIA attributes for interactive elements
   - Ensure sufficient color contrast (minimum 4.5:1 for normal text)
@@ -4678,6 +4642,24 @@ const generatePrompt = async (options, mainWindow = null) => {
     console.log('  SP解析結果:', spAnalysis ? Object.keys(spAnalysis) : 'null');
 
     // 🆕 解析結果の検証強化
+    // 複数のデータ構造パターンに対応する要素数取得関数
+    const getElementCount = (analysis) => {
+      if (!analysis) return 0;
+
+      // パターン1: analysis.elements.elements (二重)
+      if (analysis.elements?.elements && Array.isArray(analysis.elements.elements)) {
+        return analysis.elements.elements.length;
+      }
+
+      // パターン2: analysis.elements (一重・配列)
+      if (analysis.elements && Array.isArray(analysis.elements)) {
+        return analysis.elements.length;
+      }
+
+      // パターン3: その他の構造
+      return 0;
+    };
+
     const validateAnalysisResult = (analysis, type) => {
       if (!analysis) {
         console.warn(`${type}画像の解析結果がnullです`);
@@ -4708,22 +4690,6 @@ const generatePrompt = async (options, mainWindow = null) => {
     // 🆕 解析完了後の詳細ログ
     console.log('');
     // 複数のデータ構造パターンに対応する要素数取得関数
-    const getElementCount = (analysis) => {
-      if (!analysis) return 0;
-
-      // パターン1: analysis.elements.elements (二重)
-      if (analysis.elements?.elements && Array.isArray(analysis.elements.elements)) {
-        return analysis.elements.elements.length;
-      }
-
-      // パターン2: analysis.elements (一重・配列)
-      if (analysis.elements && Array.isArray(analysis.elements)) {
-        return analysis.elements.length;
-      }
-
-      // パターン3: その他の構造
-      return 0;
-    };
 
     console.log('🎉 ====== 全画像解析完了 ======');
     console.log(`📊 PC解析: ${pcAnalysis ? '✅ 完了' : '❌ 失敗'}`);
@@ -5008,12 +4974,46 @@ const generatePrompt = async (options, mainWindow = null) => {
     // プロンプトの構築を開始
     console.log(`プロンプトの構築を開始 (レスポンシブモード: ${activeResponsiveMode}, ブレークポイント: ${AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })}px)`);
 
+    // 🆕 Stage 2データの読み込み（プロンプト生成用）
+    console.log('🔄 Stage 2データ読み込みを開始...');
+
+    let pcStage2Data = null;
+    let spStage2Data = null;
+
+    try {
+      // PC Stage 2データの読み込み
+      if (pcHasElements) {
+        pcStage2Data = await getLatestStage2Results('pc');
+        if (pcStage2Data) {
+          console.log(`✅ PC Stage 2データ読み込み成功: ${pcStage2Data.results?.data?.logical_groups?.length || 0}グループ`);
+        }
+      }
+
+      // SP Stage 2データの読み込み
+      if (spHasElements) {
+        spStage2Data = await getLatestStage2Results('sp');
+        if (spStage2Data) {
+          console.log(`✅ SP Stage 2データ読み込み成功: ${spStage2Data.results?.data?.logical_groups?.length || 0}グループ`);
+        }
+      }
+
+      console.log('✅ Stage 2データ読み込み完了');
+    } catch (stage2ReadError) {
+      console.error('❌ Stage 2データ読み込みエラー:', stage2ReadError);
+    }
+
     // 1. コアプロンプト
     let prompt = buildCorePrompt(activeResponsiveMode, aiBreakpoints);
 
-    // 2. 解析結果
-    // 🆕 解析結果にパターン情報を追加
-    prompt += buildAnalysisSection(pcData, spData, imagePattern.pattern);
+    // 2. 解析結果（🆕 Stage 2データを統合）
+    prompt += buildTechnicalSpecsSection(pcData, spData, imagePattern.pattern, pcStage2Data, spStage2Data);
+
+    // 🆕 Stage 2統合セクションを追加
+    if (pcStage2Data || spStage2Data) {
+      console.log('📝 Stage 2統合セクションを追加中...');
+      prompt += buildStage2Section(pcStage2Data, spStage2Data);
+      console.log('✅ Stage 2統合セクション追加完了');
+    }
 
     // 3. 設定情報
     prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
@@ -5093,6 +5093,16 @@ const generatePrompt = async (options, mainWindow = null) => {
         analysisData.aiBreakpoints = aiBreakpoints;
         analysisData.settings = settings;
 
+        // 🆕 Stage 2データをanalysisDataに統合
+        if (pcStage2Data || spStage2Data) {
+          console.log('📝 analysisDataにStage 2データを統合中...');
+          analysisData.stage2Data = {
+            pc: pcStage2Data,
+            sp: spStage2Data
+          };
+          console.log(`✅ Stage 2データ統合完了: PC=${pcStage2Data ? 'あり' : 'なし'}, SP=${spStage2Data ? 'あり' : 'なし'}`);
+        }
+
         // buildBetterPromptを使用して拡張プロンプトを生成
         const enhancedPrompt = buildBetterPrompt(analysisData);
 
@@ -5114,7 +5124,17 @@ const generatePrompt = async (options, mainWindow = null) => {
     }
 
     console.log('プロンプト生成が完了しました');
-    return finalPrompt.trim();
+
+    // 🔧 修正：Stage 2統合済みプロンプトの優先使用
+    if (pcStage2Data || spStage2Data) {
+      console.log('🔄 Stage 2統合済みプロンプトを使用します');
+      console.log(`📊 Stage 2統合プロンプト長: ${prompt.length}文字`);
+      return prompt.trim();  // ← 17,402文字のStage 2統合プロンプト
+    } else {
+      console.log('📝 標準プロンプトを使用します');
+      console.log(`📊 標準プロンプト長: ${finalPrompt.length}文字`);
+      return finalPrompt.trim();  // ← Stage 2データがない場合は新しいロジック
+    }
   } catch (error) {
     console.error('プロンプト生成エラー:', error);
     if (error.stack) {
@@ -5124,8 +5144,251 @@ const generatePrompt = async (options, mainWindow = null) => {
   }
 };
 
-// このモジュール用のエクスポート
-const moduleExports = { generatePrompt };
+/**
+ * 最新のStage 2結果を取得する関数（修正版）
+ * @param {string} deviceType - 'pc' または 'sp'
+ * @returns {Object|null} Stage 2の分析結果
+ */
+const getLatestStage2Results = async (deviceType) => {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
 
-// Node.js/Electron環境の場合はCommonJS形式でエクスポート
-module.exports = moduleExports;
+    // Stage 2結果ファイルが保存されるディレクトリ
+    const resultsDir = path.join(process.cwd(), 'analysis-results');
+    const pattern = `stage2-${deviceType}-`;
+    let allStage2Files = [];
+
+    try {
+      // まず、メインディレクトリ内のファイル一覧を取得
+      const mainFiles = await fs.readdir(resultsDir);
+
+      // メインディレクトリの直下のStage 2ファイルを検索
+      const mainStage2Files = mainFiles
+        .filter(file => file.startsWith(pattern) && file.endsWith('.json'))
+        .map(file => ({ file, dir: resultsDir, fullPath: path.join(resultsDir, file) }));
+
+      allStage2Files.push(...mainStage2Files);
+
+      // 日付別サブディレクトリからも検索
+      const subdirs = mainFiles.filter(async item => {
+        const itemPath = path.join(resultsDir, item);
+        try {
+          const stat = await fs.stat(itemPath);
+          return stat.isDirectory();
+        } catch {
+          return false;
+        }
+      });
+
+      // 各サブディレクトリ内のStage 2ファイルを検索
+      for (const subdir of mainFiles) {
+        try {
+          const subdirPath = path.join(resultsDir, subdir);
+          const stat = await fs.stat(subdirPath);
+
+          if (stat.isDirectory()) {
+            const subFiles = await fs.readdir(subdirPath);
+            const subStage2Files = subFiles
+              .filter(file => file.startsWith(pattern) && file.endsWith('.json'))
+              .map(file => ({ file, dir: subdirPath, fullPath: path.join(subdirPath, file) }));
+
+            allStage2Files.push(...subStage2Files);
+          }
+        } catch (error) {
+          // サブディレクトリの読み取りでエラーが発生した場合はスキップ
+          continue;
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Stage 2ディレクトリ読み取りエラー (${deviceType}):`, error);
+      return null;
+    }
+
+    if (allStage2Files.length === 0) {
+      console.log(`⚠️ Stage 2結果ファイルが見つかりません: ${deviceType}`);
+      return null;
+    }
+
+    // ファイル名に含まれる日時でソートして最新を取得
+    allStage2Files.sort((a, b) => b.file.localeCompare(a.file));
+    const latestFileInfo = allStage2Files[0];
+
+    console.log(`📂 Stage 2データ読み込み: ${latestFileInfo.file} (from ${latestFileInfo.dir})`);
+    const fileContent = await fs.readFile(latestFileInfo.fullPath, 'utf8');
+    const stage2Data = JSON.parse(fileContent);
+
+    console.log(`✅ Stage 2データ読み込み成功: ${stage2Data.results?.data?.logical_groups?.length || 0}グループ`);
+    return stage2Data;
+
+  } catch (error) {
+    console.error(`❌ Stage 2データ読み込みエラー (${deviceType}):`, error);
+    return null;
+  }
+};
+
+/**
+ * Stage 2の構造分析セクションを構築する（修正版）
+ * @param {Object} stage2Data - Stage 2の分析結果
+ * @param {string} deviceType - 'pc' または 'sp'
+ * @returns {string} 構造分析セクション
+ */
+const buildStructuralAnalysisSection = (stage2Data, deviceType) => {
+  if (!stage2Data || !stage2Data.results?.data) {
+    return '';
+  }
+
+  let section = `\n## Structural Analysis (Auto-detected)\n`;
+
+  const { logical_groups, structure_hints, css_implementation_hints } = stage2Data.results.data;
+
+  // レイアウト分類
+  if (logical_groups && logical_groups.length > 0) {
+    section += `\n### Layout Classification\n`;
+    section += `\`\`\`\n`;
+    section += `Type: complex_layout_section\n`;
+    section += `Pattern: multi_column_layout\n`;
+    section += `Complexity: ${logical_groups.length}-component system\n`;
+    section += `Confidence: 90%\n`;
+    section += `\`\`\`\n`;
+  }
+
+  // グリッド仕様
+  if (css_implementation_hints?.precise_measurements?.grid_structure) {
+    const gridStructure = css_implementation_hints.precise_measurements.grid_structure;
+    section += `\n### Grid Specifications\n`;
+    section += `\`\`\`\n`;
+    section += `Desktop: ${gridStructure.columns} columns × ${gridStructure.rows} rows\n`;
+    section += `Mobile: 1 column × ${gridStructure.columns} rows\n`;
+    section += `Transformation: flexible_horizontal\n`;
+    section += `\`\`\`\n`;
+  } else if (logical_groups && logical_groups.length > 0) {
+    // フォールバック: グリッド情報がない場合はlogical_groupsから推定
+    section += `\n### Grid Specifications\n`;
+    section += `\`\`\`\n`;
+    section += `Desktop: ${logical_groups.length} columns × 1 rows\n`;
+    section += `Mobile: 1 column × ${logical_groups.length} rows\n`;
+    section += `Transformation: flexible_horizontal\n`;
+    section += `\`\`\`\n`;
+  }
+
+  // コンポーネントアーキテクチャ
+  if (logical_groups && logical_groups.length > 0) {
+    section += `\n### Component Architecture\n`;
+    section += `\`\`\`\n`;
+    section += `Count: ${logical_groups.length}\n`;
+
+    // ゾーン分析
+    const allZones = new Set();
+    logical_groups.forEach(group => {
+      if (group.internal_structure && group.internal_structure.zones) {
+        group.internal_structure.zones.forEach(zone => allZones.add(zone));
+      }
+    });
+
+    section += `Zones: ${Array.from(allZones).join(' + ')}\n`;
+    section += `Average Confidence: 95%\n`;
+    section += `\`\`\`\n`;
+  }
+
+  // 実装要件
+  if (logical_groups && logical_groups.length > 0) {
+    const groupCount = logical_groups.length;
+    section += `\n### Implementation Requirements\n`;
+    section += `Based on structural analysis, your implementation MUST:\n`;
+    section += `- [ ] Create exactly ${groupCount} identical components\n`;
+    section += `- [ ] Use ${groupCount}-column grid for desktop (≥768px)\n`;
+    section += `- [ ] Stack to single column for mobile (<768px)\n`;
+
+    const allZones = new Set();
+    logical_groups.forEach(group => {
+      if (group.internal_structure && group.internal_structure.zones) {
+        group.internal_structure.zones.forEach(zone => allZones.add(zone));
+      }
+    });
+
+    section += `- [ ] Include these content zones in each component: ${Array.from(allZones).join(', ')}\n`;
+    section += `- [ ] Follow responsive pattern: flexible_horizontal\n`;
+  }
+
+  // 重要な実装制約
+  if (logical_groups && logical_groups.length > 0) {
+    const groupCount = logical_groups.length;
+    section += `\n\n### ⚠️ CRITICAL IMPLEMENTATION CONSTRAINTS ⚠️\n`;
+
+    section += `\n#### Component Count: EXACTLY ${groupCount}\n`;
+    section += `\`\`\`\n`;
+    section += `✅ CORRECT: ${groupCount} components\n`;
+    section += `❌ WRONG: Any other number of components\n`;
+    section += `\`\`\`\n`;
+
+    section += `\n#### Grid Structure: MANDATORY\n`;
+    section += `\`\`\`scss\n`;
+    section += `/* Mobile-first (default) */\n`;
+    section += `.component-grid {\n`;
+    section += `  display: grid;\n`;
+    section += `  grid-template-columns: 1fr;\n`;
+    section += `  gap: 2rem;\n`;
+    section += `}\n\n`;
+    section += `/* Desktop override */\n`;
+    section += `@include mq(md) {\n`;
+    section += `  .component-grid {\n`;
+    section += `    grid-template-columns: repeat(${groupCount}, 1fr);\n`;
+    section += `  }\n`;
+    section += `}\n`;
+    section += `\`\`\`\n`;
+  }
+
+  return section;
+};
+
+/**
+ * Stage 2統合セクションを構築する
+ * @param {Object} pcStage2 - PC版Stage 2データ
+ * @param {Object} spStage2 - SP版Stage 2データ
+ * @returns {string} Stage 2統合セクション
+ */
+const buildStage2Section = (pcStage2, spStage2) => {
+  let section = '';
+
+  // PC Stage 2データ
+  if (pcStage2) {
+    section += buildStructuralAnalysisSection(pcStage2, 'pc');
+  }
+
+  // SP Stage 2データ
+  if (spStage2) {
+    section += buildStructuralAnalysisSection(spStage2, 'sp');
+  }
+
+  // クロスデバイス比較
+  if (pcStage2 && spStage2) {
+    section += '\n#### Cross-Device Layout Comparison\n';
+
+    const pcGroups = pcStage2.results?.data?.logical_groups?.length || 0;
+    const spGroups = spStage2.results?.data?.logical_groups?.length || 0;
+
+    section += `- PC Layout: ${pcGroups} component groups\n`;
+    section += `- SP Layout: ${spGroups} component groups\n`;
+
+    if (pcGroups !== spGroups) {
+      section += `- **Layout Difference:** Different component grouping between PC (${pcGroups}) and SP (${spGroups})\n`;
+      section += `- **Responsive Strategy:** Use flexible grid system to adapt between layouts\n`;
+    } else {
+      section += `- **Layout Consistency:** Same component structure across devices\n`;
+    }
+  }
+
+  return section;
+};
+
+
+// フォールバックプロンプトの構築（エラー時や拡張プロンプト生成失敗時に使用）
+
+// Node.js/Electron環境の場合はCommonJS形式でエクスポート（すべての関数定義の後）
+module.exports = {
+  generatePrompt,
+  getLatestStage2Results,
+  buildStructuralAnalysisSection,
+  buildStage2Section
+};

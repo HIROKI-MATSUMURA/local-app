@@ -787,7 +787,12 @@ app.whenReady().then(async () => {
   }
 
   console.log('アプリ起動時にIPCハンドラーを設定します');
-  setupIPCHandlers();
+  try {
+    setupIPCHandlers();
+    console.log('✅ IPCハンドラーの設定が完了しました');
+  } catch (setupError) {
+    console.error('❌ IPCハンドラーの設定中にエラーが発生しました:', setupError);
+  }
   setupFileWatcher(mainWindow);
 
   // スプラッシュウィンドウを作成
@@ -3108,7 +3113,16 @@ $mediaquerys: (
       console.log('🔥 main.js: options =', options);
       console.log('🔥 main.js: promptGeneratorモジュールを読み込みます');
 
-      const promptGenerator = require('./utils/promptGenerator');
+      // ✅ 修正: モジュール読み込みにエラーハンドリングを追加
+      let promptGenerator;
+      try {
+        promptGenerator = require('./utils/promptGenerator');
+        console.log('🔥 main.js: promptGeneratorモジュールの読み込み成功');
+      } catch (moduleError) {
+        console.error('🔥 main.js: promptGeneratorモジュールの読み込みエラー:', moduleError);
+        console.error('🔥 main.js: モジュールエラースタック:', moduleError.stack);
+        throw new Error(`promptGeneratorモジュールの読み込みに失敗: ${moduleError.message}`);
+      }
 
       console.log('🔥 main.js: promptGenerator.generatePrompt関数を呼び出します');
       // mainWindowを渡してRenderer processで画像解析を実行できるようにする
@@ -3120,6 +3134,7 @@ $mediaquerys: (
       return prompt;
     } catch (error) {
       console.error('🔥 main.js: プロンプト生成エラー:', error);
+      console.error('🔥 main.js: エラースタック:', error.stack);
       throw error;
     }
   });
