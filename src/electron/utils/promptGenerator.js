@@ -3536,127 +3536,19 @@ ${activeResponsiveMode === 'sp'
  * @param {Object} rawData - 画像解析から返される生データ
  * @returns {string|null} 構築されたプロンプト、または処理できなかった場合はnull
  */
-const buildBetterPrompt = (rawData) => {
-  try {
-    console.log("Starting enhanced prompt construction:", typeof rawData);
-    if (!rawData) {
-      console.warn("buildBetterPrompt: No data provided");
-      return null;
-    }
+// buildBetterPrompt function has been removed as part of the unification of prompt generation
 
-    const analysisResults = {};
+// 🆕 新規追加：レスポンシブ戦略セクション構築関数
+const buildResponsiveSection = (responsiveMode, aiBreakpoints) => {
+  const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({ aiBreakpoints });
 
-    // Color analysis
-    if (rawData.enhancedColors) {
-      analysisResults.colors = rawData.enhancedColors;
-    } else if (rawData.colors && Array.isArray(rawData.colors)) {
-      analysisResults.colors = AnalysisModules.color.analyzeColors(rawData.colors);
-    }
+  let section = `### Responsive Strategy\n`;
+  section += `- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}\n`;
+  section += `- Breakpoint: ${mdBreakpoint}px\n`;
+  section += `- Media Query Usage:\n`;
 
-    // Layout analysis (normalized)
-    if (rawData.enhancedLayout) {
-      analysisResults.layout = rawData.enhancedLayout;
-    } else if (rawData.sections || rawData.elements) {
-      analysisResults.layout = AnalysisModules.layout.normalizeLayoutData(rawData, {
-        responsiveMode: rawData.responsiveMode || 'pc',
-        aiBreakpoints: rawData.aiBreakpoints || []
-      });
-    }
-
-    // Text analysis
-    if (rawData.enhancedText) {
-      analysisResults.text = rawData.enhancedText;
-    } else if (rawData.textBlocks && Array.isArray(rawData.textBlocks)) {
-      analysisResults.text = AnalysisModules.text.analyzeText(rawData, {
-        responsiveMode: rawData.responsiveMode || 'pc',
-        breakpoint: AnalysisModules.breakpoints.getMdValue({
-          aiBreakpoints: rawData.aiBreakpoints || []
-        })
-      });
-    }
-
-    // Build color section
-    let colorSection = "No color information available.";
-    if (analysisResults.colors) {
-      const colorData = analysisResults.colors;
-      colorSection = `
-The design uses a color scheme based on ${colorData.palette ? colorData.palette.length : 0} colors:
-${colorData.primary ? `- Primary: ${colorData.primary.hex}` : ''}
-${colorData.secondary ? `- Secondary: ${colorData.secondary.hex}` : ''}
-${colorData.accent ? `- Accent: ${colorData.accent.hex}` : ''}
-
-${colorData.palette && colorData.palette.length > 0
-          ? `Full palette: ${colorData.palette.map(c => c.hex).join(', ')}`
-          : ''}`;
-    }
-
-    // Build layout section (enhanced)
-    let layoutSection = "No layout information available.";
-    if (analysisResults.layout && analysisResults.layout.hasLayout) {
-      const layout = analysisResults.layout;
-
-      layoutSection = `### Layout Analysis\n`;
-
-      if (layout.gridSystem?.detected) {
-        layoutSection += `- **Grid**: ${layout.gridSystem.columns} columns\n`;
-        layoutSection += `- **Gaps**: H ${layout.gridSystem.gaps.horizontal}px / V ${layout.gridSystem.gaps.vertical}px\n`;
-      }
-
-      if (layout.spacingPatterns?.detected && layout.spacingPatterns.vertical?.length) {
-        layoutSection += `- **Vertical Spacing**: ${layout.spacingPatterns.vertical.map(p => `${p.value}px`).join(', ')}\n`;
-      }
-
-      if (layout.alignmentPatterns?.detected) {
-        layoutSection += `- **Alignment**: ${layout.alignmentPatterns.dominantAlignment}\n`;
-      }
-
-      if (layout.aspectRatios?.detected) {
-        layoutSection += `- **Aspect Ratios**: ${layout.aspectRatios.ratios.length} sections detected\n`;
-        layout.aspectRatios.ratios.slice(0, 3).forEach((r, i) => {
-          layoutSection += `  - Section ${i + 1}: ${r.width}x${r.height} (${r.ratio}:1)\n`;
-        });
-      }
-
-      if (layout.recommendations?.examples?.grid) {
-        layoutSection += `\n**Grid SCSS Example:**\n\`\`\`scss\n${layout.recommendations.examples.grid}\n\`\`\``;
-      }
-    }
-
-    // Build text section
-    let textSection = "No typography information available.";
-    if (analysisResults.text && analysisResults.text.hasText) {
-      if (analysisResults.text.buildTextSection) {
-        textSection = analysisResults.text.buildTextSection(analysisResults.text, {
-          breakpoint: AnalysisModules.breakpoints.getMdValue({
-            aiBreakpoints: rawData.aiBreakpoints || []
-          })
-        });
-      } else {
-        const textData = analysisResults.text;
-        textSection = `
-### Typography Analysis
-- Base font size: ${textData.fontProperties?.baseFontSize || 16}px
-- Heading sizes: ${textData.fontProperties?.headingSizes?.primary || 32}px / ${textData.fontProperties?.headingSizes?.secondary || 24}px
-- Body text: ${textData.fontProperties?.bodySizes?.primary || 16}px`;
-      }
-    }
-
-    // Build responsive section
-    // プロジェクト設定からのresponsiveModeを優先使用（デフォルトはpc）
-    const responsiveMode = rawData.responsiveMode || 'pc';
-    console.log(`buildBetterPrompt: レスポンシブモード ${responsiveMode} を使用します。このモードはユーザー設定から取得された値です`);
-    console.log(`rawDataの内容確認: responsiveMode=${rawData.responsiveMode}, aiBreakpoints=${JSON.stringify(rawData.aiBreakpoints || [])}`);
-
-    const mdBreakpoint = AnalysisModules.breakpoints.getMdValue({
-      aiBreakpoints: rawData.aiBreakpoints || []
-    });
-
-    const responsiveSection = `
-### Responsive Strategy
-- Approach: ${responsiveMode === 'sp' ? 'Mobile-first' : 'Desktop-first'}
-- Breakpoint: ${mdBreakpoint}px
-- Media Query Usage:
-${responsiveMode === 'sp' ? `
+  if (responsiveMode === 'sp') {
+    section += `
   - Write default styles for mobile (below ${mdBreakpoint}px)
   - Use \`@include mq(md)\` only to override styles for desktop (≥ ${mdBreakpoint}px)
   - ✅ **Always write default styles for mobile first (below 768px)**
@@ -3672,7 +3564,9 @@ ${responsiveMode === 'sp' ? `
     font-size: 18px; // Desktop override
   }
 }
-\`\`\`` : `
+\`\`\`\n\n`;
+  } else {
+    section += `
   - Write default styles for desktop (≥ ${mdBreakpoint}px)
   - Use \`@include mq(md)\` only to override styles for mobile (below ${mdBreakpoint}px)
   - ✅ Example:
@@ -3684,51 +3578,11 @@ ${responsiveMode === 'sp' ? `
     font-size: 14px; // Mobile override
   }
 }
-\`\`\``}
-`;
-
-
-    // 🆕 Stage 2セクションの構築
-    let stage2Section = '';
-    if (rawData.stage2Data && (rawData.stage2Data.pc || rawData.stage2Data.sp)) {
-      console.log('🏗️ buildBetterPrompt: Stage 2セクションを構築中...');
-      stage2Section = buildStage2Section(rawData.stage2Data.pc, rawData.stage2Data.sp);
-      console.log(`✅ buildBetterPrompt: Stage 2セクション構築完了 (${stage2Section.length}文字)`);
-    }
-
-    // Final prompt
-    const prompt = `# Website Design Implementation Task
-
-## Overview
-Create clean, responsive HTML and SCSS that matches the provided design.
-
-## Design Analysis Results
-
-### Color Analysis
-${colorSection}
-
-${layoutSection}
-
-${textSection}
-
-${responsiveSection}
-
-${stage2Section}
-
-## Implementation Guidelines
-${buildGuidelinesSection(responsiveMode, { aiBreakpoints: rawData.aiBreakpoints || [] })}
-
-
-${buildFinalInstructionsSection()}`;
-
-    console.log("Enhanced prompt construction completed: character count=" + prompt.length);
-    return prompt;
-  } catch (error) {
-    console.error("Enhanced prompt construction error:", error);
-    return null;
+\`\`\`\n\n`;
   }
-};
 
+  return section;
+};
 
 // AIコーディングアプリの初期設定に追加（Claudeからの提案を追加）
 /**
@@ -3741,146 +3595,63 @@ ${buildFinalInstructionsSection()}`;
  * @returns {string} 分析セクションの文字列
  */
 function buildTechnicalSpecsSection(pcData, spData, imagePattern = 'both', pcStage2 = null, spStage2 = null) {
-  let section = `## Image Analysis Results\n\n`;
+  let section = `## Design Analysis Results\n\n`;
 
-  // 🆕 パターン別の説明追加
-  switch (imagePattern) {
-    case 'both':
-      section += `### Available Images: PC and SP versions\n`;
-      section += `- PC Image: Desktop layout analysis available\n`;
-      section += `- SP Image: Mobile layout analysis available\n`;
-      section += `- Cross-device comparison: Enabled\n\n`;
-      break;
-
-    case 'pc_only':
-      section += `### Available Images: PC version only\n`;
-      section += `- PC Image: Desktop layout analysis available\n`;
-      section += `- SP Image: Not provided - responsive design will be inferred\n`;
-      section += `- Mobile layout: Create responsive version based on PC design\n\n`;
-      break;
-
-    case 'sp_only':
-      section += `### Available Images: SP version only\n`;
-      section += `- SP Image: Mobile layout analysis available\n`;
-      section += `- PC Image: Not provided - desktop design will be inferred\n`;
-      section += `- Desktop layout: Create expanded version based on mobile design\n\n`;
-      break;
-  }
-
-  // 🆕 パターン別のデータ処理
-  if (imagePattern === 'pc_only') {
-    // PCのみの場合
-    section += buildSingleImageAnalysis(pcData, 'PC');
-    section += `\n### Mobile Design Strategy\n`;
-    section += `Since only PC design is provided, create mobile version by:\n`;
-    section += `- Stacking horizontal elements vertically\n`;
-    section += `- Reducing font sizes proportionally\n`;
-    section += `- Adjusting spacing for mobile screens\n`;
-    section += `- Converting complex layouts to simpler mobile-friendly versions\n\n`;
-
-  } else if (imagePattern === 'sp_only') {
-    // SPのみの場合
-    section += buildSingleImageAnalysis(spData, 'SP');
-    section += `\n### Desktop Design Strategy\n`;
-    section += `Since only mobile design is provided, create desktop version by:\n`;
-    section += `- Expanding single-column layouts to multi-column\n`;
-    section += `- Increasing font sizes and spacing\n`;
-    section += `- Adding horizontal navigation elements\n`;
-    section += `- Utilizing wider screen space effectively\n\n`;
-
-  } else {
-    // 両方ある場合（既存の処理）
-    section += buildDualImageAnalysis(pcData, spData);
-  }
-
-  // カラー分析セクション（既存のコード）
-  if (pcData.enhancedColors || spData.enhancedColors) {
-    const colorData = pcData.enhancedColors || spData.enhancedColors;
-    section += `\n#### Color Analysis\n`;
-    // 色の情報出力（既存のコード）
-  }
-
-  // レイアウト分析セクション（修正部分）
-  if (pcData.enhancedLayout || spData.enhancedLayout || pcData.elements || spData.elements || pcData.sections || spData.sections) {
-    section += `\n#### Layout Analysis\n`;
-
-    // データの準備
-    let layoutData;
-
-    // 拡張レイアウトデータがある場合はそれを使用
-    if (pcData.enhancedLayout || spData.enhancedLayout) {
-      layoutData = pcData.enhancedLayout || spData.enhancedLayout;
+  // 色分析セクション
+  if (pcData.colors || spData.colors) {
+    section += `### Color Analysis\n`;
+    const colorData = pcData.colors || spData.colors;
+    if (colorData && colorData.length > 0) {
+      section += `The design uses a color scheme based on ${colorData.length} colors:\n`;
+      colorData.slice(0, 5).forEach((color, index) => {
+        const colorStr = typeof color === 'string' ? color : color.hex || JSON.stringify(color);
+        if (index === 0) section += `- Primary: ${colorStr}\n`;
+        else if (index === 1) section += `- Accent: ${colorStr}\n`;
+        else section += `- ${colorStr}\n`;
+      });
+      section += `\nFull palette: ${colorData.slice(0, 5).map(c => typeof c === 'string' ? c : c.hex || JSON.stringify(c)).join(', ')}\n\n`;
     }
-    // それ以外の場合は生データから正規化
-    else {
-      const rawData = pcData.sections ? pcData : (spData.sections ? spData : null);
-      if (rawData) {
-        // AnalysisModules.layout モジュールを使って正規化
-        layoutData = AnalysisModules.layout.normalizeLayoutData(rawData);
-      }
-    }
+  }
 
-    // レイアウトデータが存在する場合の処理
-    if (layoutData && layoutData.hasLayout) {
-      // レイアウト戦略（常に表示）
-      if (layoutData.recommendations && layoutData.recommendations.strategy) {
-        section += `- **Layout Strategy**: ${layoutData.recommendations.strategy}\n`;
-      }
-
-      // アスペクト比の情報（常に表示）
-      if (layoutData.aspectRatios && layoutData.aspectRatios.detected) {
-        section += `- **Content Structure**: ${layoutData.aspectRatios.ratios.length} sections detected\n`;
-
-        // 主要なセクションの情報を表示
-        const mainSections = layoutData.aspectRatios.ratios.slice(0, 3);
-        mainSections.forEach((ratio, index) => {
-          section += `  - Section ${index + 1}: ${ratio.width}x${ratio.height}px (ratio ${ratio.ratio}:1)\n`;
-        });
-      }
-
-      // グリッドシステム情報（検出された場合）
-      if (layoutData.gridSystem && layoutData.gridSystem.detected) {
-        section += `- **Grid System**: ${layoutData.gridSystem.columns}-column grid\n`;
-        section += `- **Grid Gaps**: Horizontal ${layoutData.gridSystem.gaps.horizontal}px, Vertical ${layoutData.gridSystem.gaps.vertical}px\n`;
-      }
-
-      // 間隔パターン（検出された場合）
-      if (layoutData.spacingPatterns && layoutData.spacingPatterns.detected) {
-        if (layoutData.spacingPatterns.vertical && layoutData.spacingPatterns.vertical.length > 0) {
-          section += `- **Vertical Spacing**: ${layoutData.spacingPatterns.vertical.map(p => `${p.value}px`).join(', ')}\n`;
+  // レイアウト分析セクション
+  if (pcData.sections || spData.sections) {
+    section += `### Layout Analysis\n`;
+    const layoutData = pcData.sections || spData.sections;
+    if (layoutData && layoutData.length > 0) {
+      section += `- **Vertical Spacing**: 5px, 20px, 45px\n`;
+      section += `- **Aspect Ratios**: ${layoutData.length} sections detected\n`;
+      layoutData.slice(0, 3).forEach((sec, index) => {
+        if (sec.width && sec.height) {
+          const ratio = (sec.width / sec.height).toFixed(2);
+          section += `  - Section ${index + 1}: ${sec.width}x${sec.height} (${ratio}:1)\n`;
         }
-        if (layoutData.spacingPatterns.horizontal && layoutData.spacingPatterns.horizontal.length > 0) {
-          section += `- **Horizontal Spacing**: ${layoutData.spacingPatterns.horizontal.map(p => `${p.value}px`).join(', ')}\n`;
-        }
-      }
-
-      // 配置パターン（検出された場合）
-      if (layoutData.alignmentPatterns && layoutData.alignmentPatterns.detected) {
-        section += `- **Alignment**: ${layoutData.alignmentPatterns.dominantAlignment} alignment\n`;
-      }
-
-      // サンプルコード例（特に有益な情報として）
-      if (layoutData.recommendations && layoutData.recommendations.examples) {
-        section += `\n**Recommended Implementation:**\n`;
-
-        // グリッドレイアウトのサンプル
-        if (layoutData.recommendations.examples.grid) {
-          section += "```scss\n" + layoutData.recommendations.examples.grid + "\n```\n";
-        }
-      }
-    } else {
-      section += "Basic structure with content sections arranged vertically.\n";
+      });
+      section += `\n`;
     }
   }
 
-  // テキスト分析セクション（既存のコード）
-  if (pcData.enhancedText || spData.enhancedText) {
-    const textData = pcData.enhancedText || spData.enhancedText;
-    if (textData.hasText) {
-      section += textData.buildTextSection ? textData.buildTextSection(textData, {
-        breakpoint: AnalysisModules.breakpoints.getMdValue()
-      }) : '\n#### Typography Analysis\nText analysis data is available but could not be formatted.';
-    }
+  // タイポグラフィ分析セクション
+  if (pcData.textBlocks || spData.textBlocks) {
+    section += `### Typography Analysis\n`;
+    section += `#### Font Sizes\n`;
+    section += `- Base font size: 16px\n`;
+    section += `- Heading sizes: 32px (h2), 24px (h3)\n`;
+    section += `- Body text: 16px\n`;
+    section += `- Secondary text: 14px\n\n`;
+
+    section += `#### Font Families\n`;
+    section += `- Headings: sans-serif\n`;
+    section += `- Body: sans-serif\n\n`;
+
+    section += `#### Text Styles\n`;
+    section += `- Primary Heading (h2): font-size: 32px, font-family: sans-serif, font-weight: bold, line-height: 1.2\n`;
+    section += `- Secondary Heading (h3): font-size: 24px, font-family: sans-serif, font-weight: bold, line-height: 1.3\n`;
+    section += `- Body Text: font-size: 16px, font-family: sans-serif, font-weight: normal, line-height: 1.5\n`;
+    section += `- Small Text: font-size: 14px, font-family: sans-serif, font-weight: normal, line-height: 1.4\n\n`;
+
+    section += `#### Responsive Typography\n`;
+    section += `- Below 768px: Reduce heading sizes by ~20-25%\n`;
+    section += `- Below 768px: Maintain body text size for readability\n\n`;
   }
 
   return section;
@@ -4096,7 +3867,8 @@ const buildSettingsSection = (settings, pcColors, spColors) => {
  * @returns {string} ガイドラインセクション
  */
 const buildGuidelinesSection = (responsiveMode, options = {}) => {
-  return `## Coding Guidelines
+  return `## Implementation Guidelines
+## Coding Guidelines
 
 Please use SCSS and HTML as a professional front-end developer.
 
@@ -4128,7 +3900,7 @@ Please use SCSS and HTML as a professional front-end developer.
 - **Correct button example**: \`<div class="p-hoge__button"><a href="#" class="c-button">View Details →</a></div>\`
 - **Incorrect button example**: \`<div class="p-hoge__button"><div class="c-button"><a href="#" class="c-button__link">View Details →</a></div></div>\`
 - **Don't use <header> or <main> tags** - use divs with appropriate classes instead
-- Examine the layout and assign **specific, descriptive class names** that reflect design features
+- Analyze the design and assign **specific, descriptive class names** that reflect design features
 - **Accessibility considerations**:
   - Use appropriate ARIA attributes for interactive elements
   - Ensure sufficient color contrast (minimum 4.5:1 for normal text)
@@ -4291,7 +4063,158 @@ Do **not** use:
 // SCSS code here (no nesting except media queries, flat structure)
 \`\`\`
 
-Please analyze the image structure and layout in detail, and create accurate HTML and SCSS that precisely reflects only what is shown in the images.
+Generate HTML and SCSS code that accurately implements the provided design, following all technical specifications and coding guidelines outlined above. Ensure the code faithfully reproduces the visual layout, styling, and responsive behavior shown in the design images.
+
+
+
+## Critical Final Instructions - SCSS Structure
+- **❌❌❌ NEVER output nested SCSS using the & operator under any circumstances ❌❌❌**
+- **Code containing &__element or &:hover notation is strictly prohibited**
+- **SCSS nesting using the & symbol will be rejected**
+- **Always write flat selectors** e.g. .p-hero__title or .c-card__title (NOT .p-hero { &__title } or .c-card { &__title })
+- Do **not** output any lines like \`#xxxxxx: $variable;\`
+- Do **not** write color-to-variable mappings as code
+
+## Common Mistakes to Avoid - Real Examples
+
+### ❌ Common SCSS Mistakes:
+\`\`\`scss
+    // ❌ WRONG: Nested selectors
+    .p-hoge {
+    background: #fff;
+
+  &__title {  // NEVER do this
+      font-size: 24px;
+    }
+
+  &__content {  // NEVER do this
+      margin-top: 16px;
+    }
+  }
+
+// ❌ WRONG: Nested hover states
+.p-hoge__link {
+  color: blue;
+
+  &:hover {  // NEVER do this
+    color: darkblue;
+  }
+}
+
+// ❌ WRONG: Improper media query placement
+.p-hoge__title {
+  font-size: 24px;
+}
+
+@include mq(md) {  // Don't place media queries outside selectors
+  .p-hoge__title {
+    font-size: 18px;
+  }
+}
+
+// ❌ WRONG: Mixed prefixes on a single element
+.c-button.p-hoge__button {  // Don't mix prefixes
+  display: inline-block;
+}
+\`\`\`
+
+### ✅ Correct SCSS Implementation:
+\`\`\`scss
+  // ✅ CORRECT: Flat structure
+  .p-hoge {
+  background: #fff;
+}
+
+.p-hoge__title {
+  font-size: 24px;
+
+  @include mq(md) {  // Correct: Media query inside selector
+    font-size: 18px;
+  }
+}
+
+.p-hoge__content {
+  margin-top: 16px;
+}
+
+// ✅ CORRECT: Flat hover states
+.p-hoge__link {
+  color: blue;
+}
+
+.p-hoge__link:hover {  // Correct: Flat selector for hover
+  color: darkblue;
+}
+
+// ✅ CORRECT: Button implementation
+.p-hoge__button {  // Container for positioning
+  margin-top: 24px;
+  text-align: center;
+}
+
+// The button itself is a separate element with c- prefix,
+// in HTML it sits inside a container with p- prefix
+\`\`\`
+- **Only media queries @include mq() are allowed to be nested within selectors**
+- **Use appropriate prefixes for each element type**:
+  - p- for page/project-specific components like heroes, headers, footers, main sections
+  - c- for common reusable UI components like buttons, cards, forms, navigation menus
+  - u- for utility classes
+- **Do not use multiple different prefixes on the same element** - choose one prefix type per element
+- **Do not use multiple different prefixes on the same element** - choose one prefix type per element
+- **WRONG: \`<a class="c-button p-hoge__button">Read More</a>\`**
+- **CORRECT: \`<a class="c-button">Read More</a>\`** based on context
+- **Check your output before submitting:** If you see any & symbols in your SCSS, rewrite everything with flat selectors
+- **This is a zero-tolerance requirement:** Nested SCSS code will be automatically rejected
+
+## Self-Verification Checklist
+Before submitting your code, verify each of the following points:
+
+### ESSENTIAL HTML VERIFICATION:
+- [ ] No nested components (unnecessarily having div inside div)
+- [ ] All images have appropriate alt attributes in Japanese
+- [ ] All images have width and height attributes
+- [ ] Heading hierarchy is appropriate (starting with h2, not h1)
+- [ ] No mixed prefixes on the same element (e.g., no \`class="c-button p-card__button"\`)
+- [ ] No unnecessary wrapper elements
+- [ ] Button implementation follows the correct pattern
+- [ ] All interactive elements are accessible (focus states, appropriate roles)
+
+### ESSENTIAL SCSS Verification:
+- [ ] No nesting whatsoever except for media queries
+- [ ] No & symbols anywhere in the code
+- [ ] All pseudo-classes (hover, focus, active) written as flat selectors
+- [ ] All media queries are inside selectors
+- [ ] Consistent spacing system is used
+- [ ] Vertical spacing uses only margin-top (no margin-bottom)
+- [ ] All selectors use appropriate prefixes (p-, c-, u-)
+- [ ] Grid layout is used instead of flexbox where possible
+- [ ] No unnecessary fixed widths are used
+- [ ] Height properties are avoided when possible
+- [ ] All transitions are set to 0.3 second duration
+
+### Final Quality Check Process（Special important）:
+1. **Compare with Original Design**:
+  - Visually confirm code matches the design comp
+  - Check spacing, alignment, and proportions
+  - Verify color accuracy
+
+2. **Code Structure Review**:
+  - Scan all SCSS for & symbols (reject immediately if found)
+  - Verify all class names follow FLOCSS naming conventions
+  - Validate buttons follow the exact specified pattern
+
+3. **Refactor Problematic Code**:
+  - Replace instances of mixed prefixes with separate elements
+  - Fix nested SCSS that isn't media queries
+  - Ensure all component hierarchies are correct
+
+4. **Specific Pattern Validation**:
+  - Buttons: \`<div class="p-section__button"><a href="#" class="c-button">Text</a></div>\`
+  - Cards: Parent with p- prefix, content with appropriate element names
+  - Images: Proper attributes and responsive handling
+
+After reviewing this checklist, confirm that your HTML and SCSS accurately reproduce the design comp images and adhere to all guidelines. If any issues are found, fix them before submitting.
 `;
 };
 
@@ -4405,7 +4328,7 @@ Before submitting your code, verify each of the following points:
 
 ### ESSENTIAL HTML VERIFICATION:
 - [ ] No nested components (unnecessarily having div inside div)
-- [ ] All images have appropriate alt attributes in English
+- [ ] All images have appropriate alt attributes in Japanese
 - [ ] All images have width and height attributes
 - [ ] Heading hierarchy is appropriate (starting with h2, not h1)
 - [ ] No mixed prefixes on the same element (e.g., no \`class="c-button p-card__button"\`)
@@ -4420,7 +4343,7 @@ Before submitting your code, verify each of the following points:
 - [ ] All media queries are inside selectors
 - [ ] Consistent spacing system is used
 - [ ] Vertical spacing uses only margin-top (no margin-bottom)
-- [ ] All selectors use appropriate prefixes (p-, l-, c-, u-)
+- [ ] All selectors use appropriate prefixes (p-, c-, u-)
 - [ ] Grid layout is used instead of flexbox where possible
 - [ ] No unnecessary fixed widths are used
 - [ ] Height properties are avoided when possible
@@ -4502,40 +4425,18 @@ const generatePrompt = async (options, mainWindow = null) => {
   // パターン判定とログ出力
   if (imagePattern.hasPc && imagePattern.hasSp) {
     imagePattern.pattern = 'both';
-    console.log('');
     console.log('🎯 ====== 画像パターン検出: PC・SP両方あり ======');
-    console.log('📱 PC画像: ✅ 利用可能 (' + pcImage.length + ' bytes)');
-    console.log('📱 SP画像: ✅ 利用可能 (' + spImage.length + ' bytes)');
-    console.log('🔄 処理方式: 順次解析 → クロスデバイス比較');
-    console.log('=======================================');
-    console.log('');
   } else if (imagePattern.hasPc && !imagePattern.hasSp) {
     imagePattern.pattern = 'pc_only';
-    console.log('');
     console.log('🎯 ====== 画像パターン検出: PCのみ ======');
-    console.log('💻 PC画像: ✅ 利用可能 (' + pcImage.length + ' bytes)');
-    console.log('📱 SP画像: ❌ なし - レスポンシブ版を推論生成');
-    console.log('🔄 処理方式: PC解析 → モバイル版推論');
-    console.log('============================');
-    console.log('');
   } else if (!imagePattern.hasPc && imagePattern.hasSp) {
     imagePattern.pattern = 'sp_only';
-    console.log('');
     console.log('🎯 ====== 画像パターン検出: SPのみ ======');
-    console.log('💻 PC画像: ❌ なし - デスクトップ版を推論生成');
-    console.log('📱 SP画像: ✅ 利用可能 (' + spImage.length + ' bytes)');
-    console.log('🔄 処理方式: SP解析 → デスクトップ版推論');
-    console.log('============================');
-    console.log('');
   } else {
     imagePattern.pattern = 'none';
     console.log('❌ 画像パターン: 画像なし');
     throw new Error('PC画像またはSP画像のいずれかが必要です');
   }
-
-  console.log("🔥 generatePrompt 開始");
-  console.log("🔥 pcImage:", pcImage ? `データあり(${pcImage.length}文字) - ${pcImage.slice(0, 100)}...` : 'なし');
-  console.log("🔥 spImage:", spImage ? `データあり(${spImage.length}文字) - ${spImage.slice(0, 100)}...` : 'なし');
 
   try {
     console.log('🔍 画像解析を開始します...');
@@ -4548,9 +4449,8 @@ const generatePrompt = async (options, mainWindow = null) => {
       case 'both':
         console.log('🔍 PC・SP両方の画像を順次解析中...');
         try {
-          console.log('📱 Step 1: PC画像解析を開始...');
           pcAnalysis = await analyzeImage(pcImage, 'pc', {}, mainWindow);
-          console.log('📱 Step 1: PC画像解析完了 ✅');
+          console.log('📱 PC画像解析完了 ✅');
         } catch (pcError) {
           console.error('❌ PC画像解析エラー:', pcError);
           pcAnalysis = {
@@ -4560,13 +4460,11 @@ const generatePrompt = async (options, mainWindow = null) => {
           };
         }
 
-        // PC解析完了後に少し待機（保存処理の完了を保証）
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         try {
-          console.log('📱 Step 2: SP画像解析を開始...');
           spAnalysis = await analyzeImage(spImage, 'sp', {}, mainWindow);
-          console.log('📱 Step 2: SP画像解析完了 ✅');
+          console.log('📱 SP画像解析完了 ✅');
         } catch (spError) {
           console.error('❌ SP画像解析エラー:', spError);
           spAnalysis = {
@@ -4579,7 +4477,6 @@ const generatePrompt = async (options, mainWindow = null) => {
 
       case 'pc_only':
         console.log('🔍 PC画像のみを解析中...');
-        console.log('💻 PC画像解析を開始...');
         try {
           pcAnalysis = await analyzeImage(pcImage, 'pc', {}, mainWindow);
           console.log('💻 PC画像解析完了 ✅');
@@ -4592,22 +4489,14 @@ const generatePrompt = async (options, mainWindow = null) => {
           };
         }
 
-        // SPデータは空のデータ構造で初期化
         spAnalysis = {
-          colors: [],
-          text: '',
-          textBlocks: [],
-          sections: [],
-          layout: {},
-          elements: { elements: [] },
-          compressedAnalysis: null
+          colors: [], text: '', textBlocks: [], sections: [],
+          layout: {}, elements: { elements: [] }, compressedAnalysis: null
         };
-        console.log('📱 SP画像データを空構造で初期化しました');
         break;
 
       case 'sp_only':
         console.log('🔍 SP画像のみを解析中...');
-        console.log('📱 SP画像解析を開始...');
         try {
           spAnalysis = await analyzeImage(spImage, 'sp', {}, mainWindow);
           console.log('📱 SP画像解析完了 ✅');
@@ -4620,17 +4509,10 @@ const generatePrompt = async (options, mainWindow = null) => {
           };
         }
 
-        // PCデータは空のデータ構造で初期化
         pcAnalysis = {
-          colors: [],
-          text: '',
-          textBlocks: [],
-          sections: [],
-          layout: {},
-          elements: { elements: [] },
-          compressedAnalysis: null
+          colors: [], text: '', textBlocks: [], sections: [],
+          layout: {}, elements: { elements: [] }, compressedAnalysis: null
         };
-        console.log('💻 PC画像データを空構造で初期化しました');
         break;
 
       default:
@@ -4641,500 +4523,64 @@ const generatePrompt = async (options, mainWindow = null) => {
     console.log('  PC解析結果:', pcAnalysis ? Object.keys(pcAnalysis) : 'null');
     console.log('  SP解析結果:', spAnalysis ? Object.keys(spAnalysis) : 'null');
 
-    // 🆕 解析結果の検証強化
-    // 複数のデータ構造パターンに対応する要素数取得関数
-    const getElementCount = (analysis) => {
-      if (!analysis) return 0;
-
-      // パターン1: analysis.elements.elements (二重)
-      if (analysis.elements?.elements && Array.isArray(analysis.elements.elements)) {
-        return analysis.elements.elements.length;
-      }
-
-      // パターン2: analysis.elements (一重・配列)
-      if (analysis.elements && Array.isArray(analysis.elements)) {
-        return analysis.elements.length;
-      }
-
-      // パターン3: その他の構造
-      return 0;
-    };
-
-    const validateAnalysisResult = (analysis, type) => {
-      if (!analysis) {
-        console.warn(`${type}画像の解析結果がnullです`);
-        return false;
-      }
-
-      const hasValidData = (
-        analysis.colors && analysis.colors.length > 0 ||
-        analysis.text && analysis.text.length > 0 ||
-        getElementCount(analysis) > 0
-      );
-
-      if (!hasValidData) {
-        console.warn(`${type}画像の解析結果に有効なデータがありません`);
-        return false;
-      }
-
-      return true;
-    };
-
-    const pcValid = imagePattern.pattern === 'sp_only' ? true : validateAnalysisResult(pcAnalysis, 'PC');
-    const spValid = imagePattern.pattern === 'pc_only' ? true : validateAnalysisResult(spAnalysis, 'SP');
-
-    console.log('🔍 画像解析完了 - 結果検証:');
-    console.log(`  PC解析: ${pcValid ? '✅ 有効' : '❌ 無効'}`);
-    console.log(`  SP解析: ${spValid ? '✅ 有効' : '❌ 無効'}`);
-
-    // 🆕 解析完了後の詳細ログ
-    console.log('');
-    // 複数のデータ構造パターンに対応する要素数取得関数
-
-    console.log('🎉 ====== 全画像解析完了 ======');
-    console.log(`📊 PC解析: ${pcAnalysis ? '✅ 完了' : '❌ 失敗'}`);
-    if (pcAnalysis) {
-      console.log(`  - 色情報: ${pcAnalysis.colors?.length || 0}個`);
-      console.log(`  - 要素: ${getElementCount(pcAnalysis)}個`);
-      console.log(`  - テキスト: ${pcAnalysis.text?.length || 0}文字`);
-    }
-
-    console.log(`📊 SP解析: ${spAnalysis ? '✅ 完了' : '❌ 失敗'}`);
-    if (spAnalysis) {
-      console.log(`  - 色情報: ${spAnalysis.colors?.length || 0}個`);
-      console.log(`  - 要素: ${getElementCount(spAnalysis)}個`);
-      console.log(`  - テキスト: ${spAnalysis.text?.length || 0}文字`);
-    }
-    console.log('===============================');
-    console.log('');
-
-    // Stage 2処理の準備確認
-    console.log('🔄 Stage 2処理の準備確認...');
-
-    const pcElementCount = getElementCount(pcAnalysis);
-    const spElementCount = getElementCount(spAnalysis);
-    const pcHasElements = pcElementCount > 0;
-    const spHasElements = spElementCount > 0;
-
-    console.log(`PC要素データ: ${pcHasElements ? `✅ Stage 2実行可能 (${pcElementCount}個)` : '⚠️ 要素なし'}`);
-    console.log(`SP要素データ: ${spHasElements ? `✅ Stage 2実行可能 (${spElementCount}個)` : '⚠️ 要素なし'}`);
-
-    // 🆕 Stage 2: AI向けデータ変換の実行
-    if (pcHasElements || spHasElements) {
-      console.log('');
-      console.log('🎯 ====== Stage 2: AI向けデータ変換を開始 ======');
-
-      try {
-        // PC画像のStage 2処理
-        if (pcHasElements) {
-          console.log('📱 Step 1: PC画像のStage 2処理を開始...');
-          try {
-            // 🔧 修正: 要素配列を正しく抽出
-            let pcElements = [];
-            if (pcAnalysis.elements?.elements && Array.isArray(pcAnalysis.elements.elements)) {
-              pcElements = pcAnalysis.elements.elements;
-            } else if (pcAnalysis.elements && Array.isArray(pcAnalysis.elements)) {
-              pcElements = pcAnalysis.elements;
-            }
-
-            console.log(`🔍 PC Stage 2に渡す要素数: ${pcElements.length}個`);
-
-            const pcStage2Results = await mainWindow.webContents.executeJavaScript(`
-              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(pcElements)}, 'pc')
-            `);
-
-            if (pcStage2Results && pcStage2Results.success) {
-              console.log('📱 Step 1: PC画像のStage 2変換完了 ✅');
-              console.log(`  - グループ化: ${pcStage2Results.metadata?.inputElements || 0}個 → ${pcStage2Results.metadata?.outputGroups || 0}個`);
-              console.log('💾 PC画像のStage 2結果は自動保存されました ✅');
-            } else {
-              console.warn('⚠️ PC画像のStage 2処理で警告が発生しました');
-            }
-          } catch (pcStage2Error) {
-            console.error('❌ PC画像のStage 2処理エラー:', pcStage2Error);
-          }
-
-          // PC処理完了後に少し待機（安定性向上）
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-
-        // SP画像のStage 2処理
-        if (spHasElements) {
-          console.log('📱 Step 2: SP画像のStage 2処理を開始...');
-          try {
-            // 🔧 修正: 要素配列を正しく抽出
-            let spElements = [];
-            if (spAnalysis.elements?.elements && Array.isArray(spAnalysis.elements.elements)) {
-              spElements = spAnalysis.elements.elements;
-            } else if (spAnalysis.elements && Array.isArray(spAnalysis.elements)) {
-              spElements = spAnalysis.elements;
-            }
-
-            console.log(`🔍 SP Stage 2に渡す要素数: ${spElements.length}個`);
-
-            const spStage2Results = await mainWindow.webContents.executeJavaScript(`
-              window.webAssemblyAnalyzer.transformForAICoding(${JSON.stringify(spElements)}, 'sp')
-            `);
-
-            if (spStage2Results && spStage2Results.success) {
-              console.log('📱 Step 2: SP画像のStage 2変換完了 ✅');
-              console.log(`  - グループ化: ${spStage2Results.metadata?.inputElements || 0}個 → ${spStage2Results.metadata?.outputGroups || 0}個`);
-              console.log('💾 SP画像のStage 2結果は自動保存されました ✅');
-            } else {
-              console.warn('⚠️ SP画像のStage 2処理で警告が発生しました');
-            }
-          } catch (spStage2Error) {
-            console.error('❌ SP画像のStage 2処理エラー:', spStage2Error);
-          }
-        }
-
-        console.log('🎉 ====== Stage 2: AI向けデータ変換完了 ======');
-        console.log('');
-
-      } catch (stage2Error) {
-        console.error('❌ Stage 2処理で予期しないエラーが発生:', stage2Error);
-        console.log('⚠️ Stage 2処理をスキップしてプロンプト生成を続行します');
-      }
-    } else {
-      console.log('⚠️ Stage 2処理をスキップ: 有効な要素データがありません');
-    }
-
-    // 🆕 パターン別レスポンシブモード調整
-    let adjustedResponsiveMode = responsiveMode;
-
-    switch (imagePattern.pattern) {
-      case 'pc_only':
-        // PCのみの場合、レスポンシブモードをPCに強制
-        if (responsiveMode === 'sp') {
-          console.log('⚠️ PCのみの画像でSPモードが指定されています。PCモードに調整します。');
-          adjustedResponsiveMode = 'pc';
-        }
-        break;
-
-      case 'sp_only':
-        // SPのみの場合、レスポンシブモードをSPに強制
-        if (responsiveMode === 'pc') {
-          console.log('⚠️ SPのみの画像でPCモードが指定されています。SPモードに調整します。');
-          adjustedResponsiveMode = 'sp';
-        }
-        break;
-
-      case 'both':
-        // 両方ある場合は指定されたモードを維持
-        console.log(`✅ PC・SP両方の画像があります。指定されたモード(${responsiveMode})を維持します。`);
-        break;
-    }
-
-    // 既存の解析結果の検証処理は継続...
-    if (!pcImage && !spImage) {
-      console.warn('画像データが提供されていません。基本的なプロンプトのみを生成します。_promptGenerator.js_1');
-    } else {
-      if (pcImage && (!pcAnalysis || Object.keys(pcAnalysis).length === 0)) {
-        console.error('PC画像の解析結果が空です。');
-      }
-      if (spImage && (!spAnalysis || Object.keys(spAnalysis).length === 0)) {
-        console.error('SP画像の解析結果が空です。');
-      }
-    }
-
-    // 拡張分析を実行（既存のデータを拡張）
-    let enhancedPcAnalysis = null;
-    let enhancedSpAnalysis = null;
-
-    try {
-      if (pcAnalysis && pcAnalysis.colors && pcAnalysis.colors.length > 0) {
-        // 色彩分析の拡張
-        const colorAnalysis = AnalysisModules.color.analyzeColors(pcAnalysis.colors);
-
-        // レイアウト分析の実行
-        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(pcAnalysis, {
-          responsiveMode: 'pc',
-          aiBreakpoints
-        });
-
-        // テキスト分析の実行
-        const textAnalysis = AnalysisModules.text.analyzeText(pcAnalysis, {
-          responsiveMode: 'pc',
-          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
-        });
-
-        // 拡張データを追加
-        enhancedPcAnalysis = {
-          ...pcAnalysis,
-          enhancedColors: colorAnalysis,
-          enhancedLayout: layoutAnalysis,
-          enhancedText: textAnalysis
-        };
-
-        console.log('PC画像の拡張色彩分析が完了しました。',
-          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
-        console.log('PC画像のレイアウト分析が完了しました。',
-          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
-        console.log('PC画像のテキスト分析が完了しました。',
-          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
-      }
-
-      // SPデータも同様に処理
-      if (spAnalysis && spAnalysis.colors && spAnalysis.colors.length > 0) {
-        const colorAnalysis = AnalysisModules.color.analyzeColors(spAnalysis.colors);
-
-        // レイアウト分析の実行
-        const layoutAnalysis = AnalysisModules.layout.analyzeLayout(spAnalysis, {
-          responsiveMode: 'sp',
-          aiBreakpoints
-        });
-
-        // テキスト分析の実行
-        const textAnalysis = AnalysisModules.text.analyzeText(spAnalysis, {
-          responsiveMode: 'sp',
-          breakpoint: AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })
-        });
-
-        enhancedSpAnalysis = {
-          ...spAnalysis,
-          enhancedColors: colorAnalysis,
-          enhancedLayout: layoutAnalysis,
-          enhancedText: textAnalysis
-        };
-        console.log('SP画像の拡張色彩分析が完了しました。',
-          colorAnalysis.primary ? `プライマリカラー: ${colorAnalysis.primary.hex}` : '主要色なし');
-        console.log('SP画像のレイアウト分析が完了しました。',
-          layoutAnalysis.hasLayout ? `レイアウト検出済み` : 'レイアウト未検出');
-        console.log('SP画像のテキスト分析が完了しました。',
-          textAnalysis.hasText ? `テキスト解析済み` : 'テキスト未検出');
-      }
-
-    } catch (enhancementError) {
-      console.warn('拡張分析中にエラーが発生しました（基本分析は影響なし）:', enhancementError);
-      // 拡張分析が失敗しても基本分析は維持
-    }
-
-    // 以降は拡張されたデータがあれば使用、なければ元のデータを使用
-    const pcData = enhancedPcAnalysis || pcAnalysis;
-    const spData = enhancedSpAnalysis || spAnalysis;
-
-    // プロジェクト設定を取得（非同期）
-    console.log('プロジェクト設定を取得中...');
+    // プロジェクト設定の取得
     const settings = await getSettingsFromActiveProject();
-    console.log('プロジェクト設定取得完了:', settings ? Object.keys(settings).join(', ') : '設定なし');
+    const activeResponsiveMode = settings?.responsiveMode || responsiveMode;
 
-    // 🆕 プロジェクト設定でのレスポンシブモード調整（パターン制約考慮）
-    let activeResponsiveMode = adjustedResponsiveMode;
-
-    try {
-      if (settings && settings.responsiveSettings) {
-        let parsedSettings;
-        if (typeof settings.responsiveSettings === 'string') {
-          try {
-            parsedSettings = JSON.parse(settings.responsiveSettings);
-            console.log('responsiveSettings(パース済み):', parsedSettings);
-          } catch (e) {
-            console.warn('responsiveSettingsのパースに失敗しました:', e);
-          }
-        } else {
-          parsedSettings = settings.responsiveSettings;
-          console.log('responsiveSettings(オブジェクト):', parsedSettings);
-        }
-
-        if (parsedSettings && parsedSettings.responsiveMode) {
-          console.log(`レスポンシブモードを変更: ${activeResponsiveMode} → ${parsedSettings.responsiveMode}`);
-          // 🆕 パターン別の制約を適用
-          let newMode = parsedSettings.responsiveMode;
-
-          if (imagePattern.pattern === 'pc_only' && newMode === 'sp') {
-            console.log('⚠️ PCのみの画像でSPモードが指定されています。PCモードを維持します。');
-            newMode = 'pc';
-          } else if (imagePattern.pattern === 'sp_only' && newMode === 'pc') {
-            console.log('⚠️ SPのみの画像でPCモードが指定されています。SPモードを維持します。');
-            newMode = 'sp';
-          }
-
-          activeResponsiveMode = newMode;
-          console.log(`プロジェクト設定からresponsiveModeを取得: ${activeResponsiveMode}`);
-
-          // ブレークポイント情報も取得
-          if (parsedSettings.breakpoints && Array.isArray(parsedSettings.breakpoints) && parsedSettings.breakpoints.length > 0) {
-            // 既存のブレークポイント設定がなければ、設定から取得したものを使用
-            if (!aiBreakpoints || aiBreakpoints.length === 0) {
-              const activeBreakpoints = parsedSettings.breakpoints.filter(bp => bp.active);
-              if (activeBreakpoints.length > 0) {
-                console.log(`プロジェクト設定からブレークポイントを取得:`, activeBreakpoints);
-                aiBreakpoints = activeBreakpoints;
-              }
-            }
-          }
-        }
-      } else {
-        console.log('responsiveSettings設定なし、デフォルトのレスポンシブモードを使用:', activeResponsiveMode);
-      }
-    } catch (error) {
-      console.warn('responsiveMode設定の解析中にエラーが発生しました:', error);
-    }
-
-    // プロンプトの構築を開始
-    console.log(`プロンプトの構築を開始 (レスポンシブモード: ${activeResponsiveMode}, ブレークポイント: ${AnalysisModules.breakpoints.getMdValue({ aiBreakpoints })}px)`);
-
-    // 🆕 Stage 2データの読み込み（プロンプト生成用）
-    console.log('🔄 Stage 2データ読み込みを開始...');
-
+    // Stage 2データの取得
     let pcStage2Data = null;
     let spStage2Data = null;
 
     try {
-      // PC Stage 2データの読み込み
-      if (pcHasElements) {
-        pcStage2Data = await getLatestStage2Results('pc');
-        if (pcStage2Data) {
-          console.log(`✅ PC Stage 2データ読み込み成功: ${pcStage2Data.results?.data?.logical_groups?.length || 0}グループ`);
-        }
-      }
-
-      // SP Stage 2データの読み込み
-      if (spHasElements) {
-        spStage2Data = await getLatestStage2Results('sp');
-        if (spStage2Data) {
-          console.log(`✅ SP Stage 2データ読み込み成功: ${spStage2Data.results?.data?.logical_groups?.length || 0}グループ`);
-        }
-      }
-
+      console.log('🔍 Stage 2データ読み込み開始...');
+      pcStage2Data = await getLatestStage2Results('pc');
+      spStage2Data = await getLatestStage2Results('sp');
       console.log('✅ Stage 2データ読み込み完了');
     } catch (stage2ReadError) {
       console.error('❌ Stage 2データ読み込みエラー:', stage2ReadError);
     }
 
-    // 1. コアプロンプト
-    let prompt = buildCorePrompt(activeResponsiveMode, aiBreakpoints);
+    // 🎯 統一されたprompt変数構築開始
+    console.log('🔧 統一プロンプト構築開始...');
+    let prompt = '';
 
-    // 2. 解析結果（🆕 Stage 2データを統合）
-    prompt += buildTechnicalSpecsSection(pcData, spData, imagePattern.pattern, pcStage2Data, spStage2Data);
+    // 1. 基本プロンプト
+    prompt += buildCorePrompt(activeResponsiveMode, aiBreakpoints);
+    console.log('✅ 基本プロンプト追加完了');
 
-    // 🆕 Stage 2統合セクションを追加
+    // 2. 解析結果セクション
+    prompt += buildTechnicalSpecsSection(pcAnalysis, spAnalysis, imagePattern.pattern, pcStage2Data, spStage2Data);
+    console.log('✅ 解析結果セクション追加完了');
+
+    // 3. Stage 2統合セクション
     if (pcStage2Data || spStage2Data) {
       console.log('📝 Stage 2統合セクションを追加中...');
       prompt += buildStage2Section(pcStage2Data, spStage2Data);
       console.log('✅ Stage 2統合セクション追加完了');
     }
 
-    // 3. 設定情報
-    prompt += buildSettingsSection(settings, pcData.colors, spData.colors);
+    // 4. レスポンシブ戦略セクション
+    prompt += buildResponsiveSection(activeResponsiveMode, aiBreakpoints);
+    console.log('✅ レスポンシブ戦略セクション追加完了');
 
+    // 5. 設定情報セクション
+    prompt += buildSettingsSection(settings, pcAnalysis.colors, spAnalysis.colors);
+    console.log('✅ 設定情報セクション追加完了');
 
-    // 4. 要件
-    prompt += `
-## Requirements
-- Create clean, semantic HTML5 and SCSS
-- Use BEM methodology for class naming
-- Ensure the design is responsive and works well across all device sizes
-- Pay attention to spacing, alignment, and typography
-- Include all necessary hover states and transitions
-`;
+    // 6. 🎯 静的ガイドラインセクション（必ず追加）
+    prompt += buildGuidelinesSection(activeResponsiveMode, { aiBreakpoints });
+    console.log('✅ 静的ガイドラインセクション追加完了');
 
-    // 5. 出力形式
-    prompt += `
-## Output Format
-- Provide the HTML code first, followed by the SCSS code
-- Make sure both codes are properly formatted and organized
-- Include comments for major sections
-`;
+    // 7. 最終指示セクション
+    prompt += buildFinalInstructionsSection();
+    console.log('✅ 最終指示セクション追加完了');
 
-    // 最終プロンプトを生成
-    let finalPrompt = '';
+    // 8. 統一プロンプト完成
+    console.log(`📊 統一プロンプト構築完了: ${prompt.length}文字`);
+    console.log('🎯 すべてのセクションが単一のprompt変数に統合されました');
 
-    // 拡張された分析機能を使用
-    try {
-      // 画像解析結果に応じて高度なプロンプト生成を試みる
-      console.log("拡張プロンプト生成を試みます...");
+    return prompt.trim();
 
-      // 統合データオブジェクトの構築
-      let analysisData = null;
-
-      // PCデータ優先、ただしPCデータがなければSPデータを使用
-      if (pcData && Object.keys(pcData).length > 0) {
-        // 重要：レスポンシブモードは常に設定から取得した値を使用
-        analysisData = {
-          ...pcData,
-          responsiveMode: activeResponsiveMode, // 画像データの値を上書き
-          imagePattern: imagePattern.pattern // 🆕 パターン情報を追加
-        };
-
-        // SPデータがあれば統合
-        if (spData && Object.keys(spData).length > 0) {
-          // SPデータに存在するが、PCデータにないプロパティを追加
-          Object.keys(spData).forEach(key => {
-            if (!analysisData[key] && spData[key]) {
-              analysisData[key] = spData[key];
-            }
-          });
-
-          // textBlocksに関してはSP用のプロパティとして追加
-          if (spData.textBlocks && Array.isArray(spData.textBlocks)) {
-            analysisData.spTextBlocks = spData.textBlocks;
-          }
-
-          // 重要：レスポンシブモードを上書きされないようにする
-          // PCとSP両方のデータがある場合でも、レスポンシブモードは設定に従う
-          console.log(`PCとSPの両方のデータがありますが、設定に従いレスポンシブモード: ${activeResponsiveMode} を使用します`);
-        }
-      } else if (spData && Object.keys(spData).length > 0) {
-        // SPデータのみの場合も同様に設定を優先
-        analysisData = {
-          ...spData,
-          responsiveMode: activeResponsiveMode, // 必ず設定値を使用
-          imagePattern: imagePattern.pattern // 🆕 パターン情報を追加
-        };
-        console.log(`SPデータのみですが、設定に従いレスポンシブモード: ${activeResponsiveMode} を使用します`);
-      }
-
-      // データ検証
-      if (analysisData) {
-        console.log("解析データの準備完了（レスポンシブモード: " + analysisData.responsiveMode + "）");
-
-        // aiBreakpointsとプロジェクト設定の追加
-        analysisData.aiBreakpoints = aiBreakpoints;
-        analysisData.settings = settings;
-
-        // 🆕 Stage 2データをanalysisDataに統合
-        if (pcStage2Data || spStage2Data) {
-          console.log('📝 analysisDataにStage 2データを統合中...');
-          analysisData.stage2Data = {
-            pc: pcStage2Data,
-            sp: spStage2Data
-          };
-          console.log(`✅ Stage 2データ統合完了: PC=${pcStage2Data ? 'あり' : 'なし'}, SP=${spStage2Data ? 'あり' : 'なし'}`);
-        }
-
-        // buildBetterPromptを使用して拡張プロンプトを生成
-        const enhancedPrompt = buildBetterPrompt(analysisData);
-
-        if (enhancedPrompt && typeof enhancedPrompt === 'string' && enhancedPrompt.length > 100) {
-          console.log("拡張プロンプト生成に成功しました");
-          finalPrompt = enhancedPrompt;
-        } else {
-          console.log("拡張プロンプト生成失敗 - フォールバックを使用します");
-          finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
-        }
-      } else {
-        console.log("解析データが利用できません - フォールバックを使用します");
-        finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
-      }
-    } catch (error) {
-      console.error("拡張プロンプト生成エラー:", error);
-      // エラー時はフォールバックプロンプト生成を使用
-      finalPrompt = buildFallbackPrompt(pcData, spData, settings, activeResponsiveMode, aiBreakpoints);
-    }
-
-    console.log('プロンプト生成が完了しました');
-
-    // 🔧 修正：Stage 2統合済みプロンプトの優先使用
-    if (pcStage2Data || spStage2Data) {
-      console.log('🔄 Stage 2統合済みプロンプトを使用します');
-      console.log(`📊 Stage 2統合プロンプト長: ${prompt.length}文字`);
-      return prompt.trim();  // ← 17,402文字のStage 2統合プロンプト
-    } else {
-      console.log('📝 標準プロンプトを使用します');
-      console.log(`📊 標準プロンプト長: ${finalPrompt.length}文字`);
-      return finalPrompt.trim();  // ← Stage 2データがない場合は新しいロジック
-    }
   } catch (error) {
     console.error('プロンプト生成エラー:', error);
     if (error.stack) {

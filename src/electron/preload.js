@@ -462,10 +462,27 @@ window.api = {
   // 拡張性重視派（エラーハンドリングしたいならこっち）
   generateCode: async (data) => {
     try {
-      return await ipcRenderer.invoke('generate-code', data);
+      console.log('🔥 preload.js: generateCode開始 - データ確認:', {
+        hasPrompt: !!data.prompt,
+        promptLength: data.prompt ? data.prompt.length : 0,
+        hasUploadedImage: !!data.uploadedImage,
+        imageSize: data.uploadedImage?.data ? data.uploadedImage.data.length : 0
+      });
+
+      console.log('🔥 preload.js: ipcRenderer.invokeを実行します...');
+      const result = await ipcRenderer.invoke('generate-code-new', data);
+
+      console.log('🔥 preload.js: main.jsからの応答を受信:', !!result);
+      return result;
     } catch (err) {
-      console.error('generateCode failed:', err);
-      return { success: false, error: err };
+      console.error('🚨 generateCode詳細エラー:', {
+        message: err.message,
+        name: err.name,
+        stack: err.stack,
+        code: err.code,
+        errno: err.errno
+      });
+      return { success: false, error: err.message || String(err) };
     }
   },
 
@@ -567,7 +584,7 @@ window.api = {
 
           try {
             const result = await window.webAssemblyAnalyzer.analyzeAll(
-              imageData, 
+              imageData,
               options.imageType || 'pc',  // 🆕 imageTypeを追加
               options
             );

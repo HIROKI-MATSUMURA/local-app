@@ -1,3 +1,4 @@
+console.log('🚨🚨🚨 main.js読み込み確認 - バージョン:2025-01-16-FIX - タイムスタンプ:', new Date().toISOString());
 const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -1793,7 +1794,9 @@ $mediaquerys: (
   });
 
   // AIコード生成ハンドラ
-  ipcMain.handle('generate-code', async (event, { prompt, uploadedImage, provider = 'claude' }) => {
+  ipcMain.handle('generate-code-new', async (event, { prompt, uploadedImage, provider = 'claude' }) => {
+    console.log('🚨🚨🚨 main.js: generate-codeハンドラーが実行されました！ 🚨🚨🚨');
+
     try {
       console.log('🔥🔥🔥 AIコード生成リクエストを受信しました 🔥🔥🔥');
       console.log('🔥 受信したparams:', {
@@ -1806,7 +1809,7 @@ $mediaquerys: (
       });
 
       if (prompt) {
-        console.log('🔥 プロンプトの最初の100文字:', prompt.substring(0, 100) + '...');
+        console.log('🔥 プロンプトの最初の1000文字:', prompt.substring(0, 1000) + '...');
       } else {
         console.log('🔥 ❌ プロンプトが空または未定義です！');
       }
@@ -1922,6 +1925,8 @@ $mediaquerys: (
           throw new Error('プロンプトが空のため、リクエストを送信できません');
         }
 
+
+
         // 画像がある場合は追加
         if (uploadedImage && uploadedImage.data) {
           try {
@@ -1958,6 +1963,7 @@ $mediaquerys: (
           types: messageContent.map(item => item.type)
         });
 
+
         const requestData = {
           model: 'claude-3-haiku-20240307',
           messages: [{
@@ -1968,6 +1974,18 @@ $mediaquerys: (
           temperature: 0.7
         };
 
+        // // 1975行目付近（Claude APIリクエスト直前）に追加
+        // console.log('🔍 Claude API送信直前のデバッグ:');
+        // console.log('🔍 messageContent配列の内容:');
+        // messageContent.forEach((item, index) => {
+        //   if (item.type === 'text') {
+        //     console.log(`  [${index}] type: text, length: ${item.text ? item.text.length : 0}`);
+        //     console.log(`  [${index}] text preview: "${item.text ? item.text.substring(0, 100) : 'EMPTY'}..."`);
+        //   }
+        // });
+
+        // console.log('🔍 requestData.messages[0].content:');
+        // console.log(JSON.stringify(requestData.messages[0].content, null, 2));
         console.log('Claude APIリクエストデータ:', {
           model: requestData.model,
           messageCount: requestData.messages.length,
